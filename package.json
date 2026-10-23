@@ -1,0 +1,29 @@
+{
+  "name": "takt-ui-cc",
+  "version": "1.0.0",
+  "description": "TAKT-UI-CC: a multi-machine desktop workbench for Claude Code over SSH — project/session sidebar, persistent tmux terminals, local file preview, Syncthing sync and a reverse-tunnelled local MCP server.",
+  "license": "MIT",
+  "private": false,
+  "type": "commonjs",
+  "engines": {
+    "node": ">=22.13.0"
+  },
+  "scripts": {
+    "start": "node server/server.js",
+    "start:mcp": "node mcp-server/server.js --http",
+    "start:all": "bash scripts/start.sh",
+    "stop": "bash scripts/stop.sh",
+    "doctor": "bash scripts/doctor.sh",
+    "lint": "eslint .",
+    "check": "node --check config.js && node --check server/server.js && node --check mcp-server/server.js && bash -n server/native-ssh-session.sh && bash -n scripts/*.sh",
+    "postinstall": "node scripts/postinstall.js"
+  },
+  "dependencies": {
+    "node-pty": "^1.1.0",
+    "ws": "^8.18.0"
+  },
+  "devDependencies": {
+    "eslint": "^9.0.0",
+    "globals": "^15.0.0"
+  }
+}

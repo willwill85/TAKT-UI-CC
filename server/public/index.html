@@ -1,0 +1,4339 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-theme="dark">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="color-scheme" content="dark light" />
+  <title>TAKT-UI-CC Workbench</title>
+  <link rel="stylesheet" href="/vendor/xterm.css" />
+  <style>
+    :root {
+      /* MANDATORY per modern-web-guidance `dark-mode` & `animate-to-intrinsic-sizes` */
+      color-scheme: dark;
+      interpolate-size: allow-keywords;
+
+      /* Authentic OpenAI Codex Desktop / CLI Dark Monochrome Graphite Palette (Zero Green) */
+      --bg-app: #0d0d0d;
+      --bg-sidebar: #141414;
+      --bg-surface: #1c1c1e;
+      --bg-elevated: #262629;
+      --bg-input: #111112;
+      --bg-hover: rgba(255, 255, 255, 0.055);
+      --bg-active: rgba(255, 255, 255, 0.09);
+      --bg-active-strong: rgba(255, 255, 255, 0.14);
+
+      --border-hairline: rgba(255, 255, 255, 0.08);
+      --border-strong: rgba(255, 255, 255, 0.16);
+      --border-accent: rgba(255, 255, 255, 0.32);
+
+      --text-primary: #f4f4f5;
+      --text-secondary: #a1a1aa;
+      --text-muted: #63636b;
+
+      --accent: #ececef;
+      --accent-hover: #ffffff;
+      --accent-bright: #f4f4f5;
+      --accent-soft: rgba(255, 255, 255, 0.08);
+
+      --status-online: #93c5fd;
+      --warning: #f59e0b;
+      --warning-bg: rgba(245, 158, 11, 0.12);
+      --danger: #f87171;
+      --danger-bg: rgba(248, 113, 113, 0.14);
+
+      --radius-xs: 4px;
+      --radius-sm: 6px;
+      --radius-md: 8px;
+      --radius-lg: 10px;
+
+      --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.45);
+      --shadow-md: 0 8px 24px rgba(0, 0, 0, 0.65);
+
+      --font-sans: "Inter", -apple-system, BlinkMacSystemFont, "SF Pro Text", "PingFang SC", "Hiragino Sans GB", sans-serif;
+      --font-mono: "JetBrains Mono", "SF Mono", "Menlo", "Monaco", monospace;
+
+      --left-width: 276px;
+      --right-width: 368px;
+      --right-top-ratio: 48%;
+
+      --scrollbar-thumb: rgba(255, 255, 255, 0.16);
+      --scrollbar-track: transparent;
+      accent-color: var(--accent);
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    html, body {
+      width: 100%;
+      height: 100%;
+      overflow: hidden;
+      background: var(--bg-app);
+      color: var(--text-primary);
+      font-family: var(--font-sans);
+      font-size: 12.5px;
+      line-height: 1.45;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    /* Scrollbars per modern-web-guidance `customize-scrollbar-color-and-thickness` & `dark-mode` */
+    .scroller {
+      scrollbar-width: thin;
+      scrollbar-color: var(--scrollbar-thumb) var(--scrollbar-track);
+    }
+
+    @supports not (scrollbar-color: auto) {
+      .scroller::-webkit-scrollbar {
+        width: 6px;
+        height: 6px;
+      }
+      .scroller::-webkit-scrollbar-thumb {
+        background: var(--scrollbar-thumb);
+        border-radius: 3px;
+      }
+      .scroller::-webkit-scrollbar-track {
+        background: var(--scrollbar-track);
+      }
+    }
+
+    /* Inline SVG Icon Styling */
+    .icon {
+      width: 14px;
+      height: 14px;
+      stroke: currentColor;
+      stroke-width: 1.65;
+      stroke-linecap: round;
+      stroke-linejoin: round;
+      fill: none;
+      flex-shrink: 0;
+      display: inline-block;
+      vertical-align: middle;
+    }
+    .icon-sm {
+      width: 12.5px;
+      height: 12.5px;
+    }
+    .icon-lg {
+      width: 16px;
+      height: 16px;
+    }
+    .icon-folder {
+      color: #a1a1aa;
+    }
+    .icon-folder-open {
+      color: #f4f4f5;
+    }
+    .icon-code {
+      color: #93c5fd;
+    }
+    .icon-config {
+      color: #d4d4d8;
+    }
+    .icon-image {
+      color: #c4b5fd;
+    }
+    .icon-cube {
+      color: #a5b4fc;
+    }
+    .icon-doc {
+      color: #71717a;
+    }
+
+    /* ============================================================================
+       Shell & Resizable 3-Column Layout
+       ============================================================================ */
+    .workbench-shell {
+      display: grid;
+      grid-template-rows: 1fr 29px;
+      width: 100vw;
+      height: 100vh;
+      background: var(--bg-app);
+    }
+
+    .workbench-main {
+      display: flex;
+      min-height: 0;
+      width: 100%;
+      height: 100%;
+      overflow: hidden;
+      position: relative;
+    }
+
+    .panel-col {
+      display: flex;
+      flex-direction: column;
+      min-height: 0;
+      min-width: 0;
+      background: var(--bg-sidebar);
+      transition: width 0.16s cubic-bezier(0.16, 1, 0.3, 1), min-width 0.16s cubic-bezier(0.16, 1, 0.3, 1);
+    }
+
+    .panel-col.resizing {
+      transition: none !important;
+    }
+
+    .panel-left {
+      width: var(--left-width);
+      min-width: var(--left-width);
+      border-right: 1px solid var(--border-hairline);
+      overflow: hidden;
+    }
+
+    .panel-left.collapsed {
+      width: 0 !important;
+      min-width: 0 !important;
+      border-right: none;
+    }
+
+    .panel-center {
+      flex: 1;
+      background: var(--bg-app);
+      position: relative;
+      min-width: 280px;
+    }
+
+    .panel-right {
+      width: var(--right-width);
+      min-width: var(--right-width);
+      border-left: 1px solid var(--border-hairline);
+      overflow: hidden;
+    }
+
+    .panel-right.collapsed {
+      width: 0 !important;
+      min-width: 0 !important;
+      border-left: none;
+    }
+
+    /* Vertical & Horizontal Drag Resizers */
+    .col-resizer {
+      width: 5px;
+      cursor: col-resize;
+      background: transparent;
+      position: relative;
+      z-index: 25;
+      flex-shrink: 0;
+      margin: 0 -2.5px;
+      transition: background 0.12s ease;
+    }
+    .col-resizer:hover, .col-resizer.dragging {
+      background: var(--accent);
+    }
+    .col-resizer.hidden {
+      display: none;
+    }
+
+    .row-resizer {
+      height: 5px;
+      cursor: row-resize;
+      background: transparent;
+      position: relative;
+      z-index: 20;
+      flex-shrink: 0;
+      margin: -2.5px 0;
+      transition: background 0.12s ease;
+    }
+    .row-resizer:hover, .row-resizer.dragging {
+      background: var(--accent);
+    }
+
+    /* Headers & Buttons */
+    .panel-header {
+      height: 40px;
+      padding: 0 10px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      border-bottom: 1px solid var(--border-hairline);
+      background: var(--bg-sidebar);
+      flex-shrink: 0;
+      gap: 6px;
+      user-select: none;
+    }
+
+    .brand-title {
+      display: flex;
+      align-items: center;
+      gap: 7px;
+      font-weight: 600;
+      font-size: 12.5px;
+      color: var(--text-primary);
+      letter-spacing: -0.01em;
+      min-width: 0;
+      white-space: nowrap;
+    }
+
+    .brand-mark {
+      width: 22px;
+      height: 22px;
+      border-radius: 5px;
+      background: linear-gradient(135deg, rgba(255, 255, 255, 0.14), rgba(255, 255, 255, 0.04));
+      border: 1px solid var(--border-strong);
+      color: var(--text-primary);
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      flex-shrink: 0;
+    }
+
+    .header-actions {
+      display: flex;
+      align-items: center;
+      gap: 4px;
+      flex-shrink: 0;
+    }
+
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 5px;
+      height: 25px;
+      padding: 0 8px;
+      border-radius: var(--radius-sm);
+      border: 1px solid var(--border-hairline);
+      background: var(--bg-surface);
+      color: var(--text-secondary);
+      font-size: 11.5px;
+      font-weight: 500;
+      cursor: pointer;
+      transition: background 0.12s ease, color 0.12s ease, border-color 0.12s ease;
+      white-space: nowrap;
+      text-decoration: none;
+    }
+
+    .btn:hover {
+      background: var(--bg-elevated);
+      color: var(--text-primary);
+      border-color: var(--border-strong);
+    }
+
+    .btn-primary {
+      background: #ededef;
+      border-color: #ffffff;
+      color: #0d0d0d;
+      font-weight: 600;
+    }
+
+    .btn-primary:hover {
+      background: #ffffff;
+      border-color: #ffffff;
+      color: #000000;
+    }
+
+    .btn-ghost {
+      border-color: transparent;
+      background: transparent;
+    }
+
+    .btn-ghost:hover {
+      background: var(--bg-hover);
+      border-color: transparent;
+    }
+
+    .btn-icon {
+      padding: 0;
+      width: 25px;
+      min-width: 25px;
+    }
+
+    .sub-bar {
+      padding: 5px 10px;
+      font-size: 11px;
+      color: var(--text-muted);
+      background: rgba(255, 255, 255, 0.015);
+      border-bottom: 1px solid var(--border-hairline);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 6px;
+      flex-shrink: 0;
+    }
+
+    /* Multi-Linux Machine Filter: compact segmented control */
+    .node-filter-bar {
+      margin: 8px 10px 4px;
+      padding: 2px;
+      background: rgba(255, 255, 255, 0.04);
+      border-radius: var(--radius-sm);
+      display: flex;
+      align-items: center;
+      gap: 2px;
+      overflow-x: auto;
+      flex-shrink: 0;
+      scrollbar-width: none;
+    }
+
+    .node-pill {
+      flex: 1 0 auto;
+      height: 22px;
+      padding: 0 8px;
+      border-radius: var(--radius-xs);
+      border: none;
+      background: transparent;
+      color: var(--text-muted);
+      font: inherit;
+      font-size: 11px;
+      font-weight: 500;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 5px;
+      cursor: pointer;
+      white-space: nowrap;
+      transition: background 0.12s ease, color 0.12s ease;
+    }
+
+    .node-pill:hover {
+      color: var(--text-primary);
+    }
+
+    .node-pill.active {
+      background: var(--bg-elevated);
+      color: var(--text-primary);
+      box-shadow: var(--shadow-sm);
+    }
+
+    .session-total {
+      padding: 2px 14px 6px;
+      font-size: 10.5px;
+      color: var(--text-muted);
+      flex-shrink: 0;
+    }
+
+    /* ============================================================================
+       Project Tags (Antigravity-style chips + badges + popover menu)
+       ============================================================================ */
+    .tag-bar {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 4px;
+      padding: 4px 10px 6px;
+      flex-shrink: 0;
+    }
+    .tag-chip {
+      --tag-c: #a1a1aa;
+      height: 22px;
+      padding: 0 7px;
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      border-radius: var(--radius-xs);
+      border: 1px solid var(--border-hairline);
+      background: rgba(255, 255, 255, 0.03);
+      color: var(--text-secondary);
+      font: inherit;
+      font-size: 11px;
+      cursor: pointer;
+      white-space: nowrap;
+      transition: background 0.12s ease, border-color 0.12s ease, color 0.12s ease;
+    }
+    .tag-chip:hover { color: var(--text-primary); border-color: var(--border-strong); }
+    .tag-chip .tag-dot {
+      width: 6px; height: 6px; border-radius: 50%;
+      background: var(--tag-c);
+      flex-shrink: 0;
+    }
+    .tag-chip .tag-count {
+      font-family: var(--font-mono);
+      font-size: 10px;
+      color: var(--text-muted);
+    }
+    .tag-chip.active {
+      color: var(--text-primary);
+      border-color: color-mix(in srgb, var(--tag-c) 60%, transparent);
+      background: color-mix(in srgb, var(--tag-c) 14%, transparent);
+    }
+    .tag-chip.add { color: var(--text-muted); border-style: dashed; }
+
+    .tag-badge {
+      --tag-c: #a1a1aa;
+      height: 16px;
+      padding: 0 5px;
+      border-radius: 4px;
+      font-size: 10px;
+      font-weight: 500;
+      line-height: 16px;
+      color: var(--tag-c);
+      background: color-mix(in srgb, var(--tag-c) 15%, transparent);
+      flex-shrink: 0;
+      white-space: nowrap;
+    }
+
+    .project-tag-btn {
+      display: none;
+      width: 20px;
+      height: 20px;
+      padding: 0;
+      border: none;
+      border-radius: var(--radius-xs);
+      background: transparent;
+      color: var(--text-muted);
+      cursor: pointer;
+      align-items: center;
+      justify-content: center;
+      flex-shrink: 0;
+    }
+    .project-tag-btn:hover { background: var(--bg-active-strong); color: var(--text-primary); }
+    .project-header:hover .project-tag-btn { display: inline-flex; }
+
+    .see-more-link {
+      height: 24px;
+      padding: 0 6px 0 26px;
+      border: none;
+      background: none;
+      font: inherit;
+      font-size: 11.5px;
+      color: var(--text-muted);
+      text-align: left;
+      cursor: pointer;
+      border-radius: var(--radius-sm);
+    }
+    .see-more-link:hover { color: var(--text-secondary); background: var(--bg-hover); }
+
+    .tag-menu[hidden] { display: none !important; }
+    .tag-menu {
+      position: fixed;
+      z-index: 9999;
+      margin: 0;
+      min-width: 180px;
+      max-width: 240px;
+      padding: 4px;
+      border-radius: var(--radius-md);
+      border: 1px solid var(--border-strong);
+      background: var(--bg-elevated);
+      color: var(--text-primary);
+      box-shadow: var(--shadow-md);
+      font-size: 12px;
+    }
+    .tag-menu-title {
+      padding: 4px 8px 6px;
+      font-size: 10.5px;
+      color: var(--text-muted);
+    }
+    .tag-menu-item {
+      width: 100%;
+      height: 26px;
+      padding: 0 8px;
+      display: flex;
+      align-items: center;
+      gap: 7px;
+      border: none;
+      border-radius: var(--radius-xs);
+      background: transparent;
+      color: var(--text-secondary);
+      font: inherit;
+      text-align: left;
+      cursor: pointer;
+    }
+    .tag-menu-item:hover { background: var(--bg-hover); color: var(--text-primary); }
+    .tag-menu-item.danger:hover { color: var(--danger); background: var(--danger-bg); }
+    .tag-menu-item .tag-dot { width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0; }
+    .tag-menu-item .tag-check { margin-left: auto; color: var(--text-primary); }
+    .tag-menu-sep { height: 1px; margin: 4px 2px; background: var(--border-hairline); }
+    .tag-menu-input {
+      width: 100%;
+      height: 26px;
+      padding: 0 8px;
+      border-radius: var(--radius-xs);
+      border: 1px solid var(--border-strong);
+      background: var(--bg-input);
+      color: var(--text-primary);
+      font: inherit;
+      outline: none;
+    }
+    .tag-menu-input:focus { border-color: var(--border-accent); }
+    .tag-swatches { display: flex; gap: 6px; padding: 8px 6px 4px; flex-wrap: wrap; }
+    .tag-swatch {
+      width: 16px; height: 16px; border-radius: 50%;
+      border: 2px solid transparent;
+      cursor: pointer;
+      padding: 0;
+    }
+    .tag-swatch.selected { border-color: var(--text-primary); }
+
+    .machine-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 3px;
+      height: 16px;
+      padding: 0 5px;
+      border-radius: 4px;
+      font-family: var(--font-mono);
+      font-size: 9.5px;
+      font-weight: 600;
+      letter-spacing: 0.02em;
+      color: #d4d4d8;
+      background: rgba(255, 255, 255, 0.07);
+      border: 1px solid rgba(255, 255, 255, 0.14);
+      flex-shrink: 0;
+      white-space: nowrap;
+    }
+
+    .machine-badge.secondary {
+      color: #bae6fd;
+      background: rgba(125, 211, 252, 0.10);
+      border-color: rgba(125, 211, 252, 0.24);
+    }
+
+    .dialog-input:user-invalid {
+      border-color: var(--status-err);
+    }
+
+    .node-manager-list {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      max-height: 220px;
+      overflow-y: auto;
+    }
+
+    .node-card {
+      padding: 9px 10px;
+      border-radius: var(--radius-sm);
+      border: 1px solid var(--border-strong);
+      background: var(--bg-app);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+    }
+
+    .node-card.editing {
+      border-color: var(--accent-bright);
+      background: var(--bg-active);
+    }
+
+    .ssh-chip-bar {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 5px;
+      margin-top: 4px;
+    }
+
+    .ssh-chip {
+      height: 20px;
+      padding: 0 7px;
+      border-radius: 4px;
+      border: 1px solid var(--border-strong);
+      background: var(--bg-elevated);
+      color: var(--text-secondary);
+      font-family: var(--font-mono);
+      font-size: 10.5px;
+      cursor: pointer;
+    }
+
+    .ssh-chip:hover {
+      color: var(--text-primary);
+      border-color: var(--border-accent);
+    }
+
+    /* ============================================================================
+       Left Column: Collapsible Projects & Conversations
+       ============================================================================ */
+    .project-list {
+      flex: 1;
+      overflow-y: auto;
+      padding: 2px 6px 12px;
+      display: flex;
+      flex-direction: column;
+    }
+
+    /* Machine section header (only in "全部" view) */
+    .node-section {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      padding: 12px 8px 4px;
+      font-size: 10.5px;
+      font-weight: 600;
+      letter-spacing: 0.04em;
+      color: var(--text-muted);
+      user-select: none;
+    }
+    .node-section:first-child { padding-top: 6px; }
+    .node-section .node-section-name { color: var(--text-secondary); }
+    .node-section .node-section-meta {
+      margin-left: auto;
+      font-weight: 400;
+      font-family: var(--font-mono);
+      letter-spacing: 0;
+    }
+
+    .node-pill-dot {
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      background: #52525b;
+      flex-shrink: 0;
+    }
+    .node-pill-dot.online {
+      background: var(--status-online);
+    }
+
+    .project-group {
+      display: flex;
+      flex-direction: column;
+    }
+
+    .project-header {
+      height: 28px;
+      padding: 0 6px 0 4px;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      border-radius: var(--radius-sm);
+      cursor: pointer;
+      user-select: none;
+      color: var(--text-secondary);
+    }
+    .project-header:hover {
+      background: var(--bg-hover);
+      color: var(--text-primary);
+    }
+
+    .project-name-wrap {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      min-width: 0;
+      flex: 1;
+      font-size: 12.5px;
+      font-weight: 500;
+    }
+
+    .chevron-icon {
+      width: 12px;
+      height: 12px;
+      color: var(--text-muted);
+      transition: transform 0.16s ease;
+    }
+    .project-group.collapsed .chevron-icon {
+      transform: rotate(-90deg);
+    }
+    .project-header .icon-folder,
+    .project-header .icon-folder-open {
+      color: var(--text-muted);
+    }
+
+    .project-name {
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .project-name-sub {
+      color: var(--text-muted);
+      font-weight: 400;
+      font-size: 11px;
+      flex-shrink: 0;
+    }
+
+    .project-count-pill {
+      font-size: 10.5px;
+      font-family: var(--font-mono);
+      color: var(--text-muted);
+      min-width: 16px;
+      text-align: right;
+    }
+
+    .project-new-btn {
+      display: none;
+      width: 20px;
+      height: 20px;
+      padding: 0;
+      border: none;
+      border-radius: var(--radius-xs);
+      background: transparent;
+      color: var(--text-secondary);
+      cursor: pointer;
+      align-items: center;
+      justify-content: center;
+      flex-shrink: 0;
+    }
+    .project-new-btn:hover {
+      background: var(--bg-active-strong);
+      color: var(--text-primary);
+    }
+    .project-header:hover .project-new-btn { display: inline-flex; }
+    .project-header:hover .project-count-pill { display: none; }
+
+    /* Smooth Intrinsic Collapse per `animate-to-intrinsic-sizes` */
+    .session-items {
+      display: flex;
+      flex-direction: column;
+      gap: 1px;
+      padding: 1px 0 4px;
+      block-size: auto;
+      overflow: hidden;
+      transition: block-size 0.2s ease, opacity 0.16s ease, padding 0.2s ease;
+    }
+    .project-group.collapsed .session-items {
+      block-size: 0;
+      padding-top: 0;
+      padding-bottom: 0;
+      opacity: 0;
+      pointer-events: none;
+    }
+
+    .session-item {
+      position: relative;
+      height: 28px;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      padding: 0 6px 0 26px;
+      border-radius: var(--radius-sm);
+      cursor: pointer;
+      color: var(--text-secondary);
+      transition: background 0.12s ease, color 0.12s ease;
+    }
+    .session-item:hover {
+      background: var(--bg-hover);
+      color: var(--text-primary);
+    }
+    .session-item.active {
+      background: var(--bg-active);
+      color: var(--text-primary);
+    }
+    .session-item.active::before {
+      content: "";
+      position: absolute;
+      left: 12px;
+      top: 8px;
+      bottom: 8px;
+      width: 2px;
+      border-radius: 1px;
+      background: var(--accent);
+    }
+
+    .session-info {
+      min-width: 0;
+      flex: 1;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .session-live-dot {
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      background: var(--status-online);
+      flex-shrink: 0;
+    }
+
+    .session-title {
+      font-size: 12.5px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .session-meta {
+      font-size: 10.5px;
+      color: var(--text-muted);
+      font-family: var(--font-mono);
+      flex-shrink: 0;
+    }
+
+    .session-actions {
+      display: none;
+      align-items: center;
+      gap: 1px;
+      flex-shrink: 0;
+    }
+    .session-item:hover .session-actions { display: flex; }
+    .session-item:hover .session-meta { display: none; }
+
+    .session-act-btn {
+      border: none;
+      background: transparent;
+      color: var(--text-muted);
+      cursor: pointer;
+      width: 20px;
+      height: 20px;
+      border-radius: var(--radius-xs);
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      flex-shrink: 0;
+    }
+    .session-act-btn:hover {
+      color: var(--text-primary);
+      background: var(--bg-active-strong);
+    }
+    .session-act-btn.danger:hover {
+      color: var(--danger);
+      background: var(--danger-bg);
+    }
+
+    .empty-sessions {
+      padding: 4px 6px 6px 26px;
+      font-size: 11px;
+      color: var(--text-muted);
+    }
+
+    .toggle-empty-link {
+      margin: 10px 8px 0;
+      padding: 0;
+      border: none;
+      background: none;
+      font: inherit;
+      font-size: 11px;
+      color: var(--text-muted);
+      text-align: left;
+      cursor: pointer;
+    }
+    .toggle-empty-link:hover { color: var(--text-secondary); }
+
+    /* ============================================================================
+       Center Column: Codex Top Tab Bar + Native/Web Terminal Stage
+       ============================================================================ */
+    .tab-bar {
+      height: 40px;
+      background: var(--bg-sidebar);
+      border-bottom: 1px solid var(--border-hairline);
+      display: flex;
+      align-items: center;
+      padding: 0 8px;
+      gap: 6px;
+      flex-shrink: 0;
+    }
+
+    .tabs-scroll {
+      display: flex;
+      align-items: center;
+      gap: 4px;
+      flex: 1;
+      overflow-x: auto;
+      min-width: 0;
+    }
+
+    .term-tab {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      height: 27px;
+      padding: 0 9px;
+      border-radius: var(--radius-sm);
+      background: rgba(255, 255, 255, 0.02);
+      border: 1px solid var(--border-hairline);
+      color: var(--text-secondary);
+      font-size: 11.5px;
+      font-weight: 500;
+      cursor: pointer;
+      max-width: 220px;
+      flex-shrink: 0;
+      transition: all 0.12s ease;
+      user-select: none;
+    }
+
+    .term-tab:hover {
+      background: var(--bg-elevated);
+      color: var(--text-primary);
+    }
+
+    .term-tab.active {
+      background: var(--bg-surface);
+      border-color: var(--border-accent);
+      color: var(--text-primary);
+      box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.22);
+    }
+
+    .term-tab-dot {
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      background: var(--status-online);
+      flex-shrink: 0;
+    }
+
+    .term-tab-label {
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .term-tab-close {
+      width: 16px;
+      height: 16px;
+      border-radius: 3px;
+      border: none;
+      background: transparent;
+      color: var(--text-muted);
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+    }
+
+    .term-tab-close:hover {
+      background: var(--danger-bg);
+      color: var(--danger);
+    }
+
+    /* Engine Switcher Segmented Control */
+    .engine-switch {
+      display: inline-flex;
+      align-items: center;
+      background: var(--bg-input);
+      border: 1px solid var(--border-hairline);
+      border-radius: var(--radius-sm);
+      padding: 2px;
+      gap: 2px;
+    }
+
+    .engine-opt {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      height: 21px;
+      padding: 0 7px;
+      border-radius: 4px;
+      border: none;
+      background: transparent;
+      color: var(--text-muted);
+      font-size: 11px;
+      font-weight: 500;
+      cursor: pointer;
+      transition: all 0.12s ease;
+    }
+
+    .engine-opt:hover {
+      color: var(--text-primary);
+    }
+
+    .engine-opt.active {
+      background: var(--bg-elevated);
+      color: var(--accent-bright);
+      box-shadow: 0 1px 2px rgba(0, 0, 0, 0.4);
+    }
+
+    .cmd-hint-bar {
+      height: 28px;
+      padding: 0 12px;
+      background: #111112;
+      border-bottom: 1px solid var(--border-hairline);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      font-size: 11px;
+      flex-shrink: 0;
+    }
+
+    .cmd-pill {
+      font-family: var(--font-mono);
+      color: var(--text-primary);
+      background: rgba(255, 255, 255, 0.07);
+      border: 1px solid var(--border-strong);
+      padding: 1px 6px;
+      border-radius: 4px;
+      font-size: 11px;
+    }
+
+    .terminal-stage {
+      flex: 1;
+      position: relative;
+      min-height: 0;
+      background: #0d0d0d;
+      overflow: hidden;
+    }
+
+    .term-instance-wrap {
+      position: absolute;
+      inset: 0;
+      padding: 8px 10px;
+      display: none;
+    }
+
+    .term-instance-wrap.active {
+      display: block;
+    }
+
+    .term-mount {
+      width: 100%;
+      height: 100%;
+    }
+
+    /* Terminal Drop Zone Overlay when dragging files from Right File Tree */
+    .term-drop-overlay {
+      position: absolute;
+      inset: 10px;
+      border: 1.5px dashed var(--accent-bright);
+      border-radius: var(--radius-lg);
+      background: rgba(9, 10, 13, 0.86);
+      backdrop-filter: blur(6px);
+      z-index: 50;
+      display: none;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      color: var(--accent-bright);
+      font-size: 13px;
+      font-weight: 600;
+      pointer-events: none;
+    }
+
+    .terminal-stage.drag-over .term-drop-overlay {
+      display: flex;
+    }
+
+    .empty-term-placeholder {
+      height: 100%;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      padding: 24px;
+      text-align: center;
+      background: radial-gradient(circle at 50% 25%, rgba(255, 255, 255, 0.04) 0%, transparent 65%);
+    }
+
+    .empty-term-card {
+      max-width: 430px;
+      padding: 26px 24px;
+      border-radius: var(--radius-lg);
+      border: 1px solid var(--border-hairline);
+      background: var(--bg-surface);
+      box-shadow: var(--shadow-md);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .empty-term-card h3 {
+      font-size: 14px;
+      font-weight: 600;
+      color: var(--text-primary);
+    }
+
+    .empty-term-card p {
+      font-size: 12px;
+      color: var(--text-secondary);
+      line-height: 1.55;
+      margin-bottom: 6px;
+    }
+
+    /* Inline Media Cards */
+    .term-inline-tray {
+      position: absolute;
+      right: 14px;
+      bottom: 14px;
+      z-index: 30;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      max-width: 320px;
+      max-height: 60%;
+      overflow-y: auto;
+      pointer-events: none;
+    }
+
+    .inline-preview-card {
+      pointer-events: auto;
+      background: rgba(18, 20, 26, 0.95);
+      backdrop-filter: blur(12px);
+      border: 1px solid var(--border-strong);
+      border-radius: var(--radius-md);
+      box-shadow: var(--shadow-md);
+      padding: 8px;
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+
+    .inline-card-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      font-size: 11px;
+      font-weight: 600;
+      color: var(--text-primary);
+    }
+
+    .inline-card-img {
+      width: 100%;
+      max-height: 180px;
+      object-fit: contain;
+      border-radius: 4px;
+      background: #090a0d;
+      border: 1px solid var(--border-hairline);
+      cursor: pointer;
+    }
+
+    /* ============================================================================
+       Right Column: Collapsible & Drag-and-Drop File Tree + Previewer
+       ============================================================================ */
+    .right-split {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      min-height: 0;
+    }
+
+    .file-browser-pane {
+      height: var(--right-top-ratio);
+      min-height: 32px;
+      display: flex;
+      flex-direction: column;
+      border-bottom: 1px solid var(--border-hairline);
+      background: var(--bg-sidebar);
+      overflow: hidden;
+      transition: height 0.16s ease;
+    }
+
+    .file-browser-pane.resizing {
+      transition: none !important;
+    }
+
+    .file-browser-pane.collapsed {
+      height: 32px !important;
+      flex-shrink: 0;
+    }
+
+    .section-subhead {
+      height: 32px;
+      padding: 0 10px;
+      background: var(--bg-surface);
+      border-bottom: 1px solid var(--border-hairline);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 6px;
+      flex-shrink: 0;
+      user-select: none;
+      cursor: pointer;
+    }
+
+    .section-subhead-left {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      min-width: 0;
+      font-size: 11.5px;
+      font-weight: 600;
+      color: var(--text-primary);
+    }
+
+    .file-path-bar {
+      padding: 5px 10px;
+      background: rgba(255, 255, 255, 0.015);
+      border-bottom: 1px solid var(--border-hairline);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 6px;
+      font-family: var(--font-mono);
+      font-size: 11px;
+      color: var(--text-secondary);
+      transition: background 0.12s ease, border-color 0.12s ease;
+    }
+
+    .file-path-bar.drop-target {
+      background: var(--bg-active-strong);
+      border-color: var(--accent-bright);
+      color: var(--accent-bright);
+    }
+
+    .file-path-text {
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .search-wrap {
+      position: relative;
+      display: flex;
+      align-items: center;
+      border-bottom: 1px solid var(--border-hairline);
+      background: var(--bg-input);
+    }
+
+    .search-wrap .icon {
+      position: absolute;
+      left: 9px;
+      color: var(--text-muted);
+      pointer-events: none;
+    }
+
+    .file-search-input {
+      width: 100%;
+      border: none;
+      padding: 6px 10px 6px 28px;
+      font-size: 11.5px;
+      outline: none;
+      background: transparent;
+      color: var(--text-primary);
+    }
+
+    .file-tree-container {
+      flex: 1;
+      overflow-y: auto;
+      padding: 5px;
+      position: relative;
+    }
+
+    .file-tree-container.external-drag-over {
+      background: rgba(255, 255, 255, 0.05);
+      outline: 1.5px dashed var(--border-accent);
+      outline-offset: -4px;
+    }
+
+    .tree-node-group {
+      display: flex;
+      flex-direction: column;
+    }
+
+    .tree-children {
+      display: flex;
+      flex-direction: column;
+      block-size: auto;
+      overflow: hidden;
+      transition: block-size 0.18s ease, opacity 0.15s ease;
+    }
+
+    .tree-node-group.collapsed > .tree-children {
+      block-size: 0;
+      opacity: 0;
+      pointer-events: none;
+    }
+
+    .tree-node-group.collapsed > .tree-row .dir-chevron {
+      transform: rotate(-90deg);
+    }
+
+    .tree-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 4px 6px;
+      border-radius: var(--radius-xs);
+      cursor: pointer;
+      user-select: none;
+      font-size: 12px;
+      color: var(--text-secondary);
+      gap: 6px;
+      border: 1px solid transparent;
+      transition: background 0.1s ease, color 0.1s ease, border-color 0.1s ease;
+    }
+
+    .tree-row:hover {
+      background: var(--bg-hover);
+      color: var(--text-primary);
+    }
+
+    .tree-row.selected {
+      background: var(--bg-active);
+      border-color: var(--border-accent);
+      color: var(--text-primary);
+      font-weight: 500;
+    }
+
+    .tree-row.drop-target {
+      background: var(--bg-active-strong);
+      border-color: var(--accent-bright);
+      color: #ffffff;
+    }
+
+    .tree-row.dragging-source {
+      opacity: 0.45;
+    }
+
+    .tree-row-left {
+      display: flex;
+      align-items: center;
+      gap: 5px;
+      min-width: 0;
+      flex: 1;
+    }
+
+    .dir-chevron {
+      color: var(--text-muted);
+      transition: transform 0.16s ease;
+      width: 12px;
+      height: 12px;
+    }
+
+    .dir-spacer {
+      width: 12px;
+      height: 12px;
+      flex-shrink: 0;
+    }
+
+    .tree-name {
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .tree-row-right {
+      display: flex;
+      align-items: center;
+      gap: 4px;
+      flex-shrink: 0;
+    }
+
+    .tree-send-btn {
+      opacity: 0;
+      border: 1px solid var(--border-hairline);
+      background: var(--bg-surface);
+      color: var(--text-secondary);
+      border-radius: 3px;
+      height: 18px;
+      padding: 0 4px;
+      font-size: 10px;
+      font-family: var(--font-mono);
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      gap: 2px;
+    }
+
+    .tree-row:hover .tree-send-btn {
+      opacity: 1;
+    }
+
+    .tree-send-btn:hover {
+      color: var(--accent-bright);
+      border-color: var(--border-accent);
+      background: var(--accent-soft);
+    }
+
+    .tree-size {
+      font-size: 10px;
+      color: var(--text-muted);
+      font-family: var(--font-mono);
+    }
+
+    /* Preview Pane */
+    .preview-pane {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      min-height: 32px;
+      background: var(--bg-app);
+      overflow: hidden;
+    }
+
+    .preview-pane.collapsed {
+      flex: 0 0 32px !important;
+      height: 32px !important;
+    }
+
+    .preview-body {
+      flex: 1;
+      overflow: auto;
+      position: relative;
+      background: #0a0b0e;
+    }
+
+    .preview-empty {
+      height: 100%;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      color: var(--text-muted);
+      font-size: 11.5px;
+      padding: 18px;
+      text-align: center;
+      gap: 8px;
+    }
+
+    .preview-code {
+      padding: 12px;
+      font-family: var(--font-mono);
+      font-size: 11.5px;
+      line-height: 1.55;
+      color: var(--text-primary);
+      white-space: pre-wrap;
+      word-break: break-word;
+      tab-size: 2;
+    }
+
+    .preview-image-wrap {
+      padding: 14px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 10px;
+      min-height: 100%;
+      background: repeating-conic-gradient(#0e1015 0% 25%, #090a0d 0% 50%) 50% / 16px 16px;
+    }
+
+    .preview-image-wrap img {
+      max-width: 100%;
+      max-height: 360px;
+      object-fit: contain;
+      border-radius: 6px;
+      box-shadow: var(--shadow-md);
+      border: 1px solid var(--border-strong);
+    }
+
+    .preview-iframe {
+      width: 100%;
+      height: 100%;
+      border: none;
+      background: #0a0b0e;
+      color-scheme: dark;
+    }
+
+    /* ============================================================================
+       Bottom Status Bar
+       ============================================================================ */
+    .status-bar {
+      height: 29px;
+      background: var(--bg-sidebar);
+      border-top: 1px solid var(--border-hairline);
+      padding: 0 10px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      font-size: 11px;
+      color: var(--text-secondary);
+      user-select: none;
+    }
+
+    .status-group {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      overflow-x: auto;
+    }
+
+    .status-pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      height: 20px;
+      padding: 0 8px;
+      border-radius: 999px;
+      background: var(--bg-surface);
+      border: 1px solid var(--border-hairline);
+      font-size: 10.5px;
+      font-family: var(--font-mono);
+      color: var(--text-secondary);
+      white-space: nowrap;
+    }
+
+    .status-dot {
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      background: var(--text-muted);
+    }
+
+    .status-dot.ok {
+      background: var(--status-online);
+      box-shadow: 0 0 6px rgba(147, 197, 253, 0.5);
+    }
+
+    .status-dot.warn {
+      background: var(--warning);
+      box-shadow: 0 0 6px var(--warning);
+    }
+
+    .status-dot.err {
+      background: var(--danger);
+      box-shadow: 0 0 6px var(--danger);
+    }
+
+    /* Native Modal Dialog */
+    dialog.ag-dialog {
+      margin: auto;
+      padding: 0;
+      border: 1px solid var(--border-strong);
+      border-radius: var(--radius-lg);
+      background: var(--bg-surface);
+      color: var(--text-primary);
+      box-shadow: var(--shadow-md);
+      width: 360px;
+      max-width: 92vw;
+    }
+
+    dialog.ag-dialog::backdrop {
+      background-color: rgba(0, 0, 0, 0.65);
+      backdrop-filter: blur(3px);
+    }
+
+    .dialog-box {
+      padding: 18px;
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+
+    .dialog-box h3 {
+      font-size: 13.5px;
+      font-weight: 600;
+      display: flex;
+      align-items: center;
+      gap: 7px;
+    }
+
+    .dialog-input {
+      width: 100%;
+      height: 32px;
+      padding: 0 10px;
+      border: 1px solid var(--border-strong);
+      border-radius: var(--radius-sm);
+      background: var(--bg-input);
+      color: var(--text-primary);
+      font-size: 12.5px;
+      outline: none;
+    }
+
+    .dialog-input:focus {
+      border-color: var(--accent-bright);
+      box-shadow: 0 0 0 2px var(--accent-soft);
+    }
+
+    .dialog-footer {
+      display: flex;
+      justify-content: flex-end;
+      gap: 8px;
+    }
+
+    /* Toast Notification */
+    .toast-msg {
+      position: fixed;
+      bottom: 40px;
+      left: 50%;
+      transform: translateX(-50%);
+      background: var(--bg-elevated);
+      color: var(--text-primary);
+      border: 1px solid var(--border-accent);
+      padding: 6px 12px;
+      border-radius: var(--radius-sm);
+      font-size: 11.5px;
+      box-shadow: var(--shadow-md);
+      z-index: 200;
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity 0.18s ease;
+    }
+    .toast-msg.show {
+      opacity: 1;
+    }
+
+    /* Reduced Motion Safety per `animate-to-intrinsic-sizes` */
+    @media (prefers-reduced-motion: reduce) {
+      .session-items,
+      .tree-children,
+      .panel-col,
+      .file-browser-pane,
+      .chevron-icon,
+      .dir-chevron {
+        transition: none !important;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="workbench-shell">
+    <main class="workbench-main" id="workbenchMain">
+      <!-- 1. LEFT PANEL: Collapsible Projects & Conversations -->
+      <aside class="panel-col panel-left" id="panelLeft">
+        <div class="panel-header">
+          <div class="brand-title">
+            <span class="brand-mark">
+              <svg class="icon" viewBox="0 0 24 24"><polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/></svg>
+            </span>
+            <span>TAKT</span>
+          </div>
+          <div class="header-actions">
+            <button class="btn btn-icon btn-ghost" id="btnOpenNodeManager" title="管理 Linux 节点 (work / work2 / Syncthing / MCP)">
+              <svg class="icon" viewBox="0 0 24 24"><rect x="2" y="2" width="20" height="8" rx="2"/><rect x="2" y="14" width="20" height="8" rx="2"/><line x1="6" y1="6" x2="6.01" y2="6"/><line x1="6" y1="18" x2="6.01" y2="18"/></svg>
+            </button>
+            <button class="btn btn-icon btn-ghost" id="btnNewProject" title="新建项目文件夹">
+              <svg class="icon" viewBox="0 0 24 24"><path d="M4 20h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.93a2 2 0 0 1-1.66-.9l-.82-1.2A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13c0 1.1.9 2 2 2Z"/><line x1="12" y1="10" x2="12" y2="16"/><line x1="9" y1="13" x2="15" y2="13"/></svg>
+            </button>
+            <button class="btn btn-icon btn-ghost" id="btnToggleAllProjects" title="折叠 / 展开全部项目">
+              <svg class="icon" viewBox="0 0 24 24"><path d="m7 15 5 5 5-5"/><path d="m7 9 5-5 5 5"/></svg>
+            </button>
+            <button class="btn btn-icon btn-ghost" id="btnRefreshTree" title="刷新项目与会话">
+              <svg class="icon" viewBox="0 0 24 24"><path d="M21 12a9 9 0 0 0-9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/><path d="M3 12a9 9 0 0 0 9 9 9.75 9.75 0 0 0 6.74-2.74L21 16"/><path d="M16 16h5v5"/></svg>
+            </button>
+          </div>
+        </div>
+        <div class="node-filter-bar" id="nodeFilterBar"></div>
+        <div class="tag-bar" id="tagBar"></div>
+        <div class="session-total" id="sessionTotalBadge">0 会话</div>
+        <div class="project-list scroller" id="projectList"></div>
+        <div class="tag-menu" id="tagMenu" hidden></div>
+      </aside>
+
+      <!-- Left Column Resizer -->
+      <div class="col-resizer" id="resizerLeft" title="拖拽调节左侧栏宽度"></div>
+
+      <!-- 2. CENTER PANEL: Multi-Tab Native / Web Terminal -->
+      <section class="panel-col panel-center" id="panelCenter">
+        <div class="tab-bar">
+          <button class="btn btn-icon btn-ghost" id="btnToggleLeftPanel" title="折叠 / 展开左侧项目栏">
+            <svg class="icon" viewBox="0 0 24 24"><rect width="18" height="18" x="3" y="3" rx="2"/><path d="M9 3v18"/></svg>
+          </button>
+
+          <div class="tabs-scroll scroller" id="tabBarList"></div>
+
+          <div class="header-actions">
+            <div class="engine-switch" id="engineSwitch" title="切换内嵌终端渲染引擎 (共享同一远端持久化会话)">
+              <button class="engine-opt" id="btnEngineNative" data-engine="native">
+                <svg class="icon icon-sm" viewBox="0 0 24 24"><rect x="4" y="4" width="16" height="16" rx="2"/><rect x="9" y="9" width="6" height="6"/><path d="M15 2v2"/><path d="M15 20v2"/><path d="M2 15h2"/><path d="M2 9h2"/><path d="M20 15h2"/><path d="M20 9h2"/><path d="M9 2v2"/><path d="M9 20v2"/></svg>
+                <span>原生终端</span>
+              </button>
+              <button class="engine-opt active" id="btnEngineWeb" data-engine="web">
+                <svg class="icon icon-sm" viewBox="0 0 24 24"><polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/></svg>
+                <span>内嵌 Web</span>
+              </button>
+            </div>
+
+            <button class="btn" id="btnNewQuickSession" title="在当前项目目录新建终端标签页">
+              <svg class="icon icon-sm" viewBox="0 0 24 24"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+              <span>终端</span>
+            </button>
+
+            <button class="btn btn-icon" id="btnPopSystemTerminal" title="在 macOS 原生 Terminal.app 中弹出当前会话">
+              <svg class="icon" viewBox="0 0 24 24"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
+            </button>
+
+            <button class="btn btn-icon btn-ghost" id="btnToggleRightPanel" title="折叠 / 展开右侧目录与预览栏">
+              <svg class="icon" viewBox="0 0 24 24"><rect width="18" height="18" x="3" y="3" rx="2"/><path d="M15 3v18"/></svg>
+            </button>
+          </div>
+        </div>
+
+        <!-- Manual Command Reference Bar -->
+        <div class="cmd-hint-bar" id="manualCmdBar" style="display: none;">
+          <div style="display:flex; align-items:center; gap:8px; min-width:0; overflow:hidden;">
+            <svg class="icon icon-sm icon-folder-open" viewBox="0 0 24 24"><path d="m6 14 1.5-2.9A2 2 0 0 1 9.24 10H20a2 2 0 0 1 1.94 2.5l-1.54 6a2 2 0 0 1-1.95 1.5H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h3.9a2 2 0 0 1 1.69.9l.81 1.2a2 2 0 0 0 1.67.9H18a2 2 0 0 1 2 2v2"/></svg>
+            <code id="manualCwdText" style="font-family:var(--font-mono); color:var(--text-primary);">/root/work</code>
+            <span style="color:var(--border-strong);">/</span>
+            <span style="color:var(--text-muted);">CLI 启动指令:</span>
+            <code class="cmd-pill" id="manualCmdText">claude</code>
+          </div>
+          <div style="display:flex; align-items:center; gap:5px;">
+            <button class="btn" id="btnInjectManualCmd" style="height:20px; font-size:10.5px; padding:0 7px;" title="直接将启动命令注入当前终端并执行">
+              <svg class="icon icon-sm" viewBox="0 0 24 24"><polyline points="9 10 4 15 9 20"/><path d="M20 4v7a4 4 0 0 1-4 4H4"/></svg>
+              <span>注入终端</span>
+            </button>
+            <button class="btn" id="btnCopyManualCmd" style="height:20px; font-size:10.5px; padding:0 7px;">
+              <svg class="icon icon-sm" viewBox="0 0 24 24"><rect width="14" height="14" x="8" y="8" rx="2"/><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"/></svg>
+              <span id="copyCmdLabel">复制</span>
+            </button>
+          </div>
+        </div>
+
+        <div class="terminal-stage" id="terminalStage">
+          <!-- Drag & Drop Overlay when dragging file from right sidebar -->
+          <div class="term-drop-overlay" id="termDropOverlay">
+            <svg class="icon icon-lg" viewBox="0 0 24 24"><polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/></svg>
+            <span>释放鼠标：将文件/目录路径直接注入当前终端</span>
+          </div>
+
+          <div class="empty-term-placeholder" id="emptyTermPlaceholder">
+            <div class="empty-term-card">
+              <span class="brand-mark" style="width:36px; height:36px; border-radius:8px;">
+                <svg class="icon icon-lg" viewBox="0 0 24 24"><polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/></svg>
+              </span>
+              <h3>Codex Dark · 持久化原生 SSH 工作台</h3>
+              <p>每个标签页均采用独立 SSH 通道与远端 <code>tmux</code> 会话守护，彻底隔离后台探针，断网自动毫秒级重连。支持右侧目录折叠与文件拖拽注入。</p>
+              <button class="btn btn-primary" id="btnStartDefaultSession" style="height:30px; padding:0 14px;">
+                <svg class="icon icon-sm" viewBox="0 0 24 24"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+                <span>打开主工作区终端</span>
+              </button>
+            </div>
+          </div>
+
+          <div class="term-inline-tray scroller" id="termInlineTray"></div>
+        </div>
+      </section>
+
+      <!-- Right Column Resizer -->
+      <div class="col-resizer" id="resizerRight" title="拖拽调节右侧栏宽度"></div>
+
+      <!-- 3. RIGHT PANEL: Collapsible & Drag-and-Drop Directory Tree + Previewer -->
+      <aside class="panel-col panel-right" id="panelRight">
+        <div class="panel-header">
+          <div class="brand-title">
+            <svg class="icon icon-folder" viewBox="0 0 24 24"><path d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z"/></svg>
+            <span>工作区目录与预览</span>
+          </div>
+          <div class="header-actions">
+            <button class="btn btn-icon" id="btnNewSubfolder" title="在当前目录下新建子文件夹">
+              <svg class="icon" viewBox="0 0 24 24"><path d="M12 10v6"/><path d="M9 13h6"/><path d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z"/></svg>
+            </button>
+            <button class="btn btn-icon" id="btnToggleAllDirs" title="折叠 / 展开全部子目录">
+              <svg class="icon" viewBox="0 0 24 24"><path d="m7 15 5 5 5-5"/><path d="m7 9 5-5 5 5"/></svg>
+            </button>
+            <button class="btn" id="btnOpenFinder" title="在 macOS Finder 中定位当前文件/目录">
+              <svg class="icon icon-sm" viewBox="0 0 24 24"><path d="M2 9V5a2 2 0 0 1 2-2h3.9a2 2 0 0 1 1.69.9l.81 1.2a2 2 0 0 0 1.67.9H20a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2v-1"/><path d="M2 13h10"/><path d="m9 16 3-3-3-3"/></svg>
+              <span>Finder</span>
+            </button>
+            <button class="btn btn-icon" id="btnRefreshFiles" title="刷新目录树">
+              <svg class="icon" viewBox="0 0 24 24"><path d="M21 12a9 9 0 0 0-9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/><path d="M3 12a9 9 0 0 0 9 9 9.75 9.75 0 0 0 6.74-2.74L21 16"/><path d="M16 16h5v5"/></svg>
+            </button>
+          </div>
+        </div>
+
+        <div class="right-split" id="rightSplit">
+          <!-- Top: Collapsible & Drag-and-Drop File Tree -->
+          <div class="file-browser-pane" id="fileBrowserPane">
+            <div class="section-subhead" id="toggleFileBrowserSection" aria-expanded="true" title="点击折叠 / 展开文件目录树">
+              <div class="section-subhead-left">
+                <svg class="icon icon-sm chevron-icon" id="fileSectionChevron" viewBox="0 0 24 24"><polyline points="6 9 12 15 18 9"/></svg>
+                <span>目录树 (支持拖拽移动 / 拖入终端 / 外部拖入上传)</span>
+              </div>
+              <span id="fileCountLabel" style="font-size:10.5px; color:var(--text-muted); font-family:var(--font-mono);">0 项</span>
+            </div>
+
+            <div class="file-path-bar" id="rootDropBar" title="可将子目录内的文件拖拽至此栏，移动回当前项目根目录">
+              <span class="file-path-text" id="currentSessionCwdLabel">工作区</span>
+              <span class="machine-badge" id="rightNodeBadge">KR-1 · work</span>
+            </div>
+
+            <div class="search-wrap">
+              <svg class="icon icon-sm" viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+              <input type="search" class="file-search-input" id="fileSearchInput" placeholder="过滤文件或目录名称..." />
+            </div>
+
+            <div class="file-tree-container scroller" id="fileTreeContainer"></div>
+          </div>
+
+          <!-- Horizontal Resizer between File Tree and Preview -->
+          <div class="row-resizer" id="resizerRightSplit" title="拖拽调节目录树与预览窗口高度比例"></div>
+
+          <!-- Bottom: Collapsible Live Preview Pane -->
+          <div class="preview-pane" id="previewPane">
+            <div class="section-subhead" id="togglePreviewSection" aria-expanded="true">
+              <div class="section-subhead-left" style="min-width:0; flex:1;">
+                <svg class="icon icon-sm chevron-icon" id="previewSectionChevron" viewBox="0 0 24 24"><polyline points="6 9 12 15 18 9"/></svg>
+                <span class="preview-title" id="previewTitle" style="overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">实时预览</span>
+              </div>
+              <div class="header-actions" id="previewActions" onclick="event.stopPropagation()"></div>
+            </div>
+            <div class="preview-body scroller" id="previewBody">
+              <div class="preview-empty">
+                <svg class="icon icon-lg" style="color:var(--text-muted); opacity:0.6;" viewBox="0 0 24 24"><path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z"/><polyline points="14 2 14 8 20 8"/></svg>
+                <span>支持秒开预览图片、网页与代码文件（自动跳过二进制工程与 &gt;200KB 大文件）</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </aside>
+    </main>
+
+    <!-- 4. BOTTOM STATUS BAR -->
+    <footer class="status-bar">
+      <div class="status-group">
+        <div class="status-pill" id="pillSsh" title="SSH 链路与出网 IP 状态">
+          <span class="status-dot" id="dotSsh"></span>
+          <span id="textSsh">SSH: 检测中</span>
+        </div>
+        <div class="status-pill" id="pillTailscale" title="Tailscale 虚拟局域网状态">
+          <span class="status-dot" id="dotTailscale"></span>
+          <span id="textTailscale">Tailscale: 检测中</span>
+        </div>
+        <div class="status-pill" id="pillMcp" title="Mac 工业级 MCP 逆向隧道 (:18765)">
+          <span class="status-dot" id="dotMcp"></span>
+          <span id="textMcp">MCP: 检测中</span>
+        </div>
+        <div class="status-pill" id="pillSyncthing" title="Syncthing 毫秒级双向同步状态">
+          <span class="status-dot" id="dotSyncthing"></span>
+          <span id="textSyncthing">Syncthing: 检测中</span>
+        </div>
+      </div>
+
+      <div class="status-group">
+        <span id="activePtySummary" style="font-size: 10.5px; color: var(--text-muted); font-family: var(--font-mono);">标签: 0 · 远端 CLI: 0</span>
+        <button class="btn" id="btnHealLinks" style="height: 20px; font-size: 10.5px; padding: 0 7px;">
+          <svg class="icon icon-sm" viewBox="0 0 24 24"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>
+          <span id="healBtnText">隧道自愈</span>
+        </button>
+      </div>
+    </footer>
+  </div>
+
+  <!-- Modal Dialog: Create Project / Subfolder / Rename Session -->
+  <dialog id="newProjectDialog" class="ag-dialog" closedby="any" aria-labelledby="newProjectDialogTitle">
+    <form method="dialog" class="dialog-box" id="newProjectForm">
+      <h3 id="newProjectDialogTitle">
+        <svg class="icon icon-folder-open" viewBox="0 0 24 24"><path d="M12 10v6"/><path d="M9 13h6"/><path d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z"/></svg>
+        <span id="modalTitleText">新建项目文件夹</span>
+      </h3>
+      <div id="newProjectNodeRow" style="display:flex; flex-direction:column; gap:5px;">
+        <label for="newProjectNodeSelect" style="font-size:11px; color:var(--text-secondary);">所属 Linux 机器与本地同步目录</label>
+        <select class="dialog-input" id="newProjectNodeSelect"></select>
+      </div>
+      <input type="text" class="dialog-input" id="newProjectNameInput" placeholder="例如: ESP32_Audio_Board" required />
+      <div class="dialog-footer">
+        <button type="button" class="btn" id="btnCancelNewProject">取消</button>
+        <button type="submit" class="btn btn-primary" id="btnSubmitModal">创建</button>
+      </div>
+    </form>
+  </dialog>
+
+  <!-- Modal Dialog: Multi-Linux Node Manager (work / work2 / Syncthing / Mac MCP Bridge) -->
+  <dialog id="nodeManagerDialog" class="ag-dialog" closedby="any" aria-labelledby="nodeManagerDialogTitle" style="width: 520px;">
+    <form method="dialog" class="dialog-box" id="nodeManagerForm">
+      <div style="display:flex; align-items:center; justify-content:space-between;">
+        <h3 id="nodeManagerDialogTitle">
+          <svg class="icon" viewBox="0 0 24 24"><rect x="2" y="2" width="20" height="8" rx="2"/><rect x="2" y="14" width="20" height="8" rx="2"/><line x1="6" y1="6" x2="6.01" y2="6"/><line x1="6" y1="18" x2="6.01" y2="18"/></svg>
+          <span>多 Linux 节点与本地 Work 映射管理</span>
+        </h3>
+        <button type="button" class="btn" id="btnResetNewNodeForm" style="height:22px; font-size:11px;">
+          <svg class="icon icon-sm" viewBox="0 0 24 24"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+          <span>新增节点</span>
+        </button>
+      </div>
+
+      <div style="font-size:11px; color:var(--text-secondary); line-height:1.45;">
+        每台 Linux 独立绑定本地一个目录（如 <code>work</code>、<code>work2</code>），保存后自动创建本地目录、注册 Syncthing 双向同步，并建立专用逆向隧道使该机器直接调用本机 Mac 的 21 个 MCP 工具。
+      </div>
+
+      <div class="node-manager-list scroller" id="nodeManagerList"></div>
+
+      <div style="border-top:1px solid var(--border-hairline); padding-top:10px; display:flex; flex-direction:column; gap:8px;">
+        <div style="font-size:11.5px; font-weight:600; color:var(--text-primary);" id="nodeEditSectionTitle">编辑 / 接入节点: LX-2 (work2)</div>
+        <input type="hidden" id="nodeInputId" value="linux-work2" />
+
+        <div style="display:grid; grid-template-columns: 1fr 90px 110px; gap:8px;">
+          <div>
+            <div style="font-size:10.5px; color:var(--text-muted); margin-bottom:3px;">机器显示名称</div>
+            <input type="text" class="dialog-input" id="nodeInputName" placeholder="例如: 日本东京节点" required />
+          </div>
+          <div>
+            <div style="font-size:10.5px; color:var(--text-muted); margin-bottom:3px;">UI 徽标</div>
+            <input type="text" class="dialog-input" id="nodeInputBadge" placeholder="LX-2" maxlength="8" required />
+          </div>
+          <div>
+            <div style="font-size:10.5px; color:var(--text-muted); margin-bottom:3px;">Mac 本地文件夹</div>
+            <input type="text" class="dialog-input" id="nodeInputAlias" placeholder="work2" pattern="[a-zA-Z0-9_-]+" required />
+          </div>
+        </div>
+
+        <div style="display:grid; grid-template-columns: 1.3fr 1fr; gap:8px;">
+          <div>
+            <div style="font-size:10.5px; color:var(--text-muted); margin-bottom:3px;">SSH Host (别名或 root@IP，留空则仅本地目录)</div>
+            <input type="text" class="dialog-input" id="nodeInputSshHost" placeholder="例如: my-server 或 root@1.2.3.4" />
+            <div class="ssh-chip-bar" id="sshCandidateChips"></div>
+          </div>
+          <div>
+            <div style="font-size:10.5px; color:var(--text-muted); margin-bottom:3px;">Linux 远端工作区路径</div>
+            <input type="text" class="dialog-input" id="nodeInputRemoteDir" value="/root/work" required />
+          </div>
+        </div>
+
+        <label style="display:flex; align-items:center; gap:6px; font-size:11.5px; color:var(--text-secondary); cursor:pointer;">
+          <input type="checkbox" id="nodeInputEnabled" checked />
+          <span>启用此 Linux 节点的 SSH 扫描与 Mac MCP 逆向隧道 (:18765 / :49620)</span>
+        </label>
+      </div>
+
+      <div class="dialog-footer">
+        <button type="button" class="btn" id="btnCloseNodeManager">关闭</button>
+        <button type="submit" class="btn btn-primary" id="btnSaveNodeConfig">保存并接入节点</button>
+      </div>
+    </form>
+  </dialog>
+
+  <div class="toast-msg" id="toastMsg"></div>
+
+  <script src="/vendor/xterm.js"></script>
+  <script src="/vendor/addon-fit.js"></script>
+  <script src="/vendor/addon-web-links.js"></script>
+  <script>
+    (() => {
+      // ============================================================================
+      // 1. SVG Vector Icons Library (Zero Emojis)
+      // ============================================================================
+      const SVG_ICONS = {
+        tag: '<svg class="icon icon-sm" viewBox="0 0 24 24"><path d="M12.59 2.59A2 2 0 0 0 11.17 2H4a2 2 0 0 0-2 2v7.17a2 2 0 0 0 .59 1.42l8.7 8.7a2.43 2.43 0 0 0 3.42 0l6.58-6.58a2.43 2.43 0 0 0 0-3.42z"/><circle cx="7.5" cy="7.5" r=".5" fill="currentColor"/></svg>',
+        check: '<svg class="icon icon-sm" viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg>',
+        chevronDown: '<svg class="icon icon-sm chevron-icon" viewBox="0 0 24 24"><polyline points="6 9 12 15 18 9"/></svg>',
+        dirChevron: '<svg class="icon dir-chevron" viewBox="0 0 24 24"><polyline points="6 9 12 15 18 9"/></svg>',
+        folderClosed: '<svg class="icon icon-folder" viewBox="0 0 24 24"><path d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z"/></svg>',
+        folderOpen: '<svg class="icon icon-folder-open" viewBox="0 0 24 24"><path d="m6 14 1.5-2.9A2 2 0 0 1 9.24 10H20a2 2 0 0 1 1.94 2.5l-1.54 6a2 2 0 0 1-1.95 1.5H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h3.9a2 2 0 0 1 1.69.9l.81 1.2a2 2 0 0 0 1.67.9H18a2 2 0 0 1 2 2v2"/></svg>',
+        plus: '<svg class="icon icon-sm" viewBox="0 0 24 24"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>',
+        edit: '<svg class="icon icon-sm" viewBox="0 0 24 24"><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>',
+        trash: '<svg class="icon icon-sm" viewBox="0 0 24 24"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/></svg>',
+        close: '<svg class="icon icon-sm" viewBox="0 0 24 24"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>',
+        terminalPrompt: '<svg class="icon icon-sm" style="color:var(--text-muted);" viewBox="0 0 24 24"><polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/></svg>',
+        fileCode: '<svg class="icon icon-code" viewBox="0 0 24 24"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg>',
+        fileConfig: '<svg class="icon icon-config" viewBox="0 0 24 24"><path d="M8 3H7a2 2 0 0 0-2 2v5a2 2 0 0 1-2 2 2 2 0 0 1 2 2v5c0 1.1.9 2 2 2h1"/><path d="M16 21h1a2 2 0 0 0 2-2v-5c0-1.1.9-2 2-2a2 2 0 0 1-2-2V5a2 2 0 0 0-2-2h-1"/></svg>',
+        fileImage: '<svg class="icon icon-image" viewBox="0 0 24 24"><rect width="18" height="18" x="3" y="3" rx="2" ry="2"/><circle cx="9" cy="9" r="2"/><path d="m21 15-3.086-3.086a2 2 0 0 0-2.828 0L6 21"/></svg>',
+        fileCube: '<svg class="icon icon-cube" viewBox="0 0 24 24"><path d="m21 16-9 5-9-5V8l9-5 9 5z"/><polyline points="3.27 6.96 12 12.01 20.73 6.96"/><line x1="12" y1="22.08" x2="12" y2="12"/></svg>',
+        fileDoc: '<svg class="icon icon-doc" viewBox="0 0 24 24"><path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>',
+        fileGeneric: '<svg class="icon icon-doc" viewBox="0 0 24 24"><path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z"/><polyline points="14 2 14 8 20 8"/></svg>',
+        externalLink: '<svg class="icon icon-sm" viewBox="0 0 24 24"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>',
+        copy: '<svg class="icon icon-sm" viewBox="0 0 24 24"><rect width="14" height="14" x="8" y="8" rx="2"/><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"/></svg>',
+      };
+
+      function fileIconSvg(ext, isDir, isCollapsedDir = false) {
+        if (isDir) return isCollapsedDir ? SVG_ICONS.folderClosed : SVG_ICONS.folderOpen;
+        if (['.png', '.jpg', '.jpeg', '.gif', '.webp', '.svg', '.ico', '.bmp'].includes(ext)) return SVG_ICONS.fileImage;
+        if (['.md', '.txt', '.log', '.pdf'].includes(ext)) return SVG_ICONS.fileDoc;
+        if (['.py', '.js', '.mjs', '.ts', '.tsx', '.jsx', '.sh', '.c', '.cpp', '.h', '.swift', '.rs', '.go', '.html', '.css'].includes(ext)) return SVG_ICONS.fileCode;
+        if (['.json', '.yaml', '.yml', '.toml', '.ini', '.env'].includes(ext)) return SVG_ICONS.fileConfig;
+        if (['.glb', '.gltf', '.stl', '.step', '.stp', '.fcstd', '.obj'].includes(ext)) return SVG_ICONS.fileCube;
+        return SVG_ICONS.fileGeneric;
+      }
+
+      // ============================================================================
+      // 2. Codex Obsidian Terminal Palette & App State
+      // ============================================================================
+      const CODEX_DARK_TERM_THEME = {
+        background: '#0d0d0d',
+        foreground: '#ececef',
+        cursor: '#f4f4f5',
+        cursorAccent: '#0d0d0d',
+        selectionBackground: 'rgba(255, 255, 255, 0.18)',
+        black: '#18181b',
+        red: '#f87171',
+        green: '#a1a1aa',
+        yellow: '#fbbf24',
+        blue: '#93c5fd',
+        magenta: '#c4b5fd',
+        cyan: '#7dd3fc',
+        white: '#e4e4e7',
+        brightBlack: '#71717a',
+        brightRed: '#fca5a5',
+        brightGreen: '#d4d4d8',
+        brightYellow: '#fde68a',
+        brightBlue: '#bfdbfe',
+        brightMagenta: '#ddd6fe',
+        brightCyan: '#bae6fd',
+        brightWhite: '#ffffff',
+      };
+
+      const hasNativeHost = Boolean(
+        window.__TAKT_NATIVE_TERM_AVAILABLE__ ||
+        (window.webkit && window.webkit.messageHandlers && window.webkit.messageHandlers.taktNative)
+      );
+
+      let terminalEngine = hasNativeHost ? 'native' : 'web';
+      let nodesData = [];
+      let sshCandidatesData = [];
+      let selectedNodeFilter = 'all'; // 'all' or node.id
+      let foldersData = [];
+      let activeTabId = null;
+      let currentFilesCwd = '/root/work';
+      let currentFilesNodeId = 'node-1';
+      let currentFileTree = [];
+      let selectedFilePath = '';
+      let modalMode = 'project'; // 'project' | 'subfolder' | 'rename-session'
+      let renamingSessionId = '';
+      let renamingSessionNodeId = 'node-1';
+      let isDraggingFile = false;
+
+      // Persistent Collapsible States & Startup Non-Empty Project Filter
+      const collapsedProjects = new Set(JSON.parse(localStorage.getItem('takt_collapsed_projects') || '[]'));
+      const collapsedDirs = new Set(JSON.parse(localStorage.getItem('takt_collapsed_dirs') || '[]'));
+      const visibleProjectKeys = new Set();
+      let initialVisibilityResolved = false;
+      const tabs = new Map();
+
+      function getFolderKey(folder) {
+        return folder.key || `${folder.nodeId || 'node-1'}::${folder.path}`;
+      }
+
+      function getNodeInfo(nodeId) {
+        return (
+          nodesData.find((n) => n.id === nodeId || n.sshHost === nodeId || n.localWorkAlias === nodeId) ||
+          nodesData[0] || {
+            id: 'node-1',
+            name: 'Linux 节点 1',
+            badge: 'LX-1',
+            sshHost: '',
+            remoteWorkDir: '/root/work',
+            localWorkDir: '',
+            localWorkAlias: 'work',
+            enabled: true,
+          }
+        );
+      }
+
+      function saveCollapsedProjects() {
+        localStorage.setItem('takt_collapsed_projects', JSON.stringify(Array.from(collapsedProjects)));
+      }
+      function saveCollapsedDirs() {
+        localStorage.setItem('takt_collapsed_dirs', JSON.stringify(Array.from(collapsedDirs)));
+      }
+
+      function showToast(msg) {
+        const el = document.getElementById('toastMsg');
+        el.textContent = msg;
+        el.classList.add('show');
+        clearTimeout(showToast._timer);
+        showToast._timer = setTimeout(() => el.classList.remove('show'), 2200);
+      }
+
+      // ============================================================================
+      // 3. Native macOS AppKit SwiftTerm Bridge (`window.webkit.messageHandlers.taktNative`)
+      // ============================================================================
+      function postNativeMessage(payload) {
+        try {
+          if (window.webkit && window.webkit.messageHandlers && window.webkit.messageHandlers.taktNative) {
+            window.webkit.messageHandlers.taktNative.postMessage(payload);
+            return true;
+          }
+        } catch (err) {
+          console.warn('Native bridge error:', err);
+        }
+        return false;
+      }
+
+      const newProjectDialog = document.getElementById('newProjectDialog');
+      const nodeManagerDialog = document.getElementById('nodeManagerDialog');
+
+      function syncNativeTerminalGeometry() {
+        if (!hasNativeHost) return;
+        const stage = document.getElementById('terminalStage');
+        const rect = stage.getBoundingClientRect();
+        const isVisible = (
+          terminalEngine === 'native' &&
+          activeTabId !== null &&
+          tabs.has(activeTabId) &&
+          !newProjectDialog.open &&
+          !nodeManagerDialog.open &&
+          !isDraggingFile &&
+          rect.width > 20 &&
+          rect.height > 20
+        );
+        postNativeMessage({
+          action: 'updateRect',
+          x: Math.round(rect.left),
+          y: Math.round(rect.top),
+          width: Math.round(rect.width),
+          height: Math.round(rect.height),
+          visible: isVisible,
+        });
+      }
+
+      function setTerminalEngine(mode) {
+        if (mode === 'native' && !hasNativeHost) {
+          showToast('当前在外部浏览器运行，已调用系统 Terminal.app 打开原生窗口');
+          popCurrentSessionInSystemTerminal();
+          return;
+        }
+        terminalEngine = mode;
+        document.getElementById('btnEngineNative').classList.toggle('active', mode === 'native');
+        document.getElementById('btnEngineWeb').classList.toggle('active', mode === 'web');
+        postNativeMessage({ action: 'setEngine', mode });
+        syncNativeTerminalGeometry();
+
+        if (mode === 'web' && activeTabId && tabs.has(activeTabId)) {
+          const t = tabs.get(activeTabId);
+          ensureWebTerminalConnected(t);
+          setTimeout(() => {
+            try {
+              t.fitAddon.fit();
+              t.term.focus();
+            } catch {}
+          }, 40);
+        } else if (mode === 'native' && activeTabId && tabs.has(activeTabId)) {
+          const t = tabs.get(activeTabId);
+          postNativeMessage({
+            action: 'activateTab',
+            tabId: t.tabId,
+            sessionId: t.sessionId,
+            cwd: t.cwd,
+            sshHost: t.sshHost || '',
+            title: t.title,
+            resume: t.resume,
+          });
+          syncNativeTerminalGeometry();
+        }
+      }
+
+      // Update Engine Switch UI on boot
+      document.getElementById('btnEngineNative').classList.toggle('active', terminalEngine === 'native');
+      document.getElementById('btnEngineWeb').classList.toggle('active', terminalEngine === 'web');
+
+      const stageResizeObserver = new ResizeObserver(() => {
+        syncNativeTerminalGeometry();
+        if (terminalEngine === 'web' && activeTabId && tabs.has(activeTabId)) {
+          try { tabs.get(activeTabId).fitAddon.fit(); } catch {}
+        }
+      });
+      stageResizeObserver.observe(document.getElementById('terminalStage'));
+      window.addEventListener('resize', syncNativeTerminalGeometry);
+
+      // ============================================================================
+      // 4. Dialog Light-Dismiss Fallback + Native Layer Sync
+      // ============================================================================
+      function bindLightDismissDialog(dlg) {
+        dlg.addEventListener('close', () => syncNativeTerminalGeometry());
+        if (!('closedBy' in HTMLDialogElement.prototype)) {
+          dlg.addEventListener('click', (event) => {
+            if (event.target !== dlg) return;
+            const rect = dlg.getBoundingClientRect();
+            const inContent = (
+              rect.top <= event.clientY &&
+              event.clientY <= rect.top + rect.height &&
+              rect.left <= event.clientX &&
+              event.clientX <= rect.left + rect.width
+            );
+            if (!inContent) dlg.close();
+          });
+        }
+      }
+      bindLightDismissDialog(newProjectDialog);
+      bindLightDismissDialog(nodeManagerDialog);
+
+      // ============================================================================
+      // 5. Resizable & Collapsible Sidebars and Splitters
+      // ============================================================================
+      const panelLeft = document.getElementById('panelLeft');
+      const panelRight = document.getElementById('panelRight');
+      const resizerLeft = document.getElementById('resizerLeft');
+      const resizerRight = document.getElementById('resizerRight');
+      const fileBrowserPane = document.getElementById('fileBrowserPane');
+      const previewPane = document.getElementById('previewPane');
+      const resizerRightSplit = document.getElementById('resizerRightSplit');
+
+      document.getElementById('btnToggleLeftPanel').addEventListener('click', () => {
+        const collapsed = panelLeft.classList.toggle('collapsed');
+        resizerLeft.classList.toggle('hidden', collapsed);
+        setTimeout(syncNativeTerminalGeometry, 180);
+      });
+
+      document.getElementById('btnToggleRightPanel').addEventListener('click', () => {
+        const collapsed = panelRight.classList.toggle('collapsed');
+        resizerRight.classList.toggle('hidden', collapsed);
+        setTimeout(syncNativeTerminalGeometry, 180);
+      });
+
+      document.getElementById('toggleFileBrowserSection').addEventListener('click', (e) => {
+        const trigger = e.currentTarget;
+        const collapsed = fileBrowserPane.classList.toggle('collapsed');
+        trigger.setAttribute('aria-expanded', String(!collapsed));
+        document.getElementById('fileSectionChevron').style.transform = collapsed ? 'rotate(-90deg)' : 'rotate(0deg)';
+      });
+
+      document.getElementById('togglePreviewSection').addEventListener('click', (e) => {
+        const trigger = e.currentTarget;
+        const collapsed = previewPane.classList.toggle('collapsed');
+        trigger.setAttribute('aria-expanded', String(!collapsed));
+        document.getElementById('previewSectionChevron').style.transform = collapsed ? 'rotate(-90deg)' : 'rotate(0deg)';
+      });
+
+      // Left Column Drag Resize
+      resizerLeft.addEventListener('mousedown', (e) => {
+        e.preventDefault();
+        resizerLeft.classList.add('dragging');
+        panelLeft.classList.add('resizing');
+        const onMove = (ev) => {
+          const w = Math.max(190, Math.min(480, ev.clientX));
+          document.documentElement.style.setProperty('--left-width', `${w}px`);
+          syncNativeTerminalGeometry();
+        };
+        const onUp = () => {
+          resizerLeft.classList.remove('dragging');
+          panelLeft.classList.remove('resizing');
+          window.removeEventListener('mousemove', onMove);
+          window.removeEventListener('mouseup', onUp);
+          syncNativeTerminalGeometry();
+        };
+        window.addEventListener('mousemove', onMove);
+        window.addEventListener('mouseup', onUp);
+      });
+
+      // Right Column Drag Resize
+      resizerRight.addEventListener('mousedown', (e) => {
+        e.preventDefault();
+        resizerRight.classList.add('dragging');
+        panelRight.classList.add('resizing');
+        const onMove = (ev) => {
+          const w = Math.max(240, Math.min(640, window.innerWidth - ev.clientX));
+          document.documentElement.style.setProperty('--right-width', `${w}px`);
+          syncNativeTerminalGeometry();
+        };
+        const onUp = () => {
+          resizerRight.classList.remove('dragging');
+          panelRight.classList.remove('resizing');
+          window.removeEventListener('mousemove', onMove);
+          window.removeEventListener('mouseup', onUp);
+          syncNativeTerminalGeometry();
+        };
+        window.addEventListener('mousemove', onMove);
+        window.addEventListener('mouseup', onUp);
+      });
+
+      // Right Top/Bottom Split Drag Resize
+      resizerRightSplit.addEventListener('mousedown', (e) => {
+        e.preventDefault();
+        resizerRightSplit.classList.add('dragging');
+        fileBrowserPane.classList.add('resizing');
+        const splitRect = document.getElementById('rightSplit').getBoundingClientRect();
+        const onMove = (ev) => {
+          const relY = ev.clientY - splitRect.top;
+          const pct = Math.max(15, Math.min(85, (relY / splitRect.height) * 100));
+          fileBrowserPane.classList.remove('collapsed');
+          document.documentElement.style.setProperty('--right-top-ratio', `${pct}%`);
+        };
+        const onUp = () => {
+          resizerRightSplit.classList.remove('dragging');
+          fileBrowserPane.classList.remove('resizing');
+          window.removeEventListener('mousemove', onMove);
+          window.removeEventListener('mouseup', onUp);
+        };
+        window.addEventListener('mousemove', onMove);
+        window.addEventListener('mouseup', onUp);
+      });
+
+      // ============================================================================
+      // 6. Left Panel: Multi-Linux Filter Bar + Collapsible Projects & Sessions Tree
+      // ============================================================================
+      function formatRelativeTime(ms) {
+        if (!ms) return '';
+        const diffSec = Math.max(0, Math.floor((Date.now() - ms) / 1000));
+        if (diffSec < 60) return '刚刚';
+        if (diffSec < 3600) return `${Math.floor(diffSec / 60)}m`;
+        if (diffSec < 86400) return `${Math.floor(diffSec / 3600)}h`;
+        return `${Math.floor(diffSec / 86400)}d`;
+      }
+
+      function renderNodeFilterBar() {
+        const bar = document.getElementById('nodeFilterBar');
+        if (!bar) return;
+        bar.innerHTML = '';
+
+        const allPill = document.createElement('button');
+        allPill.className = `node-pill${selectedNodeFilter === 'all' ? ' active' : ''}`;
+        allPill.innerHTML = `<span>全部</span>`;
+        allPill.addEventListener('click', () => {
+          selectedNodeFilter = 'all';
+          renderNodeFilterBar();
+          renderProjectTree();
+        });
+        bar.appendChild(allPill);
+
+        for (const n of nodesData) {
+          const pill = document.createElement('button');
+          pill.className = `node-pill${selectedNodeFilter === n.id ? ' active' : ''}`;
+          const dotClass = n.online ? 'node-pill-dot online' : 'node-pill-dot';
+          const statusHint = n.sshHost
+            ? `${n.name} (${n.sshHost}:${n.remoteWorkDir} <-> ${n.localWorkDir})`
+            : `${n.name} (本地 ${n.localWorkDir} · 点击可配置 SSH Host)`;
+          pill.title = statusHint;
+          pill.innerHTML = `
+            <span class="${dotClass}"></span>
+            <span>${escapeHtml(n.badge)}</span>
+          `;
+          pill.addEventListener('click', () => {
+            selectedNodeFilter = n.id;
+            renderNodeFilterBar();
+            renderProjectTree();
+            // Switch right file browser to this node's work directory as well
+            loadSessionFiles(n.remoteWorkDir || '/root/work', n.id);
+          });
+          pill.addEventListener('dblclick', (e) => {
+            e.stopPropagation();
+            openNodeManagerModal(n.id);
+          });
+          bar.appendChild(pill);
+        }
+      }
+
+      async function loadProjectTree(forceSync = false) {
+        try {
+          const res = await fetch(forceSync ? '/api/tree?sync=1' : '/api/tree');
+          const data = await res.json();
+          if (data && Array.isArray(data.nodes)) {
+            nodesData = data.nodes;
+            renderNodeFilterBar();
+          }
+          applyTagPayload(data);
+          if (data && data.folders) {
+            foldersData = data.folders;
+            // Additive-only visibility from local SQLite: any project with sessions or pinned_visible stays visible
+            for (const f of foldersData) {
+              if ((f.sessions || []).length > 0 || f.pinnedVisible) {
+                visibleProjectKeys.add(getFolderKey(f));
+              }
+            }
+            if (!initialVisibilityResolved) {
+              initialVisibilityResolved = true;
+              if (visibleProjectKeys.size === 0 && foldersData.length > 0) {
+                visibleProjectKeys.add(getFolderKey(foldersData[0]));
+              }
+            }
+            if (Array.isArray(data.openTabs)) {
+              for (const ot of data.openTabs) {
+                if (ot.cwd) {
+                  visibleProjectKeys.add(`${ot.nodeId || 'node-1'}::${ot.cwd}`);
+                }
+                if (!tabs.has(ot.tabId)) {
+                  openOrSwitchTerminalTab({
+                    tabId: ot.tabId,
+                    sessionId: ot.sessionId,
+                    title: ot.title,
+                    cwd: ot.cwd,
+                    nodeId: ot.nodeId || 'node-1',
+                    nodeBadge: ot.nodeBadge || 'LX-1',
+                    sshHost: ot.sshHost || '',
+                    localWorkAlias: ot.localWorkAlias || 'work',
+                    resume: true,
+                    mode: ot.mode || 'claude',
+                  });
+                }
+              }
+            }
+            renderProjectTree();
+          }
+        } catch (err) {
+          console.error('Failed to load project tree:', err);
+        }
+      }
+
+      let showEmptyFolders = false;
+
+      // Strip internal XML-ish tags (<wake ...>, <relay ...>, <command-name> ...) from raw first-prompt titles
+      // ============================================================================
+      // Project Tags (stored in local SQLite via /api/tags + /api/project-tag)
+      // ============================================================================
+      const TAG_COLORS = {
+        blue: '#60a5fa', pink: '#f472b6', orange: '#fb923c', purple: '#a78bfa',
+        yellow: '#facc15', cyan: '#22d3ee', red: '#f87171', gray: '#a1a1aa',
+      };
+      let tagsData = [];
+      let projectTags = {};
+      let selectedTagFilter = localStorage.getItem('takt_tag_filter') || 'all'; // 'all' | 'none' | tagId
+      const expandedSessionLists = new Set();
+      const SESSION_PREVIEW_LIMIT = 5;
+
+      function tagColor(tag) {
+        return TAG_COLORS[tag && tag.color] || TAG_COLORS.gray;
+      }
+      function getTagById(id) {
+        return tagsData.find((t) => t.id === id) || null;
+      }
+      function applyTagPayload(data) {
+        if (data && Array.isArray(data.tags)) tagsData = data.tags;
+        if (data && data.projectTags) projectTags = data.projectTags;
+        if (selectedTagFilter !== 'all' && selectedTagFilter !== 'none' && !getTagById(selectedTagFilter)) {
+          selectedTagFilter = 'all';
+        }
+      }
+      async function tagApi(method, url, body) {
+        const res = await fetch(url, {
+          method,
+          headers: { 'Content-Type': 'application/json' },
+          body: body ? JSON.stringify(body) : undefined,
+        });
+        const data = await res.json();
+        if (!data.ok) throw new Error(data.error || '操作失败');
+        applyTagPayload(data);
+        renderProjectTree();
+        return data;
+      }
+
+      const tagMenu = document.getElementById('tagMenu');
+      function openTagMenu(anchorEl, buildFn) {
+        tagMenu.innerHTML = '';
+        buildFn(tagMenu);
+        tagMenu.hidden = false;
+        const r = anchorEl.getBoundingClientRect();
+        const mw = tagMenu.offsetWidth;
+        const mh = tagMenu.offsetHeight;
+        const left = Math.min(r.left, window.innerWidth - mw - 8);
+        let top = r.bottom + 4;
+        if (top + mh > window.innerHeight - 8) top = Math.max(8, r.top - mh - 4);
+        tagMenu.style.left = `${Math.max(8, left)}px`;
+        tagMenu.style.top = `${top}px`;
+        const firstInput = tagMenu.querySelector('input');
+        if (firstInput) setTimeout(() => firstInput.focus(), 10);
+      }
+      function closeTagMenu() {
+        tagMenu.hidden = true;
+        tagMenu.innerHTML = '';
+      }
+      // Light-dismiss: outside click, Esc, scroll or resize closes the menu
+      document.addEventListener('mousedown', (e) => {
+        if (!tagMenu.hidden && !tagMenu.contains(e.target)) closeTagMenu();
+      }, true);
+      document.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape' && !tagMenu.hidden) closeTagMenu();
+      });
+      window.addEventListener('resize', () => closeTagMenu());
+      document.getElementById('projectList').addEventListener('scroll', () => closeTagMenu(), { passive: true });
+
+      function menuItem(html, onClick, extraClass = '') {
+        const b = document.createElement('button');
+        b.type = 'button';
+        b.className = `tag-menu-item ${extraClass}`;
+        b.innerHTML = html;
+        b.addEventListener('click', (e) => { e.stopPropagation(); onClick(); });
+        return b;
+      }
+      function menuSep() {
+        const d = document.createElement('div');
+        d.className = 'tag-menu-sep';
+        return d;
+      }
+      function buildTagEditor(menu, { title, initialName = '', initialColor = 'blue', submitLabel, onSubmit }) {
+        let color = initialColor;
+        const t = document.createElement('div');
+        t.className = 'tag-menu-title';
+        t.textContent = title;
+        menu.appendChild(t);
+        const wrap = document.createElement('div');
+        wrap.style.padding = '0 4px';
+        const input = document.createElement('input');
+        input.className = 'tag-menu-input';
+        input.placeholder = '标签名，如：公司开发';
+        input.value = initialName;
+        input.maxLength = 24;
+        wrap.appendChild(input);
+        menu.appendChild(wrap);
+        const sw = document.createElement('div');
+        sw.className = 'tag-swatches';
+        for (const [key, hex] of Object.entries(TAG_COLORS)) {
+          const b = document.createElement('button');
+          b.type = 'button';
+          b.className = `tag-swatch${key === color ? ' selected' : ''}`;
+          b.style.background = hex;
+          b.title = key;
+          b.addEventListener('click', (e) => {
+            e.stopPropagation();
+            color = key;
+            sw.querySelectorAll('.tag-swatch').forEach((x) => x.classList.toggle('selected', x === b));
+          });
+          sw.appendChild(b);
+        }
+        menu.appendChild(sw);
+        const submit = async () => {
+          const name = input.value.trim();
+          if (!name) { input.focus(); return; }
+          closeTagMenu();
+          try {
+            await onSubmit(name, color);
+          } catch (err) {
+            showToast(err.message);
+          }
+        };
+        input.addEventListener('keydown', (e) => {
+          if (e.key === 'Enter') { e.preventDefault(); submit(); }
+        });
+        menu.appendChild(menuSep());
+        menu.appendChild(menuItem(`<span>${escapeHtml(submitLabel)}</span>`, submit));
+      }
+
+      function openNewTagMenu(anchorEl, assignToProjectKey = '') {
+        openTagMenu(anchorEl, (menu) => buildTagEditor(menu, {
+          title: assignToProjectKey ? '新建标签并应用到此项目' : '新建标签',
+          initialColor: Object.keys(TAG_COLORS)[tagsData.length % Object.keys(TAG_COLORS).length],
+          submitLabel: '创建',
+          onSubmit: async (name, color) => {
+            const data = await tagApi('POST', '/api/tags', { name, color });
+            if (assignToProjectKey && data.id) {
+              await tagApi('PUT', '/api/project-tag', { projectKey: assignToProjectKey, tagId: data.id });
+            }
+          },
+        }));
+      }
+
+      function openEditTagMenu(anchorEl, tag) {
+        openTagMenu(anchorEl, (menu) => {
+          buildTagEditor(menu, {
+            title: '编辑标签',
+            initialName: tag.name,
+            initialColor: tag.color,
+            submitLabel: '保存',
+            onSubmit: (name, color) => tagApi('PATCH', '/api/tags', { id: tag.id, name, color }),
+          });
+          menu.appendChild(menuItem(`${SVG_ICONS.trash}<span>删除标签</span>`, async () => {
+            if (!confirm(`删除标签「${tag.name}」？项目本身不会被删除。`)) return;
+            closeTagMenu();
+            await tagApi('DELETE', `/api/tags?id=${encodeURIComponent(tag.id)}`);
+          }, 'danger'));
+        });
+      }
+
+      function openAssignTagMenu(anchorEl, folder) {
+        const key = getFolderKey(folder);
+        const current = projectTags[key] || '';
+        openTagMenu(anchorEl, (menu) => {
+          const t = document.createElement('div');
+          t.className = 'tag-menu-title';
+          t.textContent = `为「${String(folder.name || '').replace(/\s*\(主工作区\)\s*/, '')}」设置标签`;
+          menu.appendChild(t);
+          for (const tag of tagsData) {
+            menu.appendChild(menuItem(
+              `<span class="tag-dot" style="background:${tagColor(tag)}"></span><span>${escapeHtml(tag.name)}</span>${tag.id === current ? `<span class="tag-check">${SVG_ICONS.check}</span>` : ''}`,
+              async () => {
+                closeTagMenu();
+                await tagApi('PUT', '/api/project-tag', { projectKey: key, tagId: tag.id === current ? '' : tag.id });
+              },
+            ));
+          }
+          if (tagsData.length) menu.appendChild(menuSep());
+          menu.appendChild(menuItem(`${SVG_ICONS.plus}<span>新建标签…</span>`, () => openNewTagMenu(anchorEl, key)));
+          if (current) {
+            menu.appendChild(menuItem(`${SVG_ICONS.close}<span>移除标签</span>`, async () => {
+              closeTagMenu();
+              await tagApi('PUT', '/api/project-tag', { projectKey: key, tagId: '' });
+            }));
+          }
+        });
+      }
+
+      function renderTagBar(scopedFolders) {
+        const bar = document.getElementById('tagBar');
+        if (!bar) return;
+        bar.innerHTML = '';
+        const counts = { all: scopedFolders.length, none: 0 };
+        for (const f of scopedFolders) {
+          const tid = projectTags[getFolderKey(f)];
+          if (tid && getTagById(tid)) counts[tid] = (counts[tid] || 0) + 1;
+          else counts.none += 1;
+        }
+        const mkChip = (id, label, colorHex, extraClass = '') => {
+          const b = document.createElement('button');
+          b.type = 'button';
+          b.className = `tag-chip${selectedTagFilter === id ? ' active' : ''} ${extraClass}`;
+          if (colorHex) b.style.setProperty('--tag-c', colorHex);
+          b.innerHTML = `${colorHex ? '<span class="tag-dot"></span>' : ''}<span>${escapeHtml(label)}</span><span class="tag-count">${counts[id] || 0}</span>`;
+          b.addEventListener('click', () => {
+            selectedTagFilter = selectedTagFilter === id && id !== 'all' ? 'all' : id;
+            localStorage.setItem('takt_tag_filter', selectedTagFilter);
+            renderProjectTree();
+          });
+          bar.appendChild(b);
+          return b;
+        };
+        mkChip('all', '全部', '');
+        for (const tag of tagsData) {
+          const chip = mkChip(tag.id, tag.name, tagColor(tag));
+          chip.title = '右键编辑 / 删除';
+          chip.addEventListener('contextmenu', (e) => {
+            e.preventDefault();
+            openEditTagMenu(chip, tag);
+          });
+          chip.addEventListener('dblclick', (e) => {
+            e.preventDefault();
+            openEditTagMenu(chip, tag);
+          });
+        }
+        if (tagsData.length) mkChip('none', '未分类', '');
+        const add = document.createElement('button');
+        add.type = 'button';
+        add.className = 'tag-chip add';
+        add.innerHTML = `${SVG_ICONS.plus}<span>标签</span>`;
+        add.addEventListener('click', () => openNewTagMenu(add));
+        bar.appendChild(add);
+      }
+
+      function cleanSessionTitle(title, id = '') {
+        let t = String(title || '').replace(/<[^>]*>/g, ' ').replace(/<[^>]*$/, ' ').replace(/\s+/g, ' ').trim();
+        if (!t) t = `对话 ${String(id).slice(0, 6)}`;
+        return t;
+      }
+
+      function renderProjectTree() {
+        const container = document.getElementById('projectList');
+        container.innerHTML = '';
+        let totalSessions = 0;
+
+        const nodeScopedFolders = foldersData.filter((f) => {
+          if (selectedNodeFilter !== 'all' && f.nodeId !== selectedNodeFilter) return false;
+          return true;
+        });
+
+        // Primary visible folders: any folder with sessions > 0, pinnedVisible, or when showEmptyFolders is toggled on
+        const displayedFolders = nodeScopedFolders.filter((f) => {
+          if ((f.sessions || []).length > 0 || f.pinnedVisible) return true;
+          if (showEmptyFolders) return true;
+          if (selectedNodeFilter !== 'all' && f.path === (f.remoteWorkDir || '/root/work')) return true;
+          return visibleProjectKeys.has(getFolderKey(f));
+        });
+
+        let hiddenEmptyFolders = nodeScopedFolders.filter((f) => !displayedFolders.includes(f));
+
+        // Tag chips count over the node-scoped visible set (tagged projects always count as visible)
+        const tagScopeFolders = nodeScopedFolders.filter((f) => displayedFolders.includes(f) || projectTags[getFolderKey(f)]);
+        renderTagBar(tagScopeFolders);
+        if (selectedTagFilter !== 'all') {
+          const matchTag = (f) => {
+            const tid = projectTags[getFolderKey(f)];
+            const valid = tid && getTagById(tid);
+            return selectedTagFilter === 'none' ? !valid : tid === selectedTagFilter;
+          };
+          const filtered = tagScopeFolders.filter(matchTag);
+          displayedFolders.length = 0;
+          displayedFolders.push(...filtered);
+          hiddenEmptyFolders = [];
+        }
+
+        if (selectedNodeFilter !== 'all') {
+          const activeNode = getNodeInfo(selectedNodeFilter);
+          if (activeNode && !activeNode.sshHost) {
+            const cfgBanner = document.createElement('div');
+            cfgBanner.className = 'project-group';
+            cfgBanner.style.padding = '10px';
+            cfgBanner.style.display = 'flex';
+            cfgBanner.style.flexDirection = 'column';
+            cfgBanner.style.gap = '6px';
+            cfgBanner.innerHTML = `
+              <div style="font-size:11.5px; font-weight:600; color:var(--text-primary); display:flex; align-items:center; justify-content:space-between;">
+                <span>${escapeHtml(activeNode.name)} (${escapeHtml(activeNode.localWorkAlias)})</span>
+                <span class="machine-badge secondary">${escapeHtml(activeNode.badge)} · 待接入 SSH</span>
+              </div>
+              <div style="font-size:11px; color:var(--text-secondary); line-height:1.45;">
+                本地同步目录 <code>${escapeHtml(activeNode.localWorkDir)}</code> 已就绪。点击下方按钮选择这台 Linux 的 SSH Host，即可自动打通 Mac MCP 逆向隧道与 Syncthing 同步。
+              </div>
+              <button class="btn btn-primary" id="btnBannerBindSsh" style="align-self:flex-start; margin-top:2px;">配置此节点 SSH 与同步</button>
+            `;
+            cfgBanner.querySelector('#btnBannerBindSsh').addEventListener('click', () => openNodeManagerModal(activeNode.id));
+            container.appendChild(cfgBanner);
+          }
+        }
+
+        // Group by machine when showing all nodes, so the machine badge is shown once instead of on every row
+        const sectionCounts = {};
+        for (const f of displayedFolders) {
+          sectionCounts[f.nodeId] = (sectionCounts[f.nodeId] || 0) + (f.sessions || []).length;
+        }
+        const nodeOrder = nodesData.map((n) => n.id);
+        displayedFolders.sort((a, b) => {
+          const ia = nodeOrder.indexOf(a.nodeId);
+          const ib = nodeOrder.indexOf(b.nodeId);
+          return (ia === -1 ? 99 : ia) - (ib === -1 ? 99 : ib);
+        });
+        let lastSectionNodeId = null;
+
+        for (const folder of displayedFolders) {
+          const folderKey = getFolderKey(folder);
+          const sessCount = (folder.sessions || []).length;
+          totalSessions += sessCount;
+          const isCollapsed = collapsedProjects.has(folderKey);
+          const badgeText = `${folder.nodeBadge || 'LX-1'} · ${folder.localWorkAlias || 'work'}`;
+          const mappingTitle = `${folder.nodeName || folder.nodeId} (${folder.sshHost || '未配SSH'}:${folder.path} <-> Mac ${folder.localPath || folder.localWorkDir})`;
+
+          if (selectedNodeFilter === 'all' && folder.nodeId !== lastSectionNodeId) {
+            lastSectionNodeId = folder.nodeId;
+            const nodeInfo = getNodeInfo(folder.nodeId) || {};
+            const sec = document.createElement('div');
+            sec.className = 'node-section';
+            sec.title = mappingTitle;
+            sec.innerHTML = `
+              <span class="node-pill-dot${nodeInfo.online ? ' online' : ''}"></span>
+              <span class="node-section-name">${escapeHtml(folder.nodeBadge || nodeInfo.badge || folder.nodeId)}</span>
+              <span>${escapeHtml(folder.localWorkAlias || nodeInfo.localWorkAlias || '')}</span>
+              <span class="node-section-meta">${nodeInfo.online ? '' : '离线 · '}${sectionCounts[folder.nodeId] || 0}</span>
+            `;
+            container.appendChild(sec);
+          }
+
+          const rawName = String(folder.name || '');
+          const isRootFolder = /\(主工作区\)/.test(rawName);
+          const displayName = rawName.replace(/\s*\(主工作区\)\s*/, '');
+
+          const group = document.createElement('div');
+          group.className = `project-group${isCollapsed ? ' collapsed' : ''}`;
+
+          const header = document.createElement('div');
+          header.className = 'project-header';
+          header.setAttribute('role', 'button');
+          header.setAttribute('aria-expanded', String(!isCollapsed));
+          header.title = mappingTitle;
+
+          const nameWrap = document.createElement('div');
+          nameWrap.className = 'project-name-wrap';
+          const projTag = getTagById(projectTags[folderKey]);
+          nameWrap.innerHTML = `
+            ${SVG_ICONS.chevronDown}
+            <span class="project-name">${escapeHtml(displayName)}</span>
+            ${isRootFolder ? '<span class="project-name-sub">根目录</span>' : ''}
+            ${projTag ? `<span class="tag-badge" style="--tag-c:${tagColor(projTag)}">${escapeHtml(projTag.name)}</span>` : ''}
+          `;
+
+          const tagBtn = document.createElement('button');
+          tagBtn.type = 'button';
+          tagBtn.className = 'project-tag-btn';
+          tagBtn.innerHTML = SVG_ICONS.tag;
+          tagBtn.title = '设置标签';
+          tagBtn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            openAssignTagMenu(tagBtn, folder);
+          });
+
+          const countEl = document.createElement('span');
+          countEl.className = 'project-count-pill';
+          countEl.textContent = sessCount > 0 ? String(sessCount) : '';
+
+          const newBtn = document.createElement('button');
+          newBtn.className = 'project-new-btn';
+          newBtn.innerHTML = SVG_ICONS.plus;
+          newBtn.title = `在 [${badgeText}] ${folder.path} 新建对话`;
+          newBtn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            if (!folder.sshHost) {
+              openNodeManagerModal(folder.nodeId);
+              showToast('请先为该 Linux 节点配置 SSH Host');
+              return;
+            }
+            startNewConversationInProject(folder.path, folder.name, folder.nodeId);
+          });
+
+          header.addEventListener('contextmenu', (e) => {
+            e.preventDefault();
+            openAssignTagMenu(tagBtn.offsetParent ? tagBtn : header, folder);
+          });
+
+          header.addEventListener('click', () => {
+            if (collapsedProjects.has(folderKey)) {
+              collapsedProjects.delete(folderKey);
+            } else {
+              collapsedProjects.add(folderKey);
+            }
+            saveCollapsedProjects();
+            renderProjectTree();
+            loadSessionFiles(folder.path, folder.nodeId);
+          });
+
+          header.appendChild(nameWrap);
+          header.appendChild(countEl);
+          header.appendChild(tagBtn);
+          header.appendChild(newBtn);
+          group.appendChild(header);
+
+          const sessionList = document.createElement('div');
+          sessionList.className = 'session-items';
+
+          if (!folder.sessions || folder.sessions.length === 0) {
+            const empty = document.createElement('div');
+            empty.className = 'empty-sessions';
+            empty.textContent = '暂无对话';
+            sessionList.appendChild(empty);
+          } else {
+            const isListExpanded = expandedSessionLists.has(folderKey);
+            const visibleSessions = isListExpanded
+              ? folder.sessions
+              : folder.sessions.filter((sess, idx) => idx < SESSION_PREVIEW_LIMIT || tabs.has(sess.id) || activeTabId === sess.id);
+            for (const sess of visibleSessions) {
+              const isOpen = tabs.has(sess.id);
+              const isCurrent = activeTabId === sess.id;
+
+              const item = document.createElement('div');
+              item.className = `session-item${isCurrent ? ' active' : ''}`;
+              const displayTitle = cleanSessionTitle(sess.title, sess.id);
+              item.title = `${displayTitle}\n${sess.turns || 1} turns · ${formatRelativeTime(sess.updatedAt)} · 双击重命名`;
+              item.innerHTML = `
+                <div class="session-info">
+                  ${isOpen ? '<span class="session-live-dot"></span>' : ''}
+                  <span class="session-title">${escapeHtml(displayTitle)}</span>
+                </div>
+                <span class="session-meta">${formatRelativeTime(sess.updatedAt)}</span>
+                <div class="session-actions">
+                  <button class="session-act-btn session-rename-btn" title="重命名">${SVG_ICONS.edit}</button>
+                  <button class="session-act-btn danger session-del-btn" title="删除">${SVG_ICONS.trash}</button>
+                </div>
+              `;
+
+              item.addEventListener('click', () => {
+                openOrSwitchTerminalTab({
+                  tabId: sess.id,
+                  sessionId: sess.id,
+                  title: sess.title,
+                  cwd: sess.cwd || folder.path,
+                  nodeId: sess.nodeId || folder.nodeId,
+                  nodeBadge: sess.nodeBadge || folder.nodeBadge,
+                  sshHost: sess.sshHost || folder.sshHost,
+                  localWorkAlias: sess.localWorkAlias || folder.localWorkAlias,
+                  resume: true,
+                  mode: 'claude',
+                });
+              });
+
+              item.addEventListener('dblclick', (e) => {
+                e.stopPropagation();
+                openRenameSessionModal(sess.id, sess.title, sess.nodeId || folder.nodeId);
+              });
+
+              item.querySelector('.session-rename-btn').addEventListener('click', (e) => {
+                e.stopPropagation();
+                openRenameSessionModal(sess.id, sess.title, sess.nodeId || folder.nodeId);
+              });
+
+              item.querySelector('.session-del-btn').addEventListener('click', async (e) => {
+                e.stopPropagation();
+                if (!confirm(`确定删除会话 "${sess.title}" 吗？`)) return;
+                if (tabs.has(sess.id)) {
+                  await closeTerminalTab(sess.id);
+                }
+                await fetch(`/api/sessions?id=${encodeURIComponent(sess.id)}&nodeId=${encodeURIComponent(sess.nodeId || folder.nodeId || '')}`, { method: 'DELETE' });
+                loadProjectTree();
+              });
+
+              sessionList.appendChild(item);
+            }
+            if (folder.sessions.length > SESSION_PREVIEW_LIMIT) {
+              const more = document.createElement('button');
+              more.type = 'button';
+              more.className = 'see-more-link';
+              more.textContent = isListExpanded ? '收起' : `查看全部 (${folder.sessions.length})`;
+              more.addEventListener('click', (e) => {
+                e.stopPropagation();
+                if (isListExpanded) expandedSessionLists.delete(folderKey);
+                else expandedSessionLists.add(folderKey);
+                renderProjectTree();
+              });
+              sessionList.appendChild(more);
+            }
+          }
+
+          group.appendChild(sessionList);
+          container.appendChild(group);
+        }
+
+        if (hiddenEmptyFolders.length > 0 || showEmptyFolders) {
+          const toggleEmptyBtn = document.createElement('button');
+          toggleEmptyBtn.type = 'button';
+          toggleEmptyBtn.className = 'toggle-empty-link';
+          toggleEmptyBtn.textContent = showEmptyFolders
+            ? '隐藏空项目'
+            : `+ ${hiddenEmptyFolders.length} 个空项目`;
+          toggleEmptyBtn.addEventListener('click', () => {
+            showEmptyFolders = !showEmptyFolders;
+            renderProjectTree();
+          });
+          container.appendChild(toggleEmptyBtn);
+        }
+
+        document.getElementById('sessionTotalBadge').textContent = `${displayedFolders.length} 个项目 · ${totalSessions} 个对话`;
+      }
+
+      // Collapse / Expand All Projects Button
+      document.getElementById('btnToggleAllProjects').addEventListener('click', () => {
+        const shown = foldersData.filter((f) => visibleProjectKeys.has(getFolderKey(f)));
+        const allCollapsed = shown.every((f) => collapsedProjects.has(getFolderKey(f)));
+        if (!allCollapsed) {
+          for (const f of shown) collapsedProjects.add(getFolderKey(f));
+        } else {
+          for (const f of shown) collapsedProjects.delete(getFolderKey(f));
+        }
+        saveCollapsedProjects();
+        renderProjectTree();
+      });
+
+      function generateUUID() {
+        if (crypto.randomUUID) return crypto.randomUUID();
+        return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
+          const r = (Math.random() * 16) | 0;
+          const v = c === 'x' ? r : (r & 0x3) | 0x8;
+          return v.toString(16);
+        });
+      }
+
+      function startNewConversationInProject(projectPath = '/root/work', projectName = 'work', nodeId = 'node-1') {
+        const node = getNodeInfo(nodeId);
+        if (!node.sshHost) {
+          openNodeManagerModal(node.id);
+          showToast('请先为该 Linux 节点配置 SSH Host');
+          return;
+        }
+        const sid = generateUUID();
+        const shortProj = projectName.replace(/\s*\(.*?\)\s*/, '');
+        const title = `${shortProj} · 终端`;
+        const key = `${node.id}::${projectPath}`;
+        visibleProjectKeys.add(key);
+        collapsedProjects.delete(key);
+        saveCollapsedProjects();
+        // Immediately persist new session & project visibility into local SQLite
+        fetch('/api/sessions/register', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ id: sid, nodeId: node.id, cwd: projectPath, title }),
+        })
+          .then(() => loadProjectTree())
+          .catch(() => {});
+        openOrSwitchTerminalTab({
+          tabId: sid,
+          sessionId: sid,
+          title,
+          cwd: projectPath,
+          nodeId: node.id,
+          nodeBadge: node.badge,
+          sshHost: node.sshHost,
+          localWorkAlias: node.localWorkAlias,
+          resume: false,
+          mode: 'claude',
+        });
+      }
+
+      // ============================================================================
+      // 7. Center Panel: Dual-Engine (Native SwiftTerm + Web xterm) Terminal Manager
+      // ============================================================================
+      function openOrSwitchTerminalTab({
+        tabId,
+        sessionId,
+        title,
+        cwd,
+        nodeId = 'node-1',
+        nodeBadge = '',
+        sshHost = '',
+        localWorkAlias = '',
+        resume = true,
+        mode = 'claude',
+      }) {
+        if (tabs.has(tabId)) {
+          activateTerminalTab(tabId);
+          return;
+        }
+
+        const node = getNodeInfo(nodeId);
+        const resolvedNodeId = node.id;
+        const resolvedBadge = nodeBadge || node.badge || 'LX-1';
+        const resolvedSshHost = sshHost || node.sshHost || '';
+        const resolvedAlias = localWorkAlias || node.localWorkAlias || 'work';
+
+        const stage = document.getElementById('terminalStage');
+        document.getElementById('emptyTermPlaceholder').style.display = 'none';
+
+        const wrapEl = document.createElement('div');
+        wrapEl.className = 'term-instance-wrap';
+        const mountEl = document.createElement('div');
+        mountEl.className = 'term-mount';
+        wrapEl.appendChild(mountEl);
+        stage.appendChild(wrapEl);
+
+        const term = new window.Terminal({
+          fontFamily: '"JetBrains Mono", "SF Mono", "Menlo", "PingFang SC", monospace',
+          fontSize: 13,
+          lineHeight: 1.4,
+          cursorBlink: true,
+          cursorStyle: 'block',
+          allowProposedApi: true,
+          scrollback: 10000,
+          theme: CODEX_DARK_TERM_THEME,
+        });
+
+        const fitAddon = new window.FitAddon.FitAddon();
+        term.loadAddon(fitAddon);
+
+        if (window.WebLinksAddon && window.WebLinksAddon.WebLinksAddon) {
+          term.loadAddon(new window.WebLinksAddon.WebLinksAddon((event, uri) => {
+            event.preventDefault();
+            previewUrlInRightPane(uri);
+          }));
+        }
+
+        term.open(mountEl);
+        registerFilePathLinkProvider(term, cwd || '/root/work');
+
+        const tabObj = {
+          tabId,
+          sessionId: sessionId || tabId,
+          title: title || `终端 ${String(tabId).slice(0, 6)}`,
+          cwd: cwd || '/root/work',
+          nodeId: resolvedNodeId,
+          nodeBadge: resolvedBadge,
+          sshHost: resolvedSshHost,
+          localWorkAlias: resolvedAlias,
+          resume: Boolean(resume),
+          mode,
+          term,
+          fitAddon,
+          wrapEl,
+          ws: null,
+          seenImages: new Set(),
+        };
+
+        tabs.set(tabId, tabObj);
+        activateTerminalTab(tabId);
+
+        if (terminalEngine === 'web' || !hasNativeHost) {
+          ensureWebTerminalConnected(tabObj);
+        }
+
+        renderTabBar();
+        renderProjectTree();
+        setTimeout(() => loadProjectTree(), 2500);
+      }
+
+      function ensureWebTerminalConnected(tabObj) {
+        if (tabObj.ws && (tabObj.ws.readyState === WebSocket.OPEN || tabObj.ws.readyState === WebSocket.CONNECTING)) {
+          return;
+        }
+        const dims = tabObj.fitAddon.proposeDimensions() || { cols: 120, rows: 34 };
+        const qs = new URLSearchParams({
+          tabId: tabObj.tabId,
+          sessionId: tabObj.sessionId,
+          cwd: tabObj.cwd,
+          nodeId: tabObj.nodeId || 'node-1',
+          sshHost: tabObj.sshHost || '',
+          title: tabObj.title,
+          resume: tabObj.resume ? '1' : '0',
+          mode: tabObj.mode,
+          cols: String(dims.cols || 120),
+          rows: String(dims.rows || 34),
+        });
+
+        const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+        const ws = new WebSocket(`${proto}//${location.host}/ws/term?${qs.toString()}`);
+        tabObj.ws = ws;
+
+        ws.addEventListener('open', () => {
+          setTimeout(() => {
+            try {
+              tabObj.fitAddon.fit();
+              ws.send(JSON.stringify({ type: 'resize', cols: tabObj.term.cols, rows: tabObj.term.rows }));
+            } catch {}
+          }, 80);
+        });
+
+        ws.addEventListener('message', (ev) => {
+          try {
+            const msg = JSON.parse(ev.data);
+            if (msg.type === 'output' && typeof msg.data === 'string') {
+              tabObj.term.write(msg.data);
+              detectAndRenderInlineMediaFromOutput(tabObj, msg.data);
+            }
+          } catch {}
+        });
+
+        ws.addEventListener('close', () => {
+          if (tabs.has(tabObj.tabId) && terminalEngine === 'web') {
+            setTimeout(() => {
+              if (tabs.has(tabObj.tabId) && terminalEngine === 'web') {
+                ensureWebTerminalConnected(tabObj);
+              }
+            }, 1200);
+          }
+        });
+
+        if (!tabObj._listenersBound) {
+          tabObj._listenersBound = true;
+          tabObj.term.onData((data) => {
+            if (tabObj.ws && tabObj.ws.readyState === WebSocket.OPEN) {
+              tabObj.ws.send(JSON.stringify({ type: 'input', data }));
+            }
+          });
+          tabObj.term.onResize(({ cols, rows }) => {
+            if (tabObj.ws && tabObj.ws.readyState === WebSocket.OPEN) {
+              tabObj.ws.send(JSON.stringify({ type: 'resize', cols, rows }));
+            }
+          });
+        }
+      }
+
+      function sendTextToActiveTerminal(text) {
+        if (!activeTabId || !tabs.has(activeTabId)) {
+          showToast('请先打开或选择一个终端标签页');
+          return;
+        }
+        const t = tabs.get(activeTabId);
+        if (terminalEngine === 'native' && hasNativeHost) {
+          postNativeMessage({ action: 'sendInput', tabId: t.tabId, text });
+        } else {
+          ensureWebTerminalConnected(t);
+          if (t.ws && t.ws.readyState === WebSocket.OPEN) {
+            t.ws.send(JSON.stringify({ type: 'input', data: text }));
+            t.term.focus();
+          }
+        }
+      }
+
+      function activateTerminalTab(tabId) {
+        if (!tabs.has(tabId)) return;
+        activeTabId = tabId;
+
+        for (const [id, t] of tabs.entries()) {
+          if (id === tabId) {
+            t.wrapEl.classList.add('active');
+            const cmdBar = document.getElementById('manualCmdBar');
+            const cwdText = document.getElementById('manualCwdText');
+            const cmdText = document.getElementById('manualCmdText');
+            if (cmdBar && cwdText && cmdText) {
+              cmdBar.style.display = 'flex';
+              cwdText.textContent = `[${t.nodeBadge || 'LX-1'} · ${t.sshHost || ''}] ${t.cwd}`;
+              cmdText.textContent = t.resume ? `claude -r ${t.sessionId}` : 'claude';
+            }
+            if (terminalEngine === 'native' && hasNativeHost) {
+              postNativeMessage({
+                action: 'activateTab',
+                tabId: t.tabId,
+                sessionId: t.sessionId,
+                cwd: t.cwd,
+                sshHost: t.sshHost || '',
+                title: t.title,
+                resume: t.resume,
+              });
+              setTimeout(syncNativeTerminalGeometry, 20);
+            } else {
+              ensureWebTerminalConnected(t);
+              setTimeout(() => {
+                try {
+                  t.fitAddon.fit();
+                  t.term.focus();
+                } catch {}
+              }, 20);
+            }
+            if (currentFilesCwd !== t.cwd || currentFilesNodeId !== t.nodeId) {
+              loadSessionFiles(t.cwd, t.nodeId);
+            }
+          } else {
+            t.wrapEl.classList.remove('active');
+          }
+        }
+
+        renderTabBar();
+        renderProjectTree();
+      }
+
+      async function closeTerminalTab(tabId) {
+        const tabObj = tabs.get(tabId);
+        if (!tabObj) return;
+
+        postNativeMessage({ action: 'closeTab', tabId });
+
+        try {
+          if (tabObj.ws && tabObj.ws.readyState === WebSocket.OPEN) {
+            tabObj.ws.send(JSON.stringify({ type: 'kill' }));
+            tabObj.ws.close();
+          }
+        } catch {}
+        await fetch(`/api/tabs?tabId=${encodeURIComponent(tabId)}&nodeId=${encodeURIComponent(tabObj.nodeId || '')}`, { method: 'DELETE' }).catch(() => {});
+
+        try { tabObj.term.dispose(); } catch {}
+        try { tabObj.wrapEl.remove(); } catch {}
+        tabs.delete(tabId);
+
+        if (activeTabId === tabId) {
+          const remaining = Array.from(tabs.keys());
+          if (remaining.length > 0) {
+            activateTerminalTab(remaining[remaining.length - 1]);
+          } else {
+            activeTabId = null;
+            document.getElementById('emptyTermPlaceholder').style.display = 'flex';
+            document.getElementById('manualCmdBar').style.display = 'none';
+            syncNativeTerminalGeometry();
+          }
+        }
+
+        renderTabBar();
+        renderProjectTree();
+      }
+
+      function renderTabBar() {
+        const bar = document.getElementById('tabBarList');
+        bar.innerHTML = '';
+
+        for (const [tabId, t] of tabs.entries()) {
+          const btn = document.createElement('div');
+          btn.className = `term-tab${tabId === activeTabId ? ' active' : ''}`;
+          const projShort = t.cwd === '/root/work' ? (t.localWorkAlias || 'work') : t.cwd.split('/').pop();
+          const badgePrefix = `${t.nodeBadge || 'LX-1'} · ${projShort}`;
+          btn.innerHTML = `
+            <span class="term-tab-dot"></span>
+            <span class="term-tab-label" title="[${escapeHtml(t.sshHost)}] ${escapeHtml(t.cwd)} / ${escapeHtml(t.title)} (双击可重命名)">[${escapeHtml(badgePrefix)}] ${escapeHtml(t.title)}</span>
+            <button class="term-tab-close" title="关闭此标签页并终止远端 tmux 会话">${SVG_ICONS.close}</button>
+          `;
+
+          btn.addEventListener('click', () => activateTerminalTab(tabId));
+          btn.addEventListener('dblclick', (e) => {
+            e.stopPropagation();
+            openRenameSessionModal(tabId, t.title, t.nodeId);
+          });
+          btn.querySelector('.term-tab-close').addEventListener('click', (e) => {
+            e.stopPropagation();
+            closeTerminalTab(tabId);
+          });
+
+          bar.appendChild(btn);
+        }
+      }
+
+      // ============================================================================
+      // 8. Right Panel: Collapsible & Drag-and-Drop File Tree + Previewer (Mac Local Path Priority)
+      // ============================================================================
+      function toLocalMacPath(p, nodeId = currentFilesNodeId) {
+        const node = getNodeInfo(nodeId);
+        const localRoot = node.localWorkDir || '';
+        const remoteRoot = (node.remoteWorkDir || '/root/work').replace(/\/+$/, '') || '/root/work';
+        const clean = String(p || '').trim().replace(/\/+$/, '');
+        if (!clean || clean === remoteRoot || clean === localRoot) {
+          return localRoot;
+        }
+        if (clean.startsWith(remoteRoot + '/')) {
+          return `${localRoot}/${clean.slice(remoteRoot.length + 1)}`;
+        }
+        if (clean.startsWith('/root/work/')) {
+          return `${localRoot}/${clean.slice('/root/work/'.length)}`;
+        }
+        return clean;
+      }
+
+      async function loadSessionFiles(cwd = currentFilesCwd, nodeId = currentFilesNodeId) {
+        currentFilesCwd = cwd || '/root/work';
+        currentFilesNodeId = nodeId || currentFilesNodeId || 'node-1';
+        const activeNode = getNodeInfo(currentFilesNodeId);
+        document.getElementById('currentSessionCwdLabel').textContent = toLocalMacPath(currentFilesCwd, currentFilesNodeId);
+        const badgeEl = document.getElementById('rightNodeBadge');
+        if (badgeEl && activeNode) {
+          badgeEl.textContent = `${activeNode.badge} · ${activeNode.localWorkAlias}`;
+          badgeEl.className = (nodesData[0] && activeNode.id === nodesData[0].id) ? 'machine-badge' : 'machine-badge secondary';
+        }
+        try {
+          const res = await fetch(`/api/files?cwd=${encodeURIComponent(currentFilesCwd)}&nodeId=${encodeURIComponent(currentFilesNodeId)}`);
+          const data = await res.json();
+          if (data && data.localRoot) {
+            document.getElementById('currentSessionCwdLabel').textContent = data.localRoot;
+          }
+          if (data && data.nodeBadge && badgeEl) {
+            badgeEl.textContent = `${data.nodeBadge} · ${data.localWorkAlias || 'work'}`;
+          }
+          currentFileTree = data.items || [];
+          renderFileTree();
+        } catch (err) {
+          console.error('Failed to load session files:', err);
+        }
+      }
+
+      function formatBytes(bytes) {
+        if (!bytes || bytes < 1024) return `${bytes || 0} B`;
+        if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+        return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+      }
+
+      function collectAllDirPaths(nodes, out = []) {
+        for (const n of nodes) {
+          if (n.type === 'dir') {
+            out.push(n.path);
+            if (n.children) collectAllDirPaths(n.children, out);
+          }
+        }
+        return out;
+      }
+
+      document.getElementById('btnToggleAllDirs').addEventListener('click', () => {
+        const allDirs = collectAllDirPaths(currentFileTree);
+        if (collapsedDirs.size < allDirs.length) {
+          for (const p of allDirs) collapsedDirs.add(p);
+        } else {
+          collapsedDirs.clear();
+        }
+        saveCollapsedDirs();
+        renderFileTree();
+      });
+
+      function shellEscapePath(p) {
+        if (/^[a-zA-Z0-9_./-]+$/.test(p)) return p;
+        return `'${String(p).replace(/'/g, `'\\''`)}'`;
+      }
+
+      function renderFileTree() {
+        const container = document.getElementById('fileTreeContainer');
+        const filter = (document.getElementById('fileSearchInput').value || '').trim().toLowerCase();
+        container.innerHTML = '';
+        let count = 0;
+
+        function nodeMatchesFilter(node) {
+          if (!filter) return true;
+          if (node.name.toLowerCase().includes(filter) || (node.relPath || '').toLowerCase().includes(filter)) {
+            return true;
+          }
+          if (node.type === 'dir' && Array.isArray(node.children)) {
+            return node.children.some(nodeMatchesFilter);
+          }
+          return false;
+        }
+
+        function buildTreeDom(nodes, parentEl, depth) {
+          for (const node of nodes) {
+            if (!nodeMatchesFilter(node)) continue;
+            count++;
+
+            const isDir = node.type === 'dir';
+            const isCollapsed = isDir && !filter && collapsedDirs.has(node.path);
+
+            const groupEl = document.createElement('div');
+            groupEl.className = `tree-node-group${isCollapsed ? ' collapsed' : ''}`;
+
+            const row = document.createElement('div');
+            row.className = `tree-row${selectedFilePath === node.path ? ' selected' : ''}`;
+            row.style.paddingLeft = `${6 + depth * 14}px`;
+            row.setAttribute('draggable', 'true');
+            if (isDir) {
+              row.setAttribute('aria-expanded', String(!isCollapsed));
+            }
+
+            row.innerHTML = `
+              <div class="tree-row-left">
+                ${isDir ? SVG_ICONS.dirChevron : '<span class="dir-spacer"></span>'}
+                ${fileIconSvg(node.ext, isDir, isCollapsed)}
+                <span class="tree-name" title="${escapeHtml(node.path)} (可拖拽到终端或其它目录)">${escapeHtml(node.name)}</span>
+              </div>
+              <div class="tree-row-right">
+                <button class="tree-send-btn" title="将路径注入当前终端">&gt;_</button>
+                <span class="tree-size">${isDir ? (node.children ? node.children.length : 0) : formatBytes(node.size)}</span>
+              </div>
+            `;
+
+            // Quick button: send path into active terminal
+            row.querySelector('.tree-send-btn').addEventListener('click', (e) => {
+              e.stopPropagation();
+              sendTextToActiveTerminal(`${shellEscapePath(node.path)} `);
+              showToast(`已注入路径: ${node.name}`);
+            });
+
+            // Click row: toggle directory collapse OR preview file (with 0ms client-side filter for non-previewable / large files)
+            row.addEventListener('click', () => {
+              selectedFilePath = node.path;
+              if (isDir) {
+                if (collapsedDirs.has(node.path)) {
+                  collapsedDirs.delete(node.path);
+                } else {
+                  collapsedDirs.add(node.path);
+                }
+                saveCollapsedDirs();
+                renderFileTree();
+              } else {
+                renderFileTree();
+                const check = checkClientPreviewEligibility(node);
+                if (!check.allowed) {
+                  renderUnsupportedPreviewCard({
+                    name: node.name,
+                    path: node.path,
+                    ext: node.ext,
+                    size: node.size,
+                    reason: check.reason,
+                  });
+                  return;
+                }
+                previewFileInRightPane(node.path, currentFilesCwd, false);
+              }
+            });
+
+            // Drag Start (from File Tree -> Terminal OR -> Another Directory)
+            row.addEventListener('dragstart', (e) => {
+              isDraggingFile = true;
+              row.classList.add('dragging-source');
+              syncNativeTerminalGeometry(); // Temporarily reveal HTML drop zone over native terminal
+              e.dataTransfer.effectAllowed = 'copyMove';
+              e.dataTransfer.setData('application/x-takt-path', node.path);
+              e.dataTransfer.setData('text/plain', shellEscapePath(node.path));
+            });
+
+            row.addEventListener('dragend', () => {
+              isDraggingFile = false;
+              row.classList.remove('dragging-source');
+              document.getElementById('terminalStage').classList.remove('drag-over');
+              syncNativeTerminalGeometry();
+            });
+
+            // Directory row as Drop Target (Move internal file/folder OR Upload external OS file)
+            if (isDir) {
+              row.addEventListener('dragover', (e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                row.classList.add('drop-target');
+              });
+              row.addEventListener('dragleave', (e) => {
+                e.stopPropagation();
+                row.classList.remove('drop-target');
+              });
+              row.addEventListener('drop', async (e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                row.classList.remove('drop-target');
+                await handleDropOntoDirectory(e, node.path);
+              });
+            }
+
+            groupEl.appendChild(row);
+
+            if (isDir && Array.isArray(node.children) && node.children.length > 0) {
+              const childrenEl = document.createElement('div');
+              childrenEl.className = 'tree-children';
+              buildTreeDom(node.children, childrenEl, depth + 1);
+              groupEl.appendChild(childrenEl);
+            }
+
+            parentEl.appendChild(groupEl);
+          }
+        }
+
+        buildTreeDom(currentFileTree, container, 0);
+        document.getElementById('fileCountLabel').textContent = `${count} 项`;
+
+        if (count === 0) {
+          container.innerHTML = '<div class="preview-empty">当前目录为空 (可从 Finder 拖拽文件至此上传)</div>';
+        }
+      }
+
+      // Handle dropping internal node OR external OS files onto a target directory
+      async function handleDropOntoDirectory(e, targetDirPath) {
+        const internalSourcePath = e.dataTransfer.getData('application/x-takt-path');
+        if (internalSourcePath) {
+          if (internalSourcePath === targetDirPath) return;
+          const res = await fetch('/api/files/move', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              sourcePath: internalSourcePath,
+              targetDirPath,
+              cwd: currentFilesCwd,
+              nodeId: currentFilesNodeId,
+            }),
+          });
+          const data = await res.json();
+          if (data.ok) {
+            collapsedDirs.delete(targetDirPath);
+            saveCollapsedDirs();
+            showToast(`已移动至 ${targetDirPath.split('/').pop()}`);
+            await loadSessionFiles(currentFilesCwd, currentFilesNodeId);
+          } else {
+            showToast(data.error || '移动失败');
+          }
+          return;
+        }
+
+        // External files dropped from macOS Finder
+        if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+          await uploadExternalFilesToDir(e.dataTransfer.files, targetDirPath);
+        }
+      }
+
+      async function uploadExternalFilesToDir(fileList, targetDirPath) {
+        let uploaded = 0;
+        for (const file of fileList) {
+          const base64 = await new Promise((resolve) => {
+            const reader = new FileReader();
+            reader.onload = () => {
+              const res = String(reader.result || '');
+              resolve(res.includes(',') ? res.split(',')[1] : '');
+            };
+            reader.onerror = () => resolve('');
+            reader.readAsDataURL(file);
+          });
+          if (!base64) continue;
+          const res = await fetch('/api/files/upload', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              fileName: file.name,
+              targetDirPath,
+              cwd: currentFilesCwd,
+              nodeId: currentFilesNodeId,
+              contentBase64: base64,
+            }),
+          });
+          const data = await res.json();
+          if (data.ok) uploaded++;
+        }
+        if (uploaded > 0) {
+          showToast(`已上传 ${uploaded} 个文件至 ${targetDirPath}`);
+          await loadSessionFiles(currentFilesCwd, currentFilesNodeId);
+        }
+      }
+
+      // Root Path Bar & File Tree Container Drop Listeners
+      const rootDropBar = document.getElementById('rootDropBar');
+      rootDropBar.addEventListener('dragover', (e) => {
+        e.preventDefault();
+        rootDropBar.classList.add('drop-target');
+      });
+      rootDropBar.addEventListener('dragleave', () => rootDropBar.classList.remove('drop-target'));
+      rootDropBar.addEventListener('drop', async (e) => {
+        e.preventDefault();
+        rootDropBar.classList.remove('drop-target');
+        await handleDropOntoDirectory(e, currentFilesCwd);
+      });
+
+      const fileTreeContainer = document.getElementById('fileTreeContainer');
+      fileTreeContainer.addEventListener('dragover', (e) => {
+        e.preventDefault();
+        fileTreeContainer.classList.add('external-drag-over');
+      });
+      fileTreeContainer.addEventListener('dragleave', () => {
+        fileTreeContainer.classList.remove('external-drag-over');
+      });
+      fileTreeContainer.addEventListener('drop', async (e) => {
+        e.preventDefault();
+        fileTreeContainer.classList.remove('external-drag-over');
+        await handleDropOntoDirectory(e, currentFilesCwd);
+      });
+
+      // Center Terminal Stage Drop Target (Drag file from right tree -> inject path into terminal!)
+      const terminalStage = document.getElementById('terminalStage');
+      terminalStage.addEventListener('dragover', (e) => {
+        e.preventDefault();
+        terminalStage.classList.add('drag-over');
+      });
+      terminalStage.addEventListener('dragleave', () => {
+        terminalStage.classList.remove('drag-over');
+      });
+      terminalStage.addEventListener('drop', (e) => {
+        e.preventDefault();
+        isDraggingFile = false;
+        terminalStage.classList.remove('drag-over');
+        const taktPath = e.dataTransfer.getData('application/x-takt-path');
+        const plain = e.dataTransfer.getData('text/plain');
+        const pathToInject = taktPath ? shellEscapePath(taktPath) : plain;
+        syncNativeTerminalGeometry();
+        if (pathToInject) {
+          sendTextToActiveTerminal(`${pathToInject} `);
+          showToast(`已将路径注入终端: ${pathToInject}`);
+        }
+      });
+
+      // ============================================================================
+      // 9. Terminal Output Link Detection & Right-Pane Previewer (Strict Whitelist + Fast Size Guard)
+      // ============================================================================
+      const PREVIEW_IMAGE_EXTS = new Set(['.png', '.jpg', '.jpeg', '.gif', '.webp', '.svg', '.bmp', '.ico']);
+      const PREVIEW_WEB_EXTS = new Set(['.html', '.htm']);
+      const PREVIEW_CODE_EXTS = new Set([
+        '.js', '.mjs', '.cjs', '.ts', '.tsx', '.jsx', '.py', '.sh', '.bash', '.zsh',
+        '.json', '.yaml', '.yml', '.toml', '.ini', '.conf', '.env', '.md', '.txt',
+        '.css', '.scss', '.less', '.c', '.cpp', '.cc', '.h', '.hpp', '.swift', '.rs',
+        '.go', '.java', '.kt', '.sql', '.xml', '.csv', '.vue', '.svelte', '.lua',
+        '.rb', '.php', '.pl', '.r', '.m', '.mm', '.cmake', '.mk', '.dockerfile',
+        '.gitignore', '.stignore', '.log',
+      ]);
+      const PREVIEW_CODE_NAMES = new Set(['dockerfile', 'makefile', 'claude.md', 'readme', 'license', '.gitignore', '.stignore', '.env']);
+
+      const MAX_PREVIEW_CODE_BYTES = 200 * 1024;        // 200 KB
+      const MAX_PREVIEW_WEB_BYTES = 2 * 1024 * 1024;    // 2 MB
+      const MAX_PREVIEW_IMAGE_BYTES = 12 * 1024 * 1024; // 12 MB
+
+      function checkClientPreviewEligibility(node) {
+        const nameLower = String(node.name || '').toLowerCase();
+        const ext = String(node.ext || '').toLowerCase();
+        const size = Number(node.size || 0);
+
+        const isImg = PREVIEW_IMAGE_EXTS.has(ext);
+        const isWeb = PREVIEW_WEB_EXTS.has(ext);
+        const isCode = PREVIEW_CODE_EXTS.has(ext) || PREVIEW_CODE_NAMES.has(nameLower);
+
+        if (!isImg && !isWeb && !isCode) {
+          return {
+            allowed: false,
+            reason: `该文件类型 (${ext || '无后缀'}) 不支持直接预览 · 仅预览图片、网页与代码文件`,
+          };
+        }
+        if (isCode && size > MAX_PREVIEW_CODE_BYTES) {
+          return {
+            allowed: false,
+            reason: `文件体积 (${formatBytes(size)}) 超过 200 KB 极速预览阈值 · 已跳过加载以防卡顿`,
+          };
+        }
+        if (isWeb && size > MAX_PREVIEW_WEB_BYTES) {
+          return {
+            allowed: false,
+            reason: `网页文件 (${formatBytes(size)}) 超过 2 MB 阈值 · 已跳过内嵌加载`,
+          };
+        }
+        if (isImg && size > MAX_PREVIEW_IMAGE_BYTES) {
+          return {
+            allowed: false,
+            reason: `图片体积 (${formatBytes(size)}) 超过 12 MB 阈值 · 已跳过直接渲染`,
+          };
+        }
+        return { allowed: true };
+      }
+
+      function renderUnsupportedPreviewCard({ name, path: filePath, ext, size, reason }) {
+        previewPane.classList.remove('collapsed');
+        const titleEl = document.getElementById('previewTitle');
+        const actionsEl = document.getElementById('previewActions');
+        const bodyEl = document.getElementById('previewBody');
+        const localDisplayPath = toLocalMacPath(filePath);
+
+        titleEl.textContent = name || (localDisplayPath ? localDisplayPath.split('/').pop() : '跳过预览');
+        actionsEl.innerHTML = '';
+
+        bodyEl.innerHTML = `
+          <div class="preview-empty" style="gap:10px; max-width:320px; margin:0 auto;">
+            ${fileIconSvg(ext || '', false, false)}
+            <div style="font-weight:600; color:var(--text-primary); font-size:12.5px; word-break:break-all;">${escapeHtml(name || localDisplayPath)}</div>
+            <div style="font-size:11px; color:var(--text-secondary); line-height:1.5;">${escapeHtml(reason || '此文件不支持直接预览')}</div>
+            <div style="font-size:10.5px; font-family:var(--font-mono); color:var(--text-muted);">
+              ${size != null ? `大小: ${formatBytes(size)} · ` : ''}Mac 本地路径: ${escapeHtml(localDisplayPath)}
+            </div>
+            <div style="display:flex; gap:8px; margin-top:4px;">
+              <button class="btn" id="btnCardOpenFinder">在 Finder 中定位</button>
+              <button class="btn btn-primary" id="btnCardInjectPath">&gt;_ 注入终端</button>
+            </div>
+          </div>
+        `;
+
+        const btnFinder = document.getElementById('btnCardOpenFinder');
+        if (btnFinder) {
+          btnFinder.addEventListener('click', () => {
+            fetch('/api/open-finder', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ path: localDisplayPath, cwd: currentFilesCwd, nodeId: currentFilesNodeId }),
+            });
+          });
+        }
+        const btnInject = document.getElementById('btnCardInjectPath');
+        if (btnInject) {
+          btnInject.addEventListener('click', () => {
+            sendTextToActiveTerminal(`${shellEscapePath(localDisplayPath)} `);
+            showToast(`已注入路径: ${name || localDisplayPath}`);
+          });
+        }
+      }
+
+      const FILE_PATH_REGEX = /(?:\/root\/work\/[^\s"'<>()`]+|\/(?:Users|home)\/[^\/\s"'<>()`]+\/[^\s"'<>()`]+|(?:\.\/|\.\.\/)?[a-zA-Z0-9_\-\u4e00-\u9fa5/]+\.(?:png|jpg|jpeg|gif|webp|svg|md|py|js|mjs|ts|tsx|json|html|htm|css|sh|c|cpp|h|swift|rs|go|yaml|yml|toml|txt|log)(?::\d+(?::\d+)?)?)/g;
+
+      function registerFilePathLinkProvider(term, sessionCwd) {
+        if (typeof term.registerLinkProvider !== 'function') return;
+        term.registerLinkProvider({
+          provideLinks(bufferLineNumber, callback) {
+            const line = term.buffer.active.getLine(bufferLineNumber - 1);
+            if (!line) return callback(undefined);
+            const text = line.translateToString(true);
+            const links = [];
+            FILE_PATH_REGEX.lastIndex = 0;
+            let match;
+            while ((match = FILE_PATH_REGEX.exec(text)) !== null) {
+              const matchedText = match[0];
+              const startX = match.index + 1;
+              const endX = startX + matchedText.length;
+              links.push({
+                range: {
+                  start: { x: startX, y: bufferLineNumber },
+                  end: { x: endX, y: bufferLineNumber },
+                },
+                text: matchedText,
+                activate(_event, linkText) {
+                  previewFileInRightPane(linkText, sessionCwd, true);
+                },
+              });
+            }
+            callback(links.length > 0 ? links : undefined);
+          },
+        });
+      }
+
+      function stripAnsi(str) {
+        return String(str).replace(/\x1B\[[0-?]*[ -/]*[@-~]/g, '');
+      }
+
+      function detectAndRenderInlineMediaFromOutput(tabObj, rawChunk) {
+        const clean = stripAnsi(rawChunk);
+        const imgRegex = /(?:\/root\/work\/[^\s"'<>()`]+|(?:\.\/)?[a-zA-Z0-9_\-\u4e00-\u9fa5/]+)\.(?:png|jpg|jpeg|gif|webp|svg)/gi;
+        let m;
+        while ((m = imgRegex.exec(clean)) !== null) {
+          const imgPath = m[0];
+          if (tabObj.seenImages.has(imgPath)) continue;
+          tabObj.seenImages.add(imgPath);
+          showInlineTerminalImageCard(imgPath, tabObj.cwd);
+          previewFileInRightPane(imgPath, tabObj.cwd, false);
+        }
+      }
+
+      function showInlineTerminalImageCard(filePath, cwd) {
+        const tray = document.getElementById('termInlineTray');
+        const rawUrl = `/api/raw-file?path=${encodeURIComponent(filePath)}&cwd=${encodeURIComponent(cwd)}&nodeId=${encodeURIComponent(currentFilesNodeId)}&t=${Date.now()}`;
+        const fileName = filePath.split('/').pop();
+
+        const card = document.createElement('div');
+        card.className = 'inline-preview-card';
+        card.innerHTML = `
+          <div class="inline-card-head">
+            <span style="display:flex;align-items:center;gap:5px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${escapeHtml(filePath)}">
+              ${SVG_ICONS.fileImage}
+              <span>${escapeHtml(fileName)}</span>
+            </span>
+            <button class="term-tab-close" title="关闭内联预览">${SVG_ICONS.close}</button>
+          </div>
+          <img class="inline-card-img" src="${rawUrl}" alt="${escapeHtml(fileName)}" />
+        `;
+
+        card.querySelector('.term-tab-close').addEventListener('click', () => card.remove());
+        card.querySelector('.inline-card-img').addEventListener('click', () => {
+          previewFileInRightPane(filePath, cwd, false);
+        });
+
+        tray.appendChild(card);
+        while (tray.children.length > 3) {
+          tray.firstElementChild.remove();
+        }
+      }
+
+      let previewAbortCtrl = null;
+      async function previewFileInRightPane(filePath, cwd = currentFilesCwd, alsoShowInlineIfImage = false) {
+        previewPane.classList.remove('collapsed');
+        const titleEl = document.getElementById('previewTitle');
+        const actionsEl = document.getElementById('previewActions');
+        const bodyEl = document.getElementById('previewBody');
+
+        const baseName = filePath.split('/').pop().replace(/:\d+(?::\d+)?$/, '');
+        const extMatch = baseName.toLowerCase().match(/(\.[a-z0-9_-]+)$/);
+        const ext = extMatch ? extMatch[1] : '';
+        const preCheck = checkClientPreviewEligibility({ name: baseName, ext, size: 0 });
+        if (!preCheck.allowed) {
+          renderUnsupportedPreviewCard({ name: baseName, path: filePath, ext, size: null, reason: preCheck.reason });
+          return;
+        }
+
+        if (previewAbortCtrl) {
+          try { previewAbortCtrl.abort(); } catch {}
+        }
+        previewAbortCtrl = new AbortController();
+
+        titleEl.textContent = `加载 ${baseName}...`;
+        actionsEl.innerHTML = '';
+
+        try {
+          const res = await fetch(
+            `/api/file-content?path=${encodeURIComponent(filePath)}&cwd=${encodeURIComponent(cwd)}&nodeId=${encodeURIComponent(currentFilesNodeId)}`,
+            { signal: previewAbortCtrl.signal }
+          );
+          const data = await res.json();
+          if (!data.ok) {
+            titleEl.textContent = '无法预览';
+            bodyEl.innerHTML = `<div class="preview-empty">${escapeHtml(data.error || '加载失败')}</div>`;
+            return;
+          }
+
+          if (data.kind === 'unsupported' || data.kind === 'directory') {
+            renderUnsupportedPreviewCard({
+              name: data.name || baseName,
+              path: data.localPath || data.path || filePath,
+              ext: data.ext || ext,
+              size: data.size,
+              reason: data.reason || '该对象不支持直接内容预览',
+            });
+            return;
+          }
+
+          const localDisplayPath = toLocalMacPath(data.localPath || data.path || filePath);
+          titleEl.textContent = data.name || localDisplayPath;
+          titleEl.title = localDisplayPath;
+
+          if (data.rawUrl) {
+            const openBtn = document.createElement('a');
+            openBtn.className = 'btn';
+            openBtn.style.height = '20px';
+            openBtn.style.fontSize = '10.5px';
+            openBtn.href = data.rawUrl;
+            openBtn.target = '_blank';
+            openBtn.innerHTML = `${SVG_ICONS.externalLink}<span>新窗口</span>`;
+            actionsEl.appendChild(openBtn);
+          }
+
+          if (data.kind === 'image') {
+            if (alsoShowInlineIfImage) {
+              showInlineTerminalImageCard(localDisplayPath, cwd);
+            }
+            bodyEl.innerHTML = `
+              <div class="preview-image-wrap">
+                <img src="${data.rawUrl}" alt="${escapeHtml(data.name)}" />
+                <div style="font-size:10.5px;color:var(--text-muted);font-family:var(--font-mono)">${escapeHtml(localDisplayPath)}</div>
+              </div>
+            `;
+            return;
+          }
+
+          if (data.kind === 'html') {
+            const sep = data.rawUrl.includes('?') ? '&' : '?';
+            bodyEl.innerHTML = `<iframe class="preview-iframe" src="${data.rawUrl}${sep}theme=dark"></iframe>`;
+            return;
+          }
+
+          const copyBtn = document.createElement('button');
+          copyBtn.className = 'btn';
+          copyBtn.style.height = '20px';
+          copyBtn.style.fontSize = '10.5px';
+          copyBtn.innerHTML = `${SVG_ICONS.copy}<span>复制</span>`;
+          copyBtn.addEventListener('click', () => {
+            navigator.clipboard.writeText(data.content || '');
+            showToast('文件内容已复制到剪贴板');
+          });
+          actionsEl.prepend(copyBtn);
+
+          const pre = document.createElement('pre');
+          pre.className = 'preview-code';
+          pre.textContent = data.content || '';
+          bodyEl.innerHTML = '';
+          bodyEl.appendChild(pre);
+        } catch (err) {
+          if (err && err.name === 'AbortError') return;
+          titleEl.textContent = '预览出错';
+          bodyEl.innerHTML = `<div class="preview-empty">${escapeHtml(err.message)}</div>`;
+        }
+      }
+
+      function previewUrlInRightPane(url) {
+        previewPane.classList.remove('collapsed');
+        const titleEl = document.getElementById('previewTitle');
+        const actionsEl = document.getElementById('previewActions');
+        const bodyEl = document.getElementById('previewBody');
+
+        titleEl.textContent = url;
+        actionsEl.innerHTML = `<a class="btn btn-primary" style="height:20px;font-size:10.5px;" href="${escapeHtml(url)}" target="_blank" rel="noopener">${SVG_ICONS.externalLink}<span>浏览器打开</span></a>`;
+
+        if (/\.(png|jpg|jpeg|gif|webp|svg)(\?.*)?$/i.test(url)) {
+          bodyEl.innerHTML = `<div class="preview-image-wrap"><img src="${escapeHtml(url)}" alt="Image link" /></div>`;
+        } else {
+          const sep = url.includes('?') ? '&' : '?';
+          bodyEl.innerHTML = `<iframe class="preview-iframe" src="${escapeHtml(url)}${sep}theme=dark"></iframe>`;
+        }
+      }
+
+      // ============================================================================
+      // 10. Status Bar Polling & Controls
+      // ============================================================================
+      let lastAutoHealAt = 0;
+      async function pollStatusBar() {
+        const dotSsh = document.getElementById('dotSsh');
+        const textSsh = document.getElementById('textSsh');
+        const dotTs = document.getElementById('dotTailscale');
+        const textTs = document.getElementById('textTailscale');
+        const dotMcp = document.getElementById('dotMcp');
+        const textMcp = document.getElementById('textMcp');
+        const dotSync = document.getElementById('dotSyncthing');
+        const textSync = document.getElementById('textSyncthing');
+
+        try {
+          const ctrl = new AbortController();
+          const timer = setTimeout(() => ctrl.abort(), 3200);
+          const res = await fetch('/api/status', { signal: ctrl.signal, cache: 'no-store' });
+          clearTimeout(timer);
+          if (!res.ok) throw new Error(`HTTP ${res.status}`);
+          const st = await res.json();
+          if (!st || !st.ok) throw new Error('Invalid status payload');
+
+          const boundNodeCount = nodesData.filter((n) => n.enabled !== false && n.sshHost).length;
+          dotSsh.className = `status-dot ${boundNodeCount === 0 ? 'warn' : st.ssh.online ? 'ok' : 'err'}`;
+          textSsh.textContent = boundNodeCount === 0
+            ? '未绑定 SSH 节点 · 点左上角「节点」添加'
+            : st.ssh.online
+            ? `SSH (${st.ssh.host || '在线'}) ${st.ssh.pingMs || '--'}ms ${st.ssh.egressIp ? ' · 出网 ' + st.ssh.egressIp : ''}`
+            : 'SSH 断开 (重连中)';
+
+          dotTs.className = `status-dot ${st.tailscale.ok ? 'ok' : 'warn'}`;
+          const tsIp = st.tailscale.remoteIp || st.tailscale.localIp;
+          textTs.textContent = st.tailscale.ok
+            ? `Tailscale${tsIp ? ' ' + tsIp : ' 在线'}`
+            : 'Tailscale 待机';
+
+          dotMcp.className = `status-dot ${st.mcp.ok ? 'ok' : boundNodeCount === 0 && st.mcp.localHttpOk ? 'warn' : 'err'}`;
+          textMcp.textContent = boundNodeCount === 0 && st.mcp.localHttpOk
+            ? `MCP 本地服务就绪 (${st.mcp.tools} tools) · 等待节点`
+            : st.mcp.ok
+            ? `MCP 隧道 (${st.mcp.tools} tools)`
+            : st.mcp.localHttpOk
+              ? 'MCP 隧道断开 (自愈重连中...)'
+              : 'MCP 本地服务离线 (正在拉起...)';
+
+          dotSync.className = `status-dot ${st.syncthing.ok ? 'ok' : 'warn'}`;
+          textSync.textContent = st.syncthing.ok
+            ? `Syncthing (${st.syncthing.inSyncFiles} 同步)`
+            : 'Syncthing 连接中';
+
+          // Automatically trigger self-heal if MCP tunnel or SSH is down
+          if (boundNodeCount > 0 && (!st.mcp.ok || !st.ssh.online) && Date.now() - lastAutoHealAt > 8000) {
+            lastAutoHealAt = Date.now();
+            fetch('/api/heal', { method: 'POST' }).catch(() => {});
+          }
+
+          const enabledCount = nodesData.filter((n) => n.enabled !== false && n.sshHost).length || 1;
+          document.getElementById('activePtySummary').textContent =
+            `机器: ${enabledCount}/${nodesData.length || 1} · 标签: ${tabs.size} · 远端 CLI: ${st.ssh.remoteCliProcesses} · 引擎: ${terminalEngine === 'native' ? 'SwiftTerm 原生' : 'Web PTY'}`;
+        } catch {
+          // Never leave stale green lights when local workbench server (:3080) is unreachable!
+          if (dotSsh) dotSsh.className = 'status-dot err';
+          if (textSsh) textSsh.textContent = '工作台后台离线 (自愈拉起中...)';
+          if (dotMcp) dotMcp.className = 'status-dot err';
+          if (textMcp) textMcp.textContent = 'MCP 隧道离线 (自愈拉起中...)';
+          if (dotSync) dotSync.className = 'status-dot warn';
+          if (textSync) textSync.textContent = 'Syncthing 检测中断';
+          if (window.webkit?.messageHandlers?.taktNative) {
+            try {
+              window.webkit.messageHandlers.taktNative.postMessage({ action: 'ensureServices' });
+            } catch {}
+          }
+        }
+      }
+
+      async function popCurrentSessionInSystemTerminal() {
+        const t = (activeTabId && tabs.get(activeTabId)) || {
+          tabId: 'main',
+          cwd: currentFilesCwd,
+          nodeId: currentFilesNodeId,
+        };
+        await fetch('/api/open-system-terminal', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ tabId: t.tabId, cwd: t.cwd, nodeId: t.nodeId || currentFilesNodeId }),
+        });
+      }
+
+      // ============================================================================
+      // 11. Event Bindings & Multi-Linux Node Manager
+      // ============================================================================
+      function escapeHtml(s) {
+        return String(s || '')
+          .replace(/&/g, '&amp;')
+          .replace(/</g, '&lt;')
+          .replace(/>/g, '&gt;')
+          .replace(/"/g, '&quot;');
+      }
+
+      document.getElementById('btnEngineNative').addEventListener('click', () => setTerminalEngine('native'));
+      document.getElementById('btnEngineWeb').addEventListener('click', () => setTerminalEngine('web'));
+      document.getElementById('btnPopSystemTerminal').addEventListener('click', () => popCurrentSessionInSystemTerminal());
+
+      document.getElementById('btnRefreshTree').addEventListener('click', () => loadProjectTree(true));
+      document.getElementById('btnRefreshFiles').addEventListener('click', () => loadSessionFiles(currentFilesCwd, currentFilesNodeId));
+      document.getElementById('fileSearchInput').addEventListener('input', () => renderFileTree());
+
+      document.getElementById('btnOpenFinder').addEventListener('click', async () => {
+        await fetch('/api/open-finder', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            path: selectedFilePath || currentFilesCwd,
+            cwd: currentFilesCwd,
+            nodeId: currentFilesNodeId,
+          }),
+        });
+      });
+
+      document.getElementById('btnNewQuickSession').addEventListener('click', () => {
+        const nodeObj = getNodeInfo(currentFilesNodeId);
+        const projName = currentFilesCwd === '/root/work' ? nodeObj.localWorkAlias : currentFilesCwd.split('/').pop();
+        startNewConversationInProject(currentFilesCwd, projName, nodeObj.id);
+      });
+
+      document.getElementById('btnStartDefaultSession').addEventListener('click', () => {
+        const nodeObj = getNodeInfo(selectedNodeFilter !== 'all' ? selectedNodeFilter : currentFilesNodeId);
+        startNewConversationInProject('/root/work', nodeObj.localWorkAlias, nodeObj.id);
+      });
+
+      document.getElementById('btnInjectManualCmd').addEventListener('click', () => {
+        const cmd = document.getElementById('manualCmdText').textContent || 'claude';
+        sendTextToActiveTerminal(`${cmd}\r`);
+      });
+
+      document.getElementById('btnCopyManualCmd').addEventListener('click', () => {
+        const cmd = document.getElementById('manualCmdText').textContent || 'claude';
+        navigator.clipboard.writeText(cmd);
+        showToast(`已复制命令: ${cmd}`);
+      });
+
+      function populateNewProjectNodeSelect(preferredNodeId) {
+        const sel = document.getElementById('newProjectNodeSelect');
+        if (!sel) return;
+        sel.innerHTML = '';
+        for (const n of nodesData) {
+          const opt = document.createElement('option');
+          opt.value = n.id;
+          opt.textContent = `${n.badge} · ${n.name} (${n.sshHost || '本地待绑定'} ↔ ~/.takt-ai/${n.localWorkAlias})`;
+          if (n.id === preferredNodeId) opt.selected = true;
+          sel.appendChild(opt);
+        }
+      }
+
+      function openRenameSessionModal(sessionId, currentTitle, nodeId = currentFilesNodeId) {
+        modalMode = 'rename-session';
+        renamingSessionId = sessionId;
+        renamingSessionNodeId = nodeId || currentFilesNodeId;
+        document.getElementById('newProjectNodeRow').style.display = 'none';
+        document.getElementById('modalTitleText').textContent = '重命名对话 (Session)';
+        document.getElementById('btnSubmitModal').textContent = '保存名称';
+        const inp = document.getElementById('newProjectNameInput');
+        inp.placeholder = '输入新的会话名称...';
+        inp.value = currentTitle || '';
+        newProjectDialog.showModal();
+        syncNativeTerminalGeometry();
+        setTimeout(() => inp.select(), 20);
+      }
+
+      document.getElementById('btnNewProject').addEventListener('click', () => {
+        modalMode = 'project';
+        const defaultNodeId = selectedNodeFilter !== 'all' ? selectedNodeFilter : currentFilesNodeId;
+        populateNewProjectNodeSelect(defaultNodeId);
+        document.getElementById('newProjectNodeRow').style.display = 'flex';
+        document.getElementById('modalTitleText').textContent = '新建项目文件夹 (指定 Linux 机器 & 本地 work)';
+        document.getElementById('btnSubmitModal').textContent = '创建';
+        document.getElementById('newProjectNameInput').placeholder = '例如: ESP32_Audio_Board';
+        document.getElementById('newProjectNameInput').value = '';
+        newProjectDialog.showModal();
+        syncNativeTerminalGeometry();
+      });
+
+      document.getElementById('btnNewSubfolder').addEventListener('click', () => {
+        modalMode = 'subfolder';
+        document.getElementById('newProjectNodeRow').style.display = 'none';
+        const nodeObj = getNodeInfo(currentFilesNodeId);
+        document.getElementById('modalTitleText').textContent = `在 [${nodeObj.badge}] ${currentFilesCwd.split('/').pop()} 下新建子目录`;
+        document.getElementById('btnSubmitModal').textContent = '创建';
+        document.getElementById('newProjectNameInput').placeholder = '例如: firmware_v2';
+        document.getElementById('newProjectNameInput').value = '';
+        newProjectDialog.showModal();
+        syncNativeTerminalGeometry();
+      });
+
+      document.getElementById('btnCancelNewProject').addEventListener('click', () => {
+        newProjectDialog.close();
+      });
+
+      document.getElementById('newProjectForm').addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const name = document.getElementById('newProjectNameInput').value.trim();
+        if (!name) return;
+
+        if (modalMode === 'rename-session') {
+          const res = await fetch('/api/sessions/rename', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ id: renamingSessionId, title: name, nodeId: renamingSessionNodeId }),
+          });
+          const data = await res.json();
+          newProjectDialog.close();
+          if (data.ok) {
+            if (tabs.has(renamingSessionId)) {
+              tabs.get(renamingSessionId).title = name;
+              renderTabBar();
+            }
+            showToast(`会话已重命名为: ${name}`);
+            await loadProjectTree();
+          }
+          return;
+        }
+
+        if (modalMode === 'subfolder') {
+          const res = await fetch('/api/files/mkdir', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              name,
+              parentDirPath: currentFilesCwd,
+              cwd: currentFilesCwd,
+              nodeId: currentFilesNodeId,
+            }),
+          });
+          const data = await res.json();
+          newProjectDialog.close();
+          if (data.ok) {
+            showToast(`已创建子目录: ${name}`);
+            await loadSessionFiles(currentFilesCwd, currentFilesNodeId);
+          }
+          return;
+        }
+
+        const selectedNodeId = document.getElementById('newProjectNodeSelect').value || currentFilesNodeId;
+        const res = await fetch('/api/projects', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ name, nodeId: selectedNodeId }),
+        });
+        const data = await res.json();
+        newProjectDialog.close();
+        if (data.ok) {
+          const targetNode = getNodeInfo(data.nodeId || selectedNodeId);
+          visibleProjectKeys.add(`${targetNode.id}::${data.path}`);
+          await loadProjectTree();
+          startNewConversationInProject(data.path, data.name, targetNode.id);
+        }
+      });
+
+      // --- Multi-Linux Node Manager Modal Logic ---
+      let editingNodeId = 'linux-work2';
+
+      function fillNodeEditorForm(node) {
+        editingNodeId = node.id || '';
+        const alias = node.localWorkAlias || node.workFolderName || 'work2';
+        document.getElementById('nodeInputId').value = node.id || '';
+        document.getElementById('nodeInputName').value = node.name || '';
+        document.getElementById('nodeInputBadge').value = node.badge || '';
+        document.getElementById('nodeInputSshHost').value = node.sshHost || '';
+        document.getElementById('nodeInputAlias').value = alias;
+        document.getElementById('nodeInputRemoteDir').value = node.remoteWorkDir || '/root/work';
+        document.getElementById('nodeInputEnabled').checked = node.enabled !== false;
+        document.getElementById('nodeEditSectionTitle').textContent = node.id
+          ? `配置节点: ${node.badge} · ${node.name} (${alias})`
+          : '新增 Linux 节点与本地 Work 目录';
+      }
+
+      function renderNodeManagerModalContent() {
+        const listEl = document.getElementById('nodeManagerList');
+        listEl.innerHTML = '';
+
+        for (const n of nodesData) {
+          const alias = n.localWorkAlias || 'work';
+          const card = document.createElement('div');
+          const isEditing = n.id === editingNodeId;
+          const isOnline = n.enabled !== false && Boolean(n.sshHost);
+          card.className = `node-card ${isEditing ? 'active' : ''}`;
+          card.innerHTML = `
+            <div class="node-card-info">
+              <div class="node-card-title">
+                <span class="status-dot ${isOnline ? 'ok' : 'warn'}"></span>
+                <span class="machine-badge">${escapeHtml(n.badge)} · ${escapeHtml(alias)}</span>
+                <span>${escapeHtml(n.name)}</span>
+              </div>
+              <div class="node-card-meta">
+                SSH: ${escapeHtml(n.sshHost || '未绑定 (仅 Mac 本地目录已就绪)')} · 本地: ~/.takt-ai/${escapeHtml(alias)} · Syncthing: ${escapeHtml(n.syncthingFolderId)}
+              </div>
+            </div>
+            <div style="display:flex; gap:6px; align-items:center;">
+              <button type="button" class="btn btn-edit-node" style="height:22px; font-size:11px;">编辑 / 绑定</button>
+            </div>
+          `;
+          card.addEventListener('click', () => {
+            fillNodeEditorForm(n);
+            renderNodeManagerModalContent();
+          });
+          listEl.appendChild(card);
+        }
+
+        const chipsEl = document.getElementById('sshCandidateChips');
+        chipsEl.innerHTML = '';
+        if (sshCandidatesData.length > 0) {
+          const hint = document.createElement('span');
+          hint.style.cssText = 'font-size:10px; color:var(--text-muted); display:inline-flex; align-items:center;';
+          hint.textContent = '检测到 ~/.ssh/config 主机 (点击填入):';
+          chipsEl.appendChild(hint);
+
+          for (const h of sshCandidatesData) {
+            const chip = document.createElement('button');
+            chip.type = 'button';
+            chip.className = 'ssh-chip';
+            chip.textContent = `${h.alias}${h.hostName ? ' (' + h.hostName + ')' : ''}`;
+            chip.addEventListener('click', () => {
+              document.getElementById('nodeInputSshHost').value = h.alias;
+              document.getElementById('nodeInputEnabled').checked = true;
+              const nameInp = document.getElementById('nodeInputName');
+              if (!nameInp.value || nameInp.value.includes('节点 2')) {
+                nameInp.value = `${h.alias} Server`;
+              }
+            });
+            chipsEl.appendChild(chip);
+          }
+        }
+      }
+
+      async function openNodeManagerModal(preferredNodeId) {
+        try {
+          const res = await fetch('/api/nodes');
+          const data = await res.json();
+          if (data.ok) {
+            nodesData = data.nodes || nodesData;
+            sshCandidatesData = data.sshCandidates || [];
+          }
+        } catch {}
+
+        const targetNode =
+          nodesData.find((n) => n.id === preferredNodeId) ||
+          nodesData.find((n) => n.id === 'linux-work2') ||
+          nodesData[0];
+
+        if (targetNode) {
+          fillNodeEditorForm(targetNode);
+        }
+        renderNodeManagerModalContent();
+        nodeManagerDialog.showModal();
+        syncNativeTerminalGeometry();
+      }
+
+      document.getElementById('btnOpenNodeManager').addEventListener('click', () => {
+        openNodeManagerModal('linux-work2');
+      });
+
+      document.getElementById('btnResetNewNodeForm').addEventListener('click', () => {
+        const nextIdx = nodesData.length + 1;
+        fillNodeEditorForm({
+          id: `linux-work${nextIdx}`,
+          name: `Linux 节点 ${nextIdx}`,
+          badge: `LX-${nextIdx}`,
+          sshHost: '',
+          localWorkAlias: `work${nextIdx}`,
+          remoteWorkDir: '/root/work',
+          syncthingFolderId: `takt-work${nextIdx}`,
+          enabled: true,
+        });
+        renderNodeManagerModalContent();
+      });
+
+      document.getElementById('btnCloseNodeManager').addEventListener('click', () => {
+        nodeManagerDialog.close();
+      });
+
+      document.getElementById('nodeManagerForm').addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const btn = document.getElementById('btnSaveNodeConfig');
+        const origText = btn.textContent;
+        btn.textContent = '正在配置隧道 & Syncthing...';
+        btn.disabled = true;
+
+        try {
+          const localWorkAlias = document.getElementById('nodeInputAlias').value.trim();
+          const sshHost = document.getElementById('nodeInputSshHost').value.trim();
+          const enabledChecked = document.getElementById('nodeInputEnabled').checked;
+          const payload = {
+            id: document.getElementById('nodeInputId').value.trim() || `linux-${localWorkAlias}`,
+            name: document.getElementById('nodeInputName').value.trim(),
+            badge: document.getElementById('nodeInputBadge').value.trim().toUpperCase(),
+            sshHost,
+            localWorkAlias,
+            remoteWorkDir: document.getElementById('nodeInputRemoteDir').value.trim() || '/root/work',
+            syncthingFolderId: `takt-${localWorkAlias}`,
+            enabled: Boolean(sshHost) && enabledChecked,
+            provisionNow: true,
+          };
+
+          const res = await fetch('/api/nodes', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload),
+          });
+          const data = await res.json();
+          if (data.ok) {
+            nodesData = data.nodes || nodesData;
+            editingNodeId = data.node.id;
+            renderNodeManagerModalContent();
+            renderNodeFilterBar();
+            await loadProjectTree();
+            if (data.logs && data.logs.length > 0) {
+              showToast(`已保存 ${data.node.badge} · ${data.node.localWorkAlias}: ${data.logs.join(' / ')}`);
+            } else {
+              showToast(`已保存节点 ${data.node.badge} · 本地目录 ~/.takt-ai/${data.node.localWorkAlias} 已就绪`);
+            }
+            nodeManagerDialog.close();
+          } else {
+            showToast(data.error || '保存节点失败');
+          }
+        } catch (err) {
+          showToast(`保存失败: ${err.message}`);
+        } finally {
+          btn.textContent = origText;
+          btn.disabled = false;
+        }
+      });
+
+      document.getElementById('btnHealLinks').addEventListener('click', async () => {
+        const txt = document.getElementById('healBtnText');
+        txt.textContent = '自愈中...';
+        await fetch('/api/heal', { method: 'POST' }).catch(() => {});
+        await pollStatusBar();
+        txt.textContent = '隧道自愈';
+        showToast('全节点 MCP 隧道自愈完成 (不影响任何活动 SSH 终端)');
+      });
+
+      // Initial Boot
+      loadProjectTree();
+      loadSessionFiles('/root/work', 'node-1');
+      pollStatusBar();
+      setInterval(pollStatusBar, 4000);
+      setInterval(loadProjectTree, 12000);
+    })();
+  </script>
+</body>
+</html>

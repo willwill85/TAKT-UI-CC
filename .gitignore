@@ -1,0 +1,14 @@
+node_modules/
+build/
+desktop/.build/
+desktop/.swiftpm/
+.DS_Store
+*.log
+*.bak
+*.bak-*
+.takt-ai/
+.env
+*.sqlite
+*.sqlite-shm
+*.sqlite-wal
+mcp-token

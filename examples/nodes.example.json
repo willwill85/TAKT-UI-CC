@@ -1,0 +1,28 @@
+{
+  "nodes": [
+    {
+      "id": "node-1",
+      "name": "Home Server",
+      "badge": "HOME",
+      "sshHost": "home-server",
+      "remoteWorkDir": "/home/dev/work",
+      "localWorkDir": "/Users/you/.takt-ai/work",
+      "localWorkAlias": "work",
+      "syncthingFolderId": "takt-work",
+      "syncthingDeviceId": "",
+      "enabled": true
+    },
+    {
+      "id": "linux-gpu",
+      "name": "GPU Box",
+      "badge": "GPU",
+      "sshHost": "gpu-box",
+      "remoteWorkDir": "/home/dev/work",
+      "localWorkDir": "/Users/you/.takt-ai/work2",
+      "localWorkAlias": "work2",
+      "syncthingFolderId": "takt-work2",
+      "syncthingDeviceId": "",
+      "enabled": true
+    }
+  ]
+}
