@@ -1635,6 +1635,24 @@
         transition: none !important;
       }
     }
+
+    /* --- Tab bar fixes: no engine switch (native terminal only in the app), single-line command bar --- */
+    .engine-switch { display: none !important; }
+    #btnNewQuickSession span { display: none; }
+    #btnNewQuickSession { padding: 0; width: 25px; min-width: 25px; }
+    .tabs-scroll { min-width: 160px; }
+    .cmd-hint-bar > div:first-child { flex: 1 1 auto; min-width: 0; overflow: hidden; }
+    .cmd-hint-bar > div:last-child { flex-shrink: 0; }
+    #manualCwdText, #manualCmdText {
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      min-width: 0;
+      max-width: 100%;
+    }
+    #manualCwdText { flex: 0 1 auto; max-width: 45%; }
+    #manualCmdText { flex: 1 1 auto; }
+    .cmd-hint-bar span { white-space: nowrap; }
   </style>
 </head>
 <body>
