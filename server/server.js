@@ -1552,6 +1552,7 @@ async function getCombinedSystemStatus() {
       inSyncFiles: mcpData?.diskSync?.inSyncFiles || 0,
       globalFiles: mcpData?.diskSync?.globalFiles || 0,
       needFiles: mcpData?.diskSync?.needFiles || 0,
+      needBytes: mcpData?.diskSync?.needBytes || 0,
     },
     healing: Boolean(mcpData?.healing),
     timestamp: Date.now(),

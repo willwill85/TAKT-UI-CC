@@ -3949,10 +3949,15 @@
               ? 'MCP 隧道断开 (自愈重连中...)'
               : 'MCP 本地服务离线 (正在拉起...)';
 
-          dotSync.className = `status-dot ${st.syncthing.ok ? 'ok' : 'warn'}`;
-          textSync.textContent = st.syncthing.ok
-            ? `Syncthing (${st.syncthing.inSyncFiles} 同步)`
-            : 'Syncthing 连接中';
+          const needFiles = Number(st.syncthing.needFiles || 0);
+          const needBytes = Number(st.syncthing.needBytes || 0);
+          const fmtBytes = (n) => n >= 1073741824 ? `${(n / 1073741824).toFixed(1)} GB` : n >= 1048576 ? `${(n / 1048576).toFixed(1)} MB` : n >= 1024 ? `${Math.round(n / 1024)} KB` : `${n} B`;
+          dotSync.className = `status-dot ${st.syncthing.ok && needFiles === 0 ? 'ok' : 'warn'}`;
+          textSync.textContent = needFiles > 0
+            ? `Syncthing 待同步 ${needFiles} 个文件${needBytes ? ' · ' + fmtBytes(needBytes) : ''}`
+            : st.syncthing.ok
+              ? 'Syncthing 已同步'
+              : 'Syncthing 连接中';
 
           // Automatically trigger self-heal if MCP tunnel or SSH is down
           if (boundNodeCount > 0 && (!st.mcp.ok || !st.ssh.online) && Date.now() - lastAutoHealAt > 8000) {
