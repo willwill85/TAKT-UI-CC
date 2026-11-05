@@ -45,6 +45,9 @@
 - Tag and ⋯ menus open at the top level of the page; menus from the sidebar stay inside the sidebar, and any dialog (incl. appearance settings) or menu that overlaps the macOS app's native terminal hides it while open — HTML can't be drawn over that native view.
 - Machines in the sidebar (filter chips, machine headers) use a small server icon with a status dot instead of a plain dot, so they no longer look like project tags.
 
+**DockTerm: prompt suggestions**
+- Claude Code's prompt suggestion (the grey "what you'd type next" in the terminal's input box) shows up in the conversation view as the composer's placeholder with a `Tab 填入` badge: Tab (or a click on the badge) fills it in, Enter sends it as usual. It is read from the input row of the visible tmux pane (Claude Code keeps it only on screen), only while Claude waits for input; Claude Code's own `Try "…"` / queue hints are not taken for suggestions, and a sent suggestion never reappears.
+
 **Security**
 - Restored the documented Host/Origin guard (HTTP + WebSocket) that went missing in `efd9650`: web pages can no longer drive the workbench API or type into terminals.
 - HTML/SVG previews are served with a CSP sandbox so a page from a node can't call the workbench API.

@@ -2517,6 +2517,97 @@ elif pane_text and ("esc to interrupt" in pane_text.lower() or "? for shortcuts"
 if sid and sid not in hint_ids:
     hint_ids.append(sid)
 
+# Claude Code's prompt suggestion ("Tab to accept") only exists on screen: the input row
+# "❯ " right under the box's top border, holding nothing but dim text (the first cell may be
+# the inverse cursor). Its own placeholders are drawn the same way and are skipped.
+SGR_RE = re.compile(r"\x1b\[([0-9;:]*)m")
+OSC_RE = re.compile(r"\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)")
+SUGG_SKIP_RE = re.compile(r'^(?:Try ".*"|Press (?:up|Enter) .*|Message @.*|Your next message.*|Type your message .*|Type something.*)$')
+
+def styled_cells(line):
+    line = OSC_RE.sub("", line)
+    out, dim, inv, pos = [], False, False, 0
+    for m in list(SGR_RE.finditer(line)) + [None]:
+        end = m.start() if m else len(line)
+        for ch in re.sub(r"\x1b[^a-zA-Z]*[a-zA-Z]?", "", line[pos:end]):
+            out.append((ch, dim, inv))
+        if not m:
+            break
+        codes = re.split(r"[;:]", m.group(1)) if m.group(1) else ["0"]
+        i = 0
+        while i < len(codes):
+            c = codes[i] or "0"
+            if c == "0":
+                dim = inv = False
+            elif c == "2":
+                dim = True
+            elif c == "22":
+                dim = False
+            elif c == "7":
+                inv = True
+            elif c == "27":
+                inv = False
+            elif c in ("38", "48", "58") and i + 1 < len(codes):
+                i += 2 if codes[i + 1] == "5" else (4 if codes[i + 1] == "2" else 0)
+            i += 1
+        pos = m.end()
+    return out
+
+def dim_text(cells, allow_cursor):
+    text = []
+    for k, (ch, dim, inv) in enumerate(cells):
+        if ch.isspace() or ch == " ":
+            text.append(" ")
+            continue
+        if not dim and not (allow_cursor and inv and not "".join(text).strip()):
+            return None
+        text.append(ch)
+    return "".join(text).strip()
+
+def is_border(plain):
+    s = plain.strip()
+    return len(s) >= 8 and set(s) <= set("─━╭╮╰╯│")
+
+def prompt_suggestion(raw):
+    lines = raw.rstrip("\n").split("\n")
+    plain = [re.sub(r"\x1b[^a-zA-Z]*[a-zA-Z]?", "", OSC_RE.sub("", l)) for l in lines]
+    row = -1
+    for i in range(len(lines) - 1, max(0, len(lines) - 40), -1):
+        if plain[i].lstrip("│ ").startswith("❯") and is_border(plain[i - 1]):
+            row = i
+            break
+    if row < 0:
+        return ""
+    cells = styled_cells(lines[row])
+    lead = 0
+    while lead < len(cells) and cells[lead][0] in "│ ❯ ":
+        lead += 1
+    first = dim_text(cells[lead:], True)
+    if not first:
+        return ""
+    parts = [first]
+    for j in range(row + 1, min(len(lines), row + 6)):
+        if is_border(plain[j]):
+            break
+        more = dim_text([c for c in styled_cells(lines[j]) if c[0] != "│"], False)
+        if more is None:
+            return ""
+        if more:
+            parts.append(more)
+    text = parts[0]
+    for p in parts[1:]:
+        text += (" " if re.match(r"[\x21-\x7e]", text[-1]) and re.match(r"[\x21-\x7e]", p[0]) else "") + p
+    if SUGG_SKIP_RE.match(text) or len(text) > 400:
+        return ""
+    return text
+
+pane_suggestion = ""
+if claude_running and pane_pid:
+    try:
+        pane_suggestion = prompt_suggestion(run(["tmux", "capture-pane", "-p", "-e", "-t", target]))
+    except Exception:
+        pane_suggestion = ""
+
 # Transcript resolution: Claude stores <cwd with every non-alphanumeric char -> '-'>/<session>.jsonl
 def slug(p):
     return re.sub(r"[^a-zA-Z0-9]", "-", p)
@@ -2616,6 +2707,7 @@ res = {
     "resolvedSessionId": os.path.splitext(os.path.basename(chosen))[0] if chosen else "",
     "launchModel": launch_model,
     "launchEffort": launch_effort,
+    "suggestion": pane_suggestion,
 }
 if chosen:
     size = os.path.getsize(chosen)
@@ -2728,6 +2820,7 @@ async function refreshDocktermTab(tab, { tabId, sessionId, cwd }) {
   tab.launch = { model: raw.launchModel || '', effort: raw.launchEffort || '' };
   tab.claudeCwd = raw.claudeRunning && typeof raw.paneCwd === 'string' ? raw.paneCwd : '';
   tab.screen = classifyClaudeScreen(raw.paneText || '');
+  tab.suggestion = tab.claudeRunning && typeof raw.suggestion === 'string' ? raw.suggestion.slice(0, 400) : '';
   tab.resolvedSessionId = raw.resolvedSessionId || sessionId;
 
   if (!raw.jsonlPath) {
@@ -2787,6 +2880,8 @@ async function fetchDocktermChatView({ tabId, sessionId, cwd, nodeId, sshHost, e
     model: st && st.model ? { model: st.model, effort: st.effort, ts: st.modelTs } : null,
     launch: tab.launch || null,
     claudeCwd: tab.claudeCwd || '',
+    // Claude Code's prompt suggestion (Tab fills it in), only while it waits for input
+    suggestion: !tab.stale && screen.status === 'idle' ? (tab.suggestion || '') : '',
     timestamp: Date.now(),
   };
 }

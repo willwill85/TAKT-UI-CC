@@ -2515,6 +2515,28 @@
       overflow-y: auto;
     }
     .composer__input::placeholder { color: var(--text-muted); }
+    /* Claude Code's prompt suggestion: shown as the placeholder, Tab fills it in */
+    .composer__box { position: relative; }
+    .composer__box.has-suggestion .composer__input { padding-right: 78px; }
+    .composer__box.has-suggestion .composer__input::placeholder { color: var(--text-secondary); opacity: .62; }
+    .composer__suggest {
+      position: absolute;
+      right: 10px;
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      height: 20px;
+      padding: 0 6px 0 3px;
+      border: 1px solid var(--border-hairline);
+      border-radius: 6px;
+      background: var(--bg-elevated);
+      color: var(--text-muted);
+      font-size: calc(10.5px * var(--fs, 1));
+      cursor: pointer;
+    }
+    .composer__suggest[hidden] { display: none; }
+    .composer__suggest:hover { color: var(--text-primary); border-color: var(--border-accent); }
+    .composer__suggest kbd { font-size: inherit; padding: 0 4px; border-radius: 4px; }
     .composer__foot {
       display: flex;
       align-items: center;
@@ -3134,6 +3156,7 @@
                     rows="1"
                     placeholder="给 Claude 发消息… 输入 / 查看命令，可粘贴或拖入图片、文件"
                   ></textarea>
+                  <button type="button" class="composer__suggest" id="docktermSuggestBtn" tabindex="-1" title="Claude Code 猜你接下来要说的话，按 Tab 填入输入框" hidden><kbd>Tab</kbd>填入</button>
                   <div class="composer__foot">
                     <span class="composer__hints"><kbd>↵</kbd> 发送 · <kbd>⇧↵</kbd> 换行 · <kbd>/</kbd> 命令 · <kbd>↑</kbd> 上一条 · <kbd>Esc</kbd> 中断</span>
                     <div class="composer__actions">
@@ -6405,6 +6428,8 @@
       const dtInput = document.getElementById('docktermComposerInput');
       const dtSlashMenu = document.getElementById('docktermSlashMenu');
       const dtSendBtn = document.getElementById('btnDocktermSend');
+      const dtComposerBox = document.getElementById('docktermComposerBox');
+      const dtSuggestBtn = document.getElementById('docktermSuggestBtn');
       const dtInterruptBtn = document.getElementById('btnDocktermInterrupt');
       const dtStartBtn = document.getElementById('btnDocktermStartClaude');
       const dtStartBtnLabel = document.getElementById('btnDocktermStartClaudeLabel');
@@ -6951,6 +6976,7 @@
         dtInput.placeholder = c.status === 'working' ? 'Claude 正在执行… 可以继续输入，消息会排队发送'
           : c.status === 'asking' ? 'Claude 在等你确认上面的操作'
             : DT_PLACEHOLDER;
+        updateDocktermSuggestion();
 
         // load-earlier / beginning marker
         dtOlderBtn.hidden = !(c.hasOlder && c.messages.length > 0);
@@ -7181,6 +7207,7 @@
         c.model = data.model || null;
         c.launch = data.launch || null;
         c.claudeCwd = data.claudeCwd || '';
+        c.suggestion = typeof data.suggestion === 'string' ? data.suggestion.trim() : '';
         if (c.modelOverride && c.model && c.model.ts > c.modelOverride.at) c.modelOverride = null;
 
         // Optimistic bubbles disappear once the transcript has the real message (a message typed while
@@ -7746,6 +7773,34 @@
         dtSendBtn.disabled = dtSubmitting || (!dtInput.value.trim() && !atts.length);
         const label = dtSendBtn.querySelector('span');
         if (label) label.textContent = dtSubmitting ? '上传中…' : '发送';
+        updateDocktermSuggestion();
+      }
+
+      // Claude Code's prompt suggestion for this tab: only while Claude waits for input and nothing of ours is in flight
+      function docktermSuggestion(t) {
+        const c = t && t.chat;
+        if (!c || !c.suggestion || c.stale || !c.claudeRunning || c.status !== 'idle') return '';
+        if (Date.now() < (c.suggestionHoldUntil || 0) || c.pending.some((p) => !p.failed)) return '';
+        return c.suggestion;
+      }
+
+      function updateDocktermSuggestion() {
+        const t = activeChatTab();
+        const s = !dtInput.value ? docktermSuggestion(t) : '';
+        dtComposerBox.classList.toggle('has-suggestion', Boolean(s));
+        dtSuggestBtn.hidden = !s;
+        if (s) dtSuggestBtn.style.top = `${dtInput.offsetTop + 1}px`;
+        if (!dtInput.value && t && t.chat && t.chat.status === 'idle') dtInput.placeholder = s || DT_PLACEHOLDER;
+      }
+
+      function acceptDocktermSuggestion() {
+        const s = dtInput.value ? '' : docktermSuggestion(activeChatTab());
+        if (!s) return false;
+        dtInput.value = s;
+        dtInput.focus();
+        dtInput.setSelectionRange(s.length, s.length);
+        dtInput.dispatchEvent(new Event('input'));
+        return true;
       }
 
       function insertIntoDocktermComposer(text) {
@@ -7980,6 +8035,9 @@
         }
         dtHistCursor.delete(t.tabId);
 
+        // the suggestion on screen belongs to the turn that just ended; a poll already in flight may still carry it
+        c.suggestion = '';
+        c.suggestionHoldUntil = Date.now() + 2500;
         dtInput.value = '';
         dtDrafts.set(t.tabId, '');
         if (atts.length) dtAttachments.set(t.tabId, dtAttachList(t).filter((a) => !atts.includes(a)));
@@ -8023,6 +8081,9 @@
         kickDocktermPoll(350);
       }
 
+      dtSuggestBtn.addEventListener('mousedown', (e) => e.preventDefault());
+      dtSuggestBtn.addEventListener('click', () => acceptDocktermSuggestion());
+
       dtInput.addEventListener('input', () => {
         if (activeTabId) dtDrafts.set(activeTabId, dtInput.value);
         if (activeTabId && dtHistCursor.has(activeTabId)) {
@@ -8056,6 +8117,12 @@
             dtSlashMenu.classList.remove('open');
             return;
           }
+        }
+
+        // Tab takes Claude Code's suggestion (shown as the placeholder), like in the terminal
+        if (e.key === 'Tab' && !e.shiftKey && !e.metaKey && !e.ctrlKey && !e.altKey && acceptDocktermSuggestion()) {
+          e.preventDefault();
+          return;
         }
 
         // Answer a permission prompt with its number key while the composer is empty
