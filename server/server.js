@@ -624,7 +624,7 @@ workbenchDb.exec(`
   );
 
   CREATE TABLE IF NOT EXISTS sessions (
-    id TEXT PRIMARY KEY,
+    id TEXT NOT NULL,
     node_id TEXT NOT NULL,
     project_path TEXT NOT NULL,
     title TEXT NOT NULL,
@@ -633,7 +633,8 @@ workbenchDb.exec(`
     turns INTEGER NOT NULL DEFAULT 1,
     size_bytes INTEGER NOT NULL DEFAULT 0,
     updated_at INTEGER NOT NULL,
-    deleted INTEGER NOT NULL DEFAULT 0
+    deleted INTEGER NOT NULL DEFAULT 0,
+    PRIMARY KEY (node_id, id)
   );
 
   CREATE TABLE IF NOT EXISTS node_status (
@@ -656,6 +657,36 @@ workbenchDb.exec(`
     tag_id TEXT NOT NULL
   );
 `);
+
+// Auto-migrate legacy sessions table if primary key is not composite (node_id, id)
+try {
+  const cols = workbenchDb.prepare("PRAGMA table_info(sessions)").all();
+  const pkCols = cols.filter((c) => Number(c.pk) > 0);
+  if (pkCols.length === 1 && pkCols[0].name === 'id') {
+    workbenchDb.exec(`
+      BEGIN IMMEDIATE;
+      CREATE TABLE sessions_v2 (
+        id TEXT NOT NULL,
+        node_id TEXT NOT NULL,
+        project_path TEXT NOT NULL,
+        title TEXT NOT NULL,
+        custom_title TEXT NOT NULL DEFAULT '',
+        last_prompt TEXT NOT NULL DEFAULT '',
+        turns INTEGER NOT NULL DEFAULT 1,
+        size_bytes INTEGER NOT NULL DEFAULT 0,
+        updated_at INTEGER NOT NULL,
+        deleted INTEGER NOT NULL DEFAULT 0,
+        PRIMARY KEY (node_id, id)
+      );
+      INSERT OR REPLACE INTO sessions_v2
+        SELECT id, node_id, project_path, title, custom_title, last_prompt, turns, size_bytes, updated_at, deleted
+        FROM sessions;
+      DROP TABLE sessions;
+      ALTER TABLE sessions_v2 RENAME TO sessions;
+      COMMIT;
+    `);
+  }
+} catch {}
 
 function readTagsFromSqlite() {
   const tags = workbenchDb.prepare('SELECT id, name, color, sort FROM tags ORDER BY sort ASC, created_at ASC').all();
@@ -680,8 +711,7 @@ const stmtUpsertProject = workbenchDb.prepare(`
 const stmtUpsertSessionFromScan = workbenchDb.prepare(`
   INSERT INTO sessions (id, node_id, project_path, title, custom_title, last_prompt, turns, size_bytes, updated_at, deleted)
   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0)
-  ON CONFLICT(id) DO UPDATE SET
-    node_id = excluded.node_id,
+  ON CONFLICT(node_id, id) DO UPDATE SET
     project_path = excluded.project_path,
     title = CASE
       WHEN sessions.custom_title != '' THEN sessions.custom_title
@@ -699,7 +729,7 @@ const stmtUpsertSessionFromScan = workbenchDb.prepare(`
 const stmtRegisterLocalSession = workbenchDb.prepare(`
   INSERT INTO sessions (id, node_id, project_path, title, custom_title, last_prompt, turns, size_bytes, updated_at, deleted)
   VALUES (?, ?, ?, ?, '', '', 1, 0, ?, 0)
-  ON CONFLICT(id) DO UPDATE SET
+  ON CONFLICT(node_id, id) DO UPDATE SET
     deleted = 0,
     updated_at = MAX(sessions.updated_at, excluded.updated_at)
 `);
