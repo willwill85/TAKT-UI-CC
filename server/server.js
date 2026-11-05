@@ -2075,8 +2075,26 @@ def img_ref(b, off, k):
         return {"type": "image", "off": off, "idx": k, "mt": src.get("media_type") or "image/png"}
     return {"type": "image"}
 
+def queued_prompt(obj):
+    # A message typed while Claude works is usually handed over mid-turn: the transcript then has a
+    # queued_command attachment instead of a user record (task notifications / subagent hand-backs excluded)
+    a = obj.get("attachment") if isinstance(obj.get("attachment"), dict) else {}
+    if a.get("type") != "queued_command" or a.get("commandMode", "prompt") != "prompt" or a.get("isMeta"):
+        return None
+    origin = a.get("origin") if isinstance(a.get("origin"), dict) else {}
+    if origin.get("kind") != "human" and not a.get("humanTurn"):
+        return None
+    p = a.get("prompt")
+    return p if isinstance(p, (str, list)) else None
+
 def compact(obj, off=None):
     t = obj.get("type")
+    if t == "attachment" and not obj.get("isSidechain"):
+        p = queued_prompt(obj)
+        if p is None:
+            return None
+        obj = {"type": "user", "uuid": obj.get("uuid"), "timestamp": obj.get("timestamp"), "message": {"content": p}}
+        t = "user"
     if t not in ("user", "assistant"):
         return None
     if obj.get("isSidechain") or obj.get("isMeta") or obj.get("isCompactSummary") or obj.get("isVisibleInTranscriptOnly"):
@@ -2250,7 +2268,7 @@ if mode == "image":
         out({"error": "moved"})
         sys.exit(0)
     msg = obj.get("message") if isinstance(obj.get("message"), dict) else {}
-    imgs = iter_images(msg.get("content"))
+    imgs = iter_images(queued_prompt(obj) if obj.get("type") == "attachment" else msg.get("content"))
     src = imgs[idx].get("source") if idx < len(imgs) and isinstance(imgs[idx].get("source"), dict) else {}
     if src.get("type") != "base64" or not isinstance(src.get("data"), str):
         out({"error": "not-inline"})
@@ -2678,6 +2696,7 @@ async function refreshDocktermTab(tab, { tabId, sessionId, cwd }) {
   tab.stale = false;
   tab.claudeRunning = Boolean(raw.claudeRunning);
   tab.launch = { model: raw.launchModel || '', effort: raw.launchEffort || '' };
+  tab.claudeCwd = raw.claudeRunning && typeof raw.paneCwd === 'string' ? raw.paneCwd : '';
   tab.screen = classifyClaudeScreen(raw.paneText || '');
   tab.resolvedSessionId = raw.resolvedSessionId || sessionId;
 
@@ -2737,6 +2756,7 @@ async function fetchDocktermChatView({ tabId, sessionId, cwd, nodeId, sshHost, e
     stale: tab.stale,
     model: st && st.model ? { model: st.model, effort: st.effort, ts: st.modelTs } : null,
     launch: tab.launch || null,
+    claudeCwd: tab.claudeCwd || '',
     timestamp: Date.now(),
   };
 }
@@ -3975,8 +3995,15 @@ const server = http.createServer(async (req, res) => {
       const targetHost = String(body.sshHost || (node && node.sshHost) || 'korea-claude').trim();
       const tmuxSess = sanitizeTmuxSessionId(tabId || 'default');
 
+      // Bracketed-paste payloads go through a tmux buffer (paste-buffer -p re-wraps them only if the app asked for it)
+      const PASTE_START = '\x1b[200~';
+      const PASTE_END = '\x1b[201~';
+      const isPaste = text.startsWith(PASTE_START) && text.endsWith(PASTE_END);
+
+      // A submitted paste always goes through tmux on the node: Enter has to wait until Claude Code
+      // has finished the paste, and only the pane shows that ("Pasting…" in its footer)
       const localTab = activePtyTabs.get(tabId);
-      if (localTab && !localTab.exited) {
+      if (localTab && !localTab.exited && !(isPaste && submitEnter)) {
         if (text) localTab.ptyProc.write(text);
         if (submitEnter) {
           setTimeout(() => {
@@ -3987,32 +4014,56 @@ const server = http.createServer(async (req, res) => {
         return;
       }
 
-      // Bracketed-paste payloads go through a tmux buffer (paste-buffer -p re-wraps them only if the app asked for it)
-      const PASTE_START = '\x1b[200~';
-      const PASTE_END = '\x1b[201~';
-      const isPaste = text.startsWith(PASTE_START) && text.endsWith(PASTE_END);
       const body64 = Buffer.from(isPaste ? text.slice(PASTE_START.length, -PASTE_END.length) : text, 'utf8').toString('base64');
+      // While Claude Code shows "Pasting…" it swallows Enter, and after a paste with image paths
+      // in it that Enter is dropped (= the message is never sent). So wait for the footer to clear;
+      // if it never does (e.g. a clipboard helper on the node that hangs), leave Enter out and report it.
+      const PASTE_WAIT_S = 8;
       const py = `
-import base64, subprocess, time
+import base64, json, subprocess, time
 sess = "=" + ${JSON.stringify(tmuxSess)} + ":"
 raw = base64.b64decode(${JSON.stringify(body64)}).decode("utf-8", errors="ignore")
+is_paste = ${isPaste ? 'True' : 'False'}
+def pasting():
+    try:
+        r = subprocess.run(["tmux", "capture-pane", "-p", "-t", sess], capture_output=True, text=True, timeout=2)
+    except Exception:
+        return False
+    tail = [l.strip() for l in r.stdout.splitlines() if l.strip()][-4:]
+    return any(l.startswith("Pasting\\u2026") or l.startswith("Pasting...") for l in tail)
 if raw:
-    if ${isPaste ? 'True' : 'False'}:
+    if is_paste:
         subprocess.run(["tmux", "set-buffer", "-b", "takt_dockterm", "--", raw], timeout=2)
         subprocess.run(["tmux", "paste-buffer", "-p", "-d", "-b", "takt_dockterm", "-t", sess], timeout=2)
     else:
         subprocess.run(["tmux", "send-keys", "-t", sess, "-l", "--", raw], timeout=2)
+stuck = False
+waited = 0.0
 if ${submitEnter ? 'True' : 'False'}:
     time.sleep(${(enterDelayMs / 1000).toFixed(3)})
-    subprocess.run(["tmux", "send-keys", "-t", sess, "Enter"], timeout=2)
+    if is_paste and raw:
+        t0 = time.time()
+        while pasting():
+            if time.time() - t0 > ${PASTE_WAIT_S}:
+                stuck = True
+                break
+            time.sleep(0.12)
+        waited = time.time() - t0
+        if not stuck and waited > 0.2:
+            time.sleep(0.15)
+    if not stuck:
+        subprocess.run(["tmux", "send-keys", "-t", sess, "Enter"], timeout=2)
+print(json.dumps({"stuck": stuck, "waited": round(waited, 2)}))
 `.trim();
       const pyB64 = Buffer.from(py, 'utf8').toString('base64');
       const r = await runCmd('ssh', [
         ...DOCKTERM_SSH_OPTS,
         targetHost,
         `python3 -c "import base64;exec(base64.b64decode('${pyB64}'))"`,
-      ], 4500 + enterDelayMs);
-      sendJson(res, 200, { ok: r.exitCode === 0, via: 'tmux' });
+      ], 4500 + enterDelayMs + (isPaste && submitEnter ? PASTE_WAIT_S * 1000 + 1500 : 0));
+      let info = {};
+      try { info = JSON.parse(String(r.stdout || '').trim().split('\n').pop() || '{}'); } catch {}
+      sendJson(res, 200, { ok: r.exitCode === 0 && !info.stuck, via: 'tmux', stuck: Boolean(info.stuck), waited: info.waited || 0 });
       return;
     }
 

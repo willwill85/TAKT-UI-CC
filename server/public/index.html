@@ -446,7 +446,7 @@
       max-width: 100%;
       transition: background 0.12s ease, color 0.12s ease, border-color 0.12s ease;
     }
-    .node-pill > span:not(.node-pill-dot):not(.node-pill-count) {
+    .node-pill > span:not(.node-srv):not(.node-pill-count) {
       overflow: hidden;
       text-overflow: ellipsis;
     }
@@ -748,16 +748,28 @@
       letter-spacing: 0;
     }
 
-    .node-pill-dot {
+    .node-srv {
+      position: relative;
+      display: inline-flex;
+      width: 13px;
+      height: 13px;
+      flex-shrink: 0;
+      color: var(--text-muted);
+    }
+    .node-srv svg { width: 13px; height: 13px; display: block; }
+    .node-srv-dot {
+      position: absolute;
+      right: -2px;
+      bottom: -2px;
       width: 6px;
       height: 6px;
       border-radius: 50%;
       background: var(--text-faint);
-      flex-shrink: 0;
+      box-shadow: 0 0 0 1.5px var(--srv-ring, var(--bg-sidebar));
     }
-    .node-pill-dot.online {
-      background: var(--status-online);
-    }
+    .node-srv.online .node-srv-dot { background: var(--status-online); }
+    .node-pill.active { --srv-ring: var(--bg-elevated); }
+    .node-pill:hover .node-srv, .node-pill.active .node-srv, .node-section:hover .node-srv { color: var(--text-secondary); }
 
     .project-group {
       display: flex;
@@ -1925,6 +1937,8 @@
       overflow-wrap: anywhere;
     }
     .reading__user--pending .reading__user-bubble { opacity: 0.55; border-style: dashed; }
+    .reading__user--failed .reading__user-bubble { opacity: 0.8; border-color: var(--danger); }
+    .reading__user--failed .reading__meta { color: var(--danger); }
     .reading__user-bubble.is-clamped {
       max-height: 260px;
       overflow: hidden;
@@ -3601,12 +3615,12 @@
         localStorage.setItem('takt_collapsed_dirs', JSON.stringify(Array.from(collapsedDirs)));
       }
 
-      function showToast(msg) {
+      function showToast(msg, ms = 2200) {
         const el = document.getElementById('toastMsg');
         el.textContent = msg;
         el.classList.add('show');
         clearTimeout(showToast._timer);
-        showToast._timer = setTimeout(() => el.classList.remove('show'), 2200);
+        showToast._timer = setTimeout(() => el.classList.remove('show'), ms);
       }
 
       // ============================================================================
@@ -3628,19 +3642,27 @@
       const nodeManagerDialog = document.getElementById('nodeManagerDialog');
       const remoteDesktopDialog = document.getElementById('remoteDesktopDialog');
 
+      function popoverOverStage(rect) {
+        const menu = document.getElementById('tagMenu');
+        if (!menu || menu.hidden) return false;
+        const r = menu.getBoundingClientRect();
+        return r.right > rect.left && r.left < rect.right && r.bottom > rect.top && r.top < rect.bottom;
+      }
+
       function syncNativeTerminalGeometry() {
         if (!hasNativeHost) return;
         const stage = document.getElementById('terminalStage');
         const rect = stage.getBoundingClientRect();
         const activeTab = activeTabId && tabs.has(activeTabId) ? tabs.get(activeTabId) : null;
         const inDocktermChat = Boolean(activeTab && activeTab.viewMode === 'chat');
+        // The native terminal is an AppKit view above the page: HTML can never be drawn over it, so it
+        // steps aside while any dialog (settings included) or a popover menu over the terminal is open.
         const isVisible = (
           terminalEngine === 'native' &&
           activeTab !== null &&
           !inDocktermChat &&
-          !newProjectDialog.open &&
-          !nodeManagerDialog.open &&
-          !remoteDesktopDialog.open &&
+          !document.querySelector('dialog[open]') &&
+          !popoverOverStage(rect) &&
           !isDraggingFile &&
           rect.width > 20 &&
           rect.height > 20
@@ -3688,6 +3710,9 @@
       bindLightDismissDialog(newProjectDialog);
       bindLightDismissDialog(nodeManagerDialog);
       bindLightDismissDialog(remoteDesktopDialog);
+      // showModal() fires no event: watch every dialog's [open] so the native terminal always steps aside
+      const dialogOpenObserver = new MutationObserver(() => syncNativeTerminalGeometry());
+      document.querySelectorAll('dialog').forEach((d) => dialogOpenObserver.observe(d, { attributes: true, attributeFilter: ['open'] }));
 
       // ============================================================================
       // 5. Resizable & Collapsible Sidebars and Splitters
@@ -3813,6 +3838,12 @@
         }
       }
 
+      // Machines get a small server glyph with a status dot (green = online), so they never look like the
+      // colour-dot project tags
+      function nodeServerIcon(online) {
+        return `<span class="node-srv${online ? ' online' : ''}" aria-hidden="true"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"><rect x="1.75" y="1.75" width="12.5" height="5.25" rx="1.4"/><rect x="1.75" y="9" width="12.5" height="5.25" rx="1.4"/><path d="M4.6 4.4h.01M4.6 11.6h.01" stroke-width="1.9"/></svg><i class="node-srv-dot"></i></span>`;
+      }
+
       function renderNodeFilterBar() {
         const bar = document.getElementById('nodeFilterBar');
         if (!bar) return;
@@ -3840,7 +3871,7 @@
             n.id,
             n.badge || n.name || n.id,
             `<span class="node-pill-count">${countByNode[n.id] || 0}</span>`,
-            `<span class="node-pill-dot${n.online ? ' online' : ''}"></span>`,
+            nodeServerIcon(n.online),
           );
           pill.title = `${n.name}${n.sshHost ? ` · ${n.sshHost}:${n.remoteWorkDir}` : ' · 未绑定 SSH'}\n${n.online ? '在线' : '离线'} · 右键编辑节点`;
           pill.addEventListener('click', () => setNodeFilter(selectedNodeFilter === n.id ? 'all' : n.id));
@@ -3945,6 +3976,8 @@
       }
 
       const tagMenu = document.getElementById('tagMenu');
+      // Top level of the page: nothing in the sidebar (clipping, stacking) can cover the menu
+      document.body.appendChild(tagMenu);
       function openTagMenu(anchorEl, buildFn) {
         tagMenu.innerHTML = '';
         buildFn(tagMenu);
@@ -3952,17 +3985,30 @@
         const r = anchorEl.getBoundingClientRect();
         const mw = tagMenu.offsetWidth;
         const mh = tagMenu.offsetHeight;
-        const left = Math.min(r.left, window.innerWidth - mw - 8);
+        let minLeft = 8;
+        let maxLeft = window.innerWidth - mw - 8;
+        // A menu opened from a side panel stays inside that panel: in the macOS app the terminal next to
+        // it is a native view that would be drawn over the menu
+        const panel = anchorEl.closest('.panel-col');
+        if (panel) {
+          const pr = panel.getBoundingClientRect();
+          if (pr.width >= mw + 12) {
+            minLeft = Math.max(minLeft, pr.left + 6);
+            maxLeft = Math.min(maxLeft, pr.right - mw - 6);
+          }
+        }
         let top = r.bottom + 4;
         if (top + mh > window.innerHeight - 8) top = Math.max(8, r.top - mh - 4);
-        tagMenu.style.left = `${Math.max(8, left)}px`;
+        tagMenu.style.left = `${Math.max(minLeft, Math.min(r.left, maxLeft))}px`;
         tagMenu.style.top = `${top}px`;
+        syncNativeTerminalGeometry();
         const firstInput = tagMenu.querySelector('input');
         if (firstInput) setTimeout(() => firstInput.focus(), 10);
       }
       function closeTagMenu() {
         tagMenu.hidden = true;
         tagMenu.innerHTML = '';
+        syncNativeTerminalGeometry();
       }
       // Light-dismiss: outside click, Esc, scroll or resize closes the menu
       document.addEventListener('mousedown', (e) => {
@@ -4239,7 +4285,7 @@
 点击折叠 / 展开这台机器`;
             sec.innerHTML = `
               ${SVG_ICONS.chevronDown}
-              <span class="node-pill-dot${nodeInfo.online ? ' online' : ''}"></span>
+              ${nodeServerIcon(nodeInfo.online)}
               <span class="node-section-name">${escapeHtml(folder.nodeBadge || nodeInfo.badge || folder.nodeId)}</span>
               <span>${escapeHtml(folder.localWorkAlias || nodeInfo.localWorkAlias || '')}</span>
               <span class="node-section-meta">${nodeInfo.online ? '' : '离线 · '}${sectionCounts[folder.nodeId] || 0}</span>
@@ -6385,7 +6431,12 @@
       const dtHistory = new Map();
       const dtHistCursor = new Map();
       const DT_PLACEHOLDER = dtInput.placeholder;
-      const DT_UPLOAD_LINE_RE = /^(?:\/|~\/)\S*\/\.takt\/uploads\/\S+$/;
+      // Attachments are sent as "[附件] <path>" lines. A bare image path on a line of its own makes Claude Code
+      // inline the image (clipboard lookup + resize) and throw away the Enter that follows; older messages
+      // still have bare paths.
+      const DT_ATTACH_LABEL = '[附件] ';
+      const DT_PENDING_IDLE_MS = 8000; // a sent message not in the transcript after Claude was idle this long is gone
+      const DT_UPLOAD_LINE_RE = /^(?:\[附件\]\s*)?((?:\/|~\/)\S*\/\.takt\/uploads\/\S+)$/;
       const dtAttachEl = document.getElementById('docktermAttachments');
       const dtAttachments = new Map(); // tabId -> [{ id, name, size, isImage, url, file, status, remotePath, error, promise }]
       let dtSubmitting = false;
@@ -6472,23 +6523,29 @@
         if (terminalEngine === 'native' && hasNativeHost && tabObj.viewMode !== 'chat') {
           if (payload) postNativeMessage({ action: 'sendInput', tabId: tabObj.tabId, text: payload });
           if (submitEnter) setTimeout(() => postNativeMessage({ action: 'sendInput', tabId: tabObj.tabId, text: '\r' }), enterDelayMs);
-          return;
+          return { ok: true };
         }
-        // An ended local pty (ssh dropped) would swallow the input: go through tmux on the node instead
-        if (tabObj.ws && tabObj.ws.readyState === WebSocket.OPEN && !tabObj.exited) {
+        // An ended local pty (ssh dropped) would swallow the input: go through tmux on the node instead.
+        // A submitted paste always goes through the node, which holds Enter back until Claude Code is done pasting.
+        if (!(usePaste && submitEnter) && tabObj.ws && tabObj.ws.readyState === WebSocket.OPEN && !tabObj.exited) {
           if (payload) tabObj.ws.send(JSON.stringify({ type: 'input', data: payload }));
           if (submitEnter) {
             setTimeout(() => {
               if (tabObj.ws && tabObj.ws.readyState === WebSocket.OPEN) tabObj.ws.send(JSON.stringify({ type: 'input', data: '\r' }));
             }, enterDelayMs);
           }
-          return;
+          return { ok: true };
         }
-        await fetch('/api/chat-input', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ tabId: tabObj.tabId, nodeId: tabObj.nodeId, sshHost: tabObj.sshHost, text: payload, submitEnter, enterDelayMs }),
-        }).catch(() => {});
+        try {
+          const res = await fetch('/api/chat-input', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ tabId: tabObj.tabId, nodeId: tabObj.nodeId, sshHost: tabObj.sshHost, text: payload, submitEnter, enterDelayMs }),
+          });
+          return await res.json();
+        } catch {
+          return { ok: false };
+        }
       }
 
       function sendDocktermInterrupt() {
@@ -6875,12 +6932,13 @@
           const imgs = atts.filter((a) => a.isImage && a.url);
           const files = atts.filter((a) => !(a.isImage && a.url));
           return `
-          <div class="reading__user reading__user--pending">
+          <div class="reading__user reading__user--pending${p.failed ? ' reading__user--failed' : ''}">
             <div class="reading__user-wrap">
               ${imgs.length ? `<div class="reading__images">${imgs.map((a) => `<span class="reading__thumb"><img class="is-local" src="${escapeHtml(a.url)}" alt=""></span>`).join('')}</div>` : ''}
               ${files.length ? `<div class="reading__files">${files.map((a) => `<span class="reading__file"><b>${escapeHtml(dtExtLabel(a.name))}</b>${escapeHtml(a.name)}</span>`).join('')}</div>` : ''}
               ${(p.display ?? p.text) ? `<div class="reading__user-bubble">${escapeHtml(p.display ?? p.text)}</div>` : ''}
-              <span class="reading__meta">${p.queued ? '排队中 · Claude 完成当前步骤后处理' : '发送中…'}</span>
+              <span class="reading__meta">${p.failed ? '没有提交 · Claude Code 停在「Pasting…」，切到终端看看输入框'
+                : p.queued ? '排队中 · Claude 完成当前步骤后处理' : '发送中…'}</span>
             </div>
           </div>`;
         }).join('');
@@ -7122,9 +7180,13 @@
         c.loaded = true;
         c.model = data.model || null;
         c.launch = data.launch || null;
+        c.claudeCwd = data.claudeCwd || '';
         if (c.modelOverride && c.model && c.model.ts > c.modelOverride.at) c.modelOverride = null;
 
-        // Optimistic bubbles disappear once the transcript has the real message
+        // Optimistic bubbles disappear once the transcript has the real message (a message typed while
+        // Claude works shows up when Claude picks it up mid-turn, as a queued_command record)
+        const now = Date.now();
+        if (c.status === 'working' || c.status === 'asking') c.lastBusyAt = now;
         if (c.pending.length) {
           const newUsers = added.filter((m) => m.role === 'user');
           const norm = (x) => String(x || '').replace(/\s+/g, ' ').trim();
@@ -7132,8 +7194,20 @@
             const i = c.pending.findIndex((p) => norm(p.text) === norm(u.text) || (u.ts && u.ts >= p.at - 3000));
             if (i >= 0) c.pending.splice(i, 1);
           }
-          const now = Date.now();
-          c.pending = c.pending.filter((p) => now - p.at < (p.queued ? 15 * 60000 : 60000));
+          // Claude takes queued messages as soon as it is idle: one that is still missing from the transcript
+          // after Claude has been idle for a while never arrived (or is still sitting in Claude's input box)
+          let lost = 0;
+          c.pending = c.pending.filter((p) => {
+            if (p.failed) return now - p.failedAt < 120000;
+            if (p.inflight) return true; // the node is still waiting for Claude Code to finish the paste
+            if (!c.stale && now - Math.max(p.sentAt || p.at, c.lastBusyAt || 0) > DT_PENDING_IDLE_MS) {
+              if (c.claudeRunning) lost += 1;
+              return false;
+            }
+            return now - p.at < (p.queued ? 15 * 60000 : 60000);
+          });
+          if (lost && activeChatTab() === t) showToast(lost === 1 ? '有一条消息没有出现在对话记录里，可能还停在 Claude 的输入框（切到终端看看）'
+            : `有 ${lost} 条消息没有出现在对话记录里，可能还停在 Claude 的输入框（切到终端看看）`, 6000);
         }
         // Once Claude has written this tab's own session, later launches must resume it
         if (c.jsonlPath && c.resolvedSessionId === t.sessionId) t.resume = true;
@@ -7744,7 +7818,8 @@
         const files = [];
         const kept = [];
         for (const line of String(text || '').split('\n')) {
-          if (DT_UPLOAD_LINE_RE.test(line.trim())) files.push(line.trim());
+          const m = DT_UPLOAD_LINE_RE.exec(line.trim());
+          if (m) files.push(m[1]);
           else kept.push(line);
         }
         return { text: files.length ? kept.join('\n').replace(/\s+$/, '') : text, files };
@@ -7775,7 +7850,9 @@
         a.status = 'uploading';
         a.error = '';
         try {
-          const q = new URLSearchParams({ nodeId: t.nodeId || '', cwd: t.cwd || '', name: a.name });
+          // into the folder Claude actually runs in, so it can read the file without a permission prompt
+          const cwd = (t.chat && t.chat.claudeRunning && t.chat.claudeCwd) || t.cwd || '';
+          const q = new URLSearchParams({ nodeId: t.nodeId || '', cwd, name: a.name });
           const res = await fetch(`/api/chat-upload?${q}`, { method: 'POST', headers: { 'Content-Type': 'application/octet-stream' }, body: a.file });
           const data = await res.json().catch(() => ({}));
           if (!data.ok) throw new Error(data.error || `HTTP ${res.status}`);
@@ -7889,7 +7966,7 @@
           return;
         }
         const paths = atts.map((a) => a.remotePath);
-        const text = paths.length ? `${typed}${typed ? '\n\n' : ''}${paths.join('\n')}` : typed;
+        const text = paths.length ? `${typed}${typed ? '\n\n' : ''}${paths.map((p) => DT_ATTACH_LABEL + p).join('\n')}` : typed;
         if (c.loaded && !c.claudeRunning && !c.stale) {
           // Without Claude the text would be executed by the shell
           if (!confirm('这个标签页里似乎没有运行 Claude，消息会直接输入到 shell。\n\n仍然发送吗？（建议先点「启动 Claude」）')) return;
@@ -7912,13 +7989,15 @@
         updateDocktermSendState();
 
         const isPicker = DOCKTERM_PICKER_SLASH_RE.test(text);
+        const pendingId = `p${Date.now()}`;
         if (!isCommand) {
           c.pending.push({
-            id: `p${Date.now()}`,
+            id: pendingId,
             text,
             display: typed,
             atts: atts.map((a) => ({ name: a.name, isImage: a.isImage, url: a.url })),
             queued: c.status === 'working',
+            inflight: true,
             at: Date.now(),
           });
           renderDocktermPending(t);
@@ -7927,7 +8006,14 @@
         dtPinned = true;
         requestAnimationFrame(scrollDocktermToBottom);
 
-        await sendDocktermRawInput(t, text, true);
+        const sent = await sendDocktermRawInput(t, text, true);
+        const sentEntry = c.pending.find((x) => x.id === pendingId);
+        if (sentEntry) Object.assign(sentEntry, { inflight: false, sentAt: Date.now() });
+        if (sent && sent.stuck) {
+          if (sentEntry) Object.assign(sentEntry, { failed: 'pasting', failedAt: Date.now() });
+          if (activeChatTab() === t) renderDocktermPending(t);
+          showToast('Claude Code 一直显示「Pasting…」，消息没有提交。切到终端看看它的输入框', 6000);
+        }
 
         if (isPicker) {
           // interactive TUI pickers (/model, /resume …) only work in the terminal

@@ -37,6 +37,14 @@
 - Terminal-output image cards no longer pop up over the conversation view, and paths with dotted folders (`.takt/uploads`, `.cache`) are recognised.
 - Sidebar hides sessions that never got a real title (opened but never used: "会话 1a2b3c4d", "<project> · 终端" …); they appear with their first prompt as title once used. Renamed sessions always show; Claude Code's own `ai-title` is used when a session has no text prompt.
 
+**DockTerm: stuck "Pasting…", stale "排队中", menus under the terminal**
+- Attachments are sent as `[附件] <path>` lines. A bare image path on its own line made Claude Code inline the image: it looks up the clipboard (`xclip -o`, which hangs forever on nodes where `xclip` is a copy-only shim, leaving "Pasting…" on screen) and drops any Enter that arrives meanwhile, so the message was never sent. Old messages with bare paths still render as attachments.
+- Submitting a paste waits on the node until Claude Code's "Pasting…" footer is gone before pressing Enter; if it never clears (8 s), Enter is left out and the bubble turns red ("没有提交 · Claude Code 停在「Pasting…」") instead of pretending to be queued.
+- Messages typed while Claude works are mostly handed over mid-turn as `queued_command` records, not user records: they are now shown in the conversation and clear their "排队中" bubble. A bubble that still has no transcript entry after Claude has been idle for 8 s is removed with a hint to look at the terminal.
+- Attachments upload into the folder the Claude process actually runs in (falls back to the tab's folder), so Claude can read them without a permission prompt.
+- Tag and ⋯ menus open at the top level of the page; menus from the sidebar stay inside the sidebar, and any dialog (incl. appearance settings) or menu that overlaps the macOS app's native terminal hides it while open — HTML can't be drawn over that native view.
+- Machines in the sidebar (filter chips, machine headers) use a small server icon with a status dot instead of a plain dot, so they no longer look like project tags.
+
 **Security**
 - Restored the documented Host/Origin guard (HTTP + WebSocket) that went missing in `efd9650`: web pages can no longer drive the workbench API or type into terminals.
 - HTML/SVG previews are served with a CSP sandbox so a page from a node can't call the workbench API.
