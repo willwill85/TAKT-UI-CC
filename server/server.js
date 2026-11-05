@@ -1299,6 +1299,42 @@ function resolveAnyFilePathToLocalAndRemote(inputPath, sessionCwd = '/root/work'
   return { localPath, remotePath, lineNum, node };
 }
 
+// ---- Shared recursive directory watchers for the live file tree (one fs.watch per root, ref-counted) ----
+const FILE_WATCH_IGNORE = /(^|[\\/])(\.git|node_modules|__pycache__|\.DS_Store|\.stfolder|\.stversions|dist|build|\.next|\.st[^\\/]*)([\\/]|$)/;
+const fileWatchers = new Map(); // localRoot -> { watcher, subs:Set<fn>, timer }
+function subscribeFileChanges(localRoot, cb) {
+  if (!localRoot) return null;
+  let entry = fileWatchers.get(localRoot);
+  if (!entry) {
+    let watcher;
+    try {
+      entry = { watcher: null, subs: new Set(), timer: null };
+      const fire = () => {
+        if (entry.timer) return;
+        entry.timer = setTimeout(() => { entry.timer = null; entry.subs.forEach((fn) => { try { fn(); } catch {} }); }, 250);
+      };
+      watcher = fs.watch(localRoot, { recursive: true }, (_evt, filename) => {
+        if (filename && FILE_WATCH_IGNORE.test(String(filename))) return;
+        fire();
+      });
+      watcher.on('error', () => {});
+      entry.watcher = watcher;
+    } catch {
+      return null;
+    }
+    fileWatchers.set(localRoot, entry);
+  }
+  entry.subs.add(cb);
+  return () => {
+    entry.subs.delete(cb);
+    if (entry.subs.size === 0) {
+      try { entry.watcher.close(); } catch {}
+      if (entry.timer) clearTimeout(entry.timer);
+      if (fileWatchers.get(localRoot) === entry) fileWatchers.delete(localRoot);
+    }
+  };
+}
+
 async function buildFileTree(localRoot, remoteRoot, node, maxDepth = 4) {
   const IGNORE = new Set(['.git', 'node_modules', '__pycache__', '.DS_Store', '.stfolder', '.stversions', 'dist', 'build', '.next']);
   const localBase = (node && node.localWorkDir) || LOCAL_WORK_DIR;
@@ -3441,6 +3477,27 @@ const server = http.createServer(async (req, res) => {
       const nodeId = String(u.searchParams.get('nodeId') || '').trim();
       const closed = closePtyTab(tabId, nodeId);
       sendJson(res, 200, { ok: true, closed });
+      return;
+    }
+
+    // API: Live file-tree change stream (SSE). The UI reloads the tree silently on each "change" event,
+    // so the right-hand file panel stays current without pressing refresh.
+    if (req.method === 'GET' && u.pathname === '/api/files-events') {
+      const cwd = String(u.searchParams.get('cwd') || '/root/work').trim();
+      const nodeId = String(u.searchParams.get('nodeId') || '').trim();
+      const node = inferNodeFromPathOrId(cwd, nodeId);
+      const localRoot = mapRemoteCwdToLocal(cwd, node.id);
+      res.writeHead(200, {
+        'Content-Type': 'text/event-stream',
+        'Cache-Control': 'no-cache, no-transform',
+        Connection: 'keep-alive',
+        'X-Accel-Buffering': 'no',
+      });
+      res.write('retry: 3000\n\n');
+      const unsubscribe = subscribeFileChanges(localRoot, () => { try { res.write('event: change\ndata: 1\n\n'); } catch {} });
+      res.write(unsubscribe ? 'event: ready\ndata: 1\n\n' : 'event: nowatch\ndata: 1\n\n');
+      const ka = setInterval(() => { try { res.write(': ka\n\n'); } catch {} }, 20000);
+      req.on('close', () => { clearInterval(ka); if (unsubscribe) unsubscribe(); });
       return;
     }
 
