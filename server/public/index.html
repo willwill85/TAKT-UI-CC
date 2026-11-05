@@ -2628,49 +2628,116 @@
     .usage-meter.is-crit .usage-ring__num { color: var(--danger); }
     .composer__usage.is-stale { opacity: 0.6; }
 
-    /* Model / effort switch under the composer */
+    /* Under the composer: usage rings on the left, model / effort pickers on the right */
     .composer__bar {
       display: flex;
       align-items: center;
       gap: 4px;
-      margin-top: 5px;
+      margin-top: 6px;
       padding: 0 2px;
       min-width: 0;
       font-size: 11px;
       color: var(--text-muted);
     }
-    .composer__select {
-      -webkit-appearance: none;
-      appearance: none;
-      height: 22px;
-      max-width: 240px;
-      padding: 0 20px 0 7px;
-      border-radius: var(--radius-xs);
-      border: 1px solid transparent;
-      background: transparent url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='8' height='8' viewBox='0 0 24 24' fill='none' stroke='%238a8a90' stroke-width='3' stroke-linecap='round'%3E%3Cpolyline points='6 9 12 15 18 9'/%3E%3C/svg%3E") no-repeat right 7px center;
-      color: var(--text-secondary);
-      font: inherit;
-      font-size: 11px;
-      cursor: pointer;
-      text-overflow: ellipsis;
-    }
-    .composer__select:hover:not(:disabled),
-    .composer__select:focus-visible {
-      border-color: var(--border-hairline);
-      background-color: var(--bg-hover);
-      color: var(--text-primary);
-      outline: none;
-    }
-    .composer__select:disabled { opacity: 0.5; cursor: not-allowed; }
-    .composer__select option, .composer__select optgroup { background: var(--bg-elevated); color: var(--text-primary); }
-    .composer__bar-sep { color: var(--border-strong); }
     .composer__bar-note {
-      margin-left: auto;
+      flex: 1 1 auto;
+      padding: 0 8px;
+      text-align: right;
       overflow: hidden;
       text-overflow: ellipsis;
       white-space: nowrap;
       min-width: 0;
     }
+    .dt-pick { position: relative; flex-shrink: 0; min-width: 0; }
+    .dt-pick__btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      height: 24px;
+      max-width: 200px;
+      padding: 0 7px 0 9px;
+      border-radius: var(--radius-xs);
+      border: 1px solid transparent;
+      background: transparent;
+      color: var(--text-secondary);
+      font: inherit;
+      font-size: 11.5px;
+      cursor: pointer;
+    }
+    .dt-pick__btn:hover:not(:disabled),
+    .dt-pick__btn:focus-visible,
+    .dt-pick.is-open .dt-pick__btn {
+      border-color: var(--border-hairline);
+      background: var(--bg-hover);
+      color: var(--text-primary);
+      outline: none;
+    }
+    .dt-pick__btn:disabled { opacity: 0.5; cursor: not-allowed; }
+    .dt-pick__label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .dt-pick__chev {
+      width: 9px;
+      height: 9px;
+      flex-shrink: 0;
+      fill: none;
+      stroke: currentColor;
+      stroke-width: 3;
+      stroke-linecap: round;
+      stroke-linejoin: round;
+      opacity: 0.7;
+      transition: transform 0.12s ease;
+    }
+    .dt-pick.is-open .dt-pick__chev { transform: rotate(180deg); }
+    .dt-pick__menu {
+      position: absolute;
+      right: 0;
+      bottom: calc(100% + 6px);
+      z-index: 50;
+      min-width: 230px;
+      max-width: 320px;
+      max-height: min(360px, 60vh);
+      overflow-y: auto;
+      padding: 4px;
+      border-radius: var(--radius-md);
+      border: 1px solid var(--border-strong);
+      background: var(--bg-elevated);
+      box-shadow: var(--shadow-md);
+      font-size: 12px;
+    }
+    .dt-pick--narrow .dt-pick__menu { min-width: 170px; }
+    .dt-pick__menu[hidden] { display: none; }
+    .dt-pick__title { padding: 6px 8px 4px; font-size: 10.5px; color: var(--text-muted); }
+    .dt-pick__title:not(:first-child) { margin-top: 4px; border-top: 1px solid var(--border-hairline); padding-top: 8px; }
+    .dt-pick__item {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      width: 100%;
+      min-height: 28px;
+      padding: 4px 8px;
+      border: none;
+      border-radius: var(--radius-xs);
+      background: transparent;
+      color: var(--text-secondary);
+      font: inherit;
+      text-align: left;
+      cursor: pointer;
+    }
+    .dt-pick__item:hover, .dt-pick__item.is-focus { background: var(--bg-hover); color: var(--text-primary); }
+    .dt-pick__item.is-current { color: var(--text-primary); }
+    .dt-pick__name { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .dt-pick__sub { flex-shrink: 0; font-family: var(--font-mono); font-size: 10px; color: var(--text-muted); }
+    .dt-pick__check {
+      width: 12px;
+      height: 12px;
+      flex-shrink: 0;
+      fill: none;
+      stroke: currentColor;
+      stroke-width: 2.5;
+      stroke-linecap: round;
+      stroke-linejoin: round;
+      visibility: hidden;
+    }
+    .dt-pick__item.is-current .dt-pick__check { visibility: visible; }
 
     /* Generic popover menu items reuse .tag-menu; "more" menu needs icons aligned */
     .tag-menu-item .icon { color: var(--text-muted); }
@@ -2827,7 +2894,6 @@
                     placeholder="给 Claude 发消息… 输入 / 查看命令，可粘贴或拖入图片、文件"
                   ></textarea>
                   <div class="composer__foot">
-                    <span class="composer__usage" id="docktermUsage" hidden></span>
                     <span class="composer__hints"><kbd>↵</kbd> 发送 · <kbd>⇧↵</kbd> 换行 · <kbd>/</kbd> 命令 · <kbd>↑</kbd> 上一条 · <kbd>Esc</kbd> 中断</span>
                     <div class="composer__actions">
                       <button type="button" class="btn" id="btnDocktermInterrupt" hidden>■ 中断</button>
@@ -2839,10 +2905,16 @@
                   </div>
                 </div>
                 <div class="composer__bar" id="docktermModelBar">
-                  <select class="composer__select" id="docktermModelSelect" title="模型（切换时会在这个会话里执行 /model）" aria-label="模型"></select>
-                  <span class="composer__bar-sep">·</span>
-                  <select class="composer__select" id="docktermEffortSelect" title="Effort（切换时会在这个会话里执行 /effort）" aria-label="Effort"></select>
+                  <span class="composer__usage" id="docktermUsage" hidden></span>
                   <span class="composer__bar-note" id="docktermModelNote"></span>
+                  <div class="dt-pick" id="docktermModelPick">
+                    <button type="button" class="dt-pick__btn" id="docktermModelBtn" aria-haspopup="listbox" aria-expanded="false" aria-label="模型"><span class="dt-pick__label" id="docktermModelLabel">模型</span><svg class="dt-pick__chev" viewBox="0 0 24 24" aria-hidden="true"><polyline points="6 9 12 15 18 9"/></svg></button>
+                    <div class="dt-pick__menu scroller" id="docktermModelMenu" role="listbox" aria-label="模型" hidden></div>
+                  </div>
+                  <div class="dt-pick dt-pick--narrow" id="docktermEffortPick">
+                    <button type="button" class="dt-pick__btn" id="docktermEffortBtn" aria-haspopup="listbox" aria-expanded="false" aria-label="Effort"><span class="dt-pick__label" id="docktermEffortLabel">effort</span><svg class="dt-pick__chev" viewBox="0 0 24 24" aria-hidden="true"><polyline points="6 9 12 15 18 9"/></svg></button>
+                    <div class="dt-pick__menu scroller" id="docktermEffortMenu" role="listbox" aria-label="Effort" hidden></div>
+                  </div>
                 </div>
               </div>
             </div>
@@ -6898,8 +6970,11 @@
       const DT_EFFORTS = ['low', 'medium', 'high', 'xhigh', 'max'];
       const DT_LINE_ORDER = ['fable', 'opus', 'sonnet', 'haiku'];
       const dtUsageEl = document.getElementById('docktermUsage');
-      const dtModelSelect = document.getElementById('docktermModelSelect');
-      const dtEffortSelect = document.getElementById('docktermEffortSelect');
+      const dtPicks = {
+        model: { wrap: document.getElementById('docktermModelPick'), btn: document.getElementById('docktermModelBtn'), label: document.getElementById('docktermModelLabel'), menu: document.getElementById('docktermModelMenu'), title: '模型', cmd: '/model' },
+        effort: { wrap: document.getElementById('docktermEffortPick'), btn: document.getElementById('docktermEffortBtn'), label: document.getElementById('docktermEffortLabel'), menu: document.getElementById('docktermEffortMenu'), title: 'Effort', cmd: '/effort' },
+      };
+      let dtOpenPick = ''; // 'model' | 'effort' | ''
       const dtModelNote = document.getElementById('docktermModelNote');
       const dtNodeMeta = new Map(); // nodeId -> { usage, usageError, plan, usageAt, models, extraModels, modelsLoaded }
       let dtModelBarSig = '';
@@ -7061,59 +7136,84 @@
         const busy = c.status === 'working' || c.status === 'asking';
         const sig = JSON.stringify([t.tabId, cur, opts.models.length, opts.extra.length, c.claudeRunning, busy, c.modelNote]);
         if (!force && sig === dtModelBarSig) return;
-        // never rebuild a <select> while its dropdown is open
-        if (document.activeElement === dtModelSelect || document.activeElement === dtEffortSelect) return;
         dtModelBarSig = sig;
 
-        const opt = (value, label, title = '') => `<option value="${escapeHtml(value)}"${title ? ` title="${escapeHtml(title)}"` : ''}>${escapeHtml(label)}</option>`;
-        let html = '';
-        const known = new Set();
-        if (!cur.model) html += opt('', opts.models.length ? '模型' : '模型（载入中…）');
-        html += opt('default', '默认（账号推荐）');
-        known.add('default');
-        if (opts.primary.length || opts.extra.length) {
-          html += '<optgroup label="最新">';
-          for (const m of opts.primary) { html += opt(m.id, dtModelLabel(m), m.id); known.add(m.id); }
-          for (const m of opts.extra) { html += opt(m.id, m.name || m.id, m.description || m.id); known.add(m.id); }
-          html += '</optgroup>';
-        }
-        if (opts.others.length) {
-          html += '<optgroup label="其他版本">';
-          for (const m of opts.others) { html += opt(m.id, dtModelLabel(m), m.id); known.add(m.id); }
-          html += '</optgroup>';
-        }
-        if (cur.model && !known.has(cur.model)) html = opt(cur.model, cur.model) + html;
-        dtModelSelect.innerHTML = html;
-        dtModelSelect.value = cur.model || '';
-
-        const m = opts.models.find((x) => x.id === cur.model);
-        const levels = m && m.efforts && m.efforts.length ? m.efforts : DT_EFFORTS;
-        let eff = '';
-        if (!cur.effort) eff += opt('', 'effort 默认');
-        eff += levels.map((lv) => opt(lv, lv)).join('') + opt('auto', 'auto');
-        if (cur.effort && !levels.includes(cur.effort) && cur.effort !== 'auto') eff = opt(cur.effort, cur.effort) + eff;
-        dtEffortSelect.innerHTML = eff;
-        dtEffortSelect.value = cur.effort || '';
-        fitDocktermSelect(dtModelSelect);
-        fitDocktermSelect(dtEffortSelect);
+        const m = opts.models.find((x) => x.id === cur.model) || opts.extra.find((x) => x.id === cur.model);
+        const modelName = !cur.model ? (opts.models.length ? '模型' : '模型（载入中…）') : m ? (m.name ? dtModelLabel(m) : m.id) : cur.model;
+        dtPicks.model.label.textContent = modelName;
+        dtPicks.effort.label.textContent = cur.effort || 'effort';
 
         const disabled = !c.claudeRunning;
-        dtModelSelect.disabled = disabled;
-        dtEffortSelect.disabled = disabled;
+        dtPicks.model.btn.disabled = disabled;
+        dtPicks.effort.btn.disabled = disabled;
+        if (disabled && dtOpenPick) closeDocktermPick();
         const srcText = { reply: '当前对话正在使用', pending: '刚切换，等下一条回复确认', launch: '启动参数', settings: '来自 Claude 设置' }[cur.source] || '';
-        dtModelSelect.title = disabled ? 'Claude 未运行' : `模型${srcText ? ` · ${srcText}` : ''}\n切换时会在这个会话里执行 /model`;
-        dtEffortSelect.title = disabled ? 'Claude 未运行' : `Effort${srcText ? ` · ${srcText}` : ''}\n切换时会在这个会话里执行 /effort`;
+        dtPicks.model.btn.title = disabled ? 'Claude 未运行' : `模型${srcText ? ` · ${srcText}` : ''}\n切换时会在这个会话里执行 /model`;
+        dtPicks.effort.btn.title = disabled ? 'Claude 未运行' : `Effort${srcText ? ` · ${srcText}` : ''}\n切换时会在这个会话里执行 /effort`;
         dtModelNote.textContent = c.modelNote || (disabled ? 'Claude 未运行' : busy ? 'Claude 正在执行，空闲后可切换' : '');
+        if (dtOpenPick) buildDocktermPickMenu(dtOpenPick, t);
       }
 
-      // A <select> is as wide as its longest option; size it to the chosen label instead
-      const dtMeasureCtx = document.createElement('canvas').getContext('2d');
-      function fitDocktermSelect(sel) {
-        const o = sel.options[sel.selectedIndex];
-        const cs = getComputedStyle(sel);
-        dtMeasureCtx.font = `${cs.fontWeight} ${cs.fontSize} ${cs.fontFamily}`;
-        const w = Math.ceil(dtMeasureCtx.measureText(o ? o.textContent : '').width);
-        sel.style.width = `${Math.min(240, w + 30)}px`;
+      // ---- Codex-style option menus for model / effort (open upward from the buttons)
+      const DT_CHECK_SVG = '<svg class="dt-pick__check" viewBox="0 0 24 24" aria-hidden="true"><polyline points="20 6 9 17 4 12"/></svg>';
+
+      function dtPickGroups(kind, t) {
+        const cur = dtCurrentModel(t);
+        if (kind === 'effort') {
+          const m = dtModelOptions(t).models.find((x) => x.id === cur.model);
+          const levels = m && m.efforts && m.efforts.length ? m.efforts : DT_EFFORTS;
+          const items = levels.map((lv) => ({ value: lv, label: lv }));
+          items.push({ value: 'auto', label: 'auto', sub: '自动' });
+          if (cur.effort && !items.some((i) => i.value === cur.effort)) items.unshift({ value: cur.effort, label: cur.effort });
+          return { current: cur.effort, groups: [{ title: '', items }] };
+        }
+        const opts = dtModelOptions(t);
+        const groups = [{ title: '', items: [{ value: 'default', label: '默认（账号推荐）' }] }];
+        const latest = [
+          ...opts.primary.map((m) => ({ value: m.id, label: dtModelLabel(m), sub: m.id })),
+          ...opts.extra.map((m) => ({ value: m.id, label: m.name || m.id, sub: m.description ? '' : m.id })),
+        ];
+        if (latest.length) groups.push({ title: '最新', items: latest });
+        if (opts.others.length) groups.push({ title: '其他版本', items: opts.others.map((m) => ({ value: m.id, label: dtModelLabel(m), sub: m.id })) });
+        const known = new Set(groups.flatMap((g) => g.items.map((i) => i.value)));
+        if (cur.model && !known.has(cur.model)) groups[0].items.unshift({ value: cur.model, label: cur.model });
+        return { current: cur.model, groups };
+      }
+
+      function buildDocktermPickMenu(kind, t) {
+        const { current, groups } = dtPickGroups(kind, t);
+        const pick = dtPicks[kind];
+        let html = `<div class="dt-pick__title">${escapeHtml(pick.title)}</div>`;
+        for (const g of groups) {
+          if (g.title) html += `<div class="dt-pick__title">${escapeHtml(g.title)}</div>`;
+          for (const it of g.items) {
+            html += `<button type="button" class="dt-pick__item${it.value === current ? ' is-current' : ''}" role="option" aria-selected="${it.value === current}" data-value="${escapeHtml(it.value)}"><span class="dt-pick__name">${escapeHtml(it.label)}</span>${it.sub ? `<span class="dt-pick__sub">${escapeHtml(it.sub)}</span>` : ''}${DT_CHECK_SVG}</button>`;
+          }
+        }
+        pick.menu.innerHTML = html;
+      }
+
+      function openDocktermPick(kind) {
+        const t = activeChatTab();
+        if (!t || !t.chat || !t.chat.claudeRunning) return;
+        closeDocktermPick();
+        dtOpenPick = kind;
+        const pick = dtPicks[kind];
+        buildDocktermPickMenu(kind, t);
+        pick.menu.hidden = false;
+        pick.wrap.classList.add('is-open');
+        pick.btn.setAttribute('aria-expanded', 'true');
+        const cur = pick.menu.querySelector('.is-current');
+        if (cur) cur.scrollIntoView({ block: 'nearest' });
+      }
+
+      function closeDocktermPick() {
+        if (!dtOpenPick) return;
+        const pick = dtPicks[dtOpenPick];
+        pick.menu.hidden = true;
+        pick.wrap.classList.remove('is-open');
+        pick.btn.setAttribute('aria-expanded', 'false');
+        dtOpenPick = '';
       }
 
       function switchDocktermModel(kind, value) {
@@ -7158,22 +7258,55 @@
         kickDocktermPoll(800);
       }
 
-      dtModelSelect.addEventListener('change', () => {
-        const v = dtModelSelect.value;
-        dtModelSelect.blur();
-        switchDocktermModel('model', v);
-      });
-      dtEffortSelect.addEventListener('change', () => {
-        const v = dtEffortSelect.value;
-        dtEffortSelect.blur();
-        switchDocktermModel('effort', v);
-      });
-      for (const sel of [dtModelSelect, dtEffortSelect]) {
-        sel.addEventListener('blur', () => {
-          const t = activeChatTab();
-          if (t) setTimeout(() => renderDocktermModelBar(t), 0);
+      for (const kind of Object.keys(dtPicks)) {
+        const pick = dtPicks[kind];
+        pick.btn.addEventListener('click', () => (dtOpenPick === kind ? closeDocktermPick() : openDocktermPick(kind)));
+        pick.menu.addEventListener('click', (e) => {
+          const item = e.target.closest('.dt-pick__item');
+          if (!item) return;
+          const v = item.dataset.value;
+          closeDocktermPick();
+          switchDocktermModel(kind, v);
+        });
+        pick.menu.addEventListener('mousemove', (e) => {
+          const item = e.target.closest('.dt-pick__item');
+          if (item) pick.menu.querySelectorAll('.is-focus').forEach((x) => x !== item && x.classList.remove('is-focus'));
         });
       }
+      document.addEventListener('mousedown', (e) => {
+        if (dtOpenPick && !dtPicks[dtOpenPick].wrap.contains(e.target)) closeDocktermPick();
+      });
+      document.addEventListener('keydown', (e) => {
+        if (!dtOpenPick) return;
+        const menu = dtPicks[dtOpenPick].menu;
+        if (e.key === 'Escape') {
+          e.preventDefault();
+          e.stopPropagation();
+          const btn = dtPicks[dtOpenPick].btn;
+          closeDocktermPick();
+          btn.focus();
+          return;
+        }
+        if (e.key === 'ArrowDown' || e.key === 'ArrowUp' || e.key === 'Enter') {
+          const items = [...menu.querySelectorAll('.dt-pick__item')];
+          if (!items.length) return;
+          let i = items.findIndex((x) => x.classList.contains('is-focus'));
+          if (e.key === 'Enter') {
+            if (i < 0) return;
+            e.preventDefault();
+            e.stopPropagation();
+            items[i].click();
+            return;
+          }
+          e.preventDefault();
+          e.stopPropagation();
+          if (i < 0) i = items.findIndex((x) => x.classList.contains('is-current'));
+          i = e.key === 'ArrowDown' ? (i + 1) % items.length : (i <= 0 ? items.length - 1 : i - 1);
+          items.forEach((x) => x.classList.remove('is-focus'));
+          items[i].classList.add('is-focus');
+          items[i].scrollIntoView({ block: 'nearest' });
+        }
+      }, true);
 
       function launchClaudeInActiveTab() {
         if (!activeTabId || !tabs.has(activeTabId)) return;
