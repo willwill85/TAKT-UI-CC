@@ -10,6 +10,8 @@
 
 ![TAKT-UI-CC 截图](docs/images/screenshot.png)
 
+<sub>对话视图：对话内图片预览、输入框下方的 5h / 周用量环，以及类似 Codex 的模型与 effort 选择菜单。</sub>
+
 </div>
 
 ---

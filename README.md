@@ -10,6 +10,8 @@ local file preview, two-way file sync — and a local MCP server your remote Cla
 
 ![TAKT-UI-CC screenshot](docs/images/screenshot.png)
 
+<sub>Chat view: inline image previews, 5h / weekly usage rings and a Codex-style model & effort picker under the composer.</sub>
+
 </div>
 
 > The UI language is currently **Chinese (简体中文)**. All code, configuration and docs are in English/Chinese; contributions that add an i18n layer are very welcome.
