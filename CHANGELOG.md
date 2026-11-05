@@ -24,6 +24,17 @@
 - Composer: optimistic "sending" bubble, Enter delay scaled to paste size (long prompts were sometimes never submitted), Esc only interrupts when Claude is busy, ↑ history never overwrites a draft, confirm before sending to a shell without Claude, number keys answer prompts.
 - Adaptive polling (1 s busy / 2 s idle / paused in background), per-tab view mode remembered across reloads.
 
+**DockTerm: images, files, usage, model**
+- Images in the conversation are shown inline: pasted screenshots (read from the node's transcript on demand and cached on the Mac), images returned by tools (e.g. `Read` of a PNG, screenshot MCP tools), `![](path)` and image paths mentioned in replies. Click for a full-size viewer.
+- File paths in replies, user messages and tool rows (`Read`/`Edit`/`Write`) are links: click previews on the right, ⌘-click opens with the Mac app, ⌥-click reveals in Finder; CAD/EDA/office files open in their app directly.
+- Everything is previewed/opened from the Mac's disk: the Syncthing mirror when the file is there, otherwise a one-time SSH copy into `~/.takt-ai/cache` (re-used while size/mtime are unchanged, pruned after 7 days). `open` only launches documents; code opens in the text editor; anything executable is only revealed.
+- Usage (5-hour + weekly, like `/usage`) as two small rings inside the composer (yellow ≥ 75, red ≥ 90): fetched by the node from Anthropic's usage endpoint with its own Claude login when the conversation view opens and every 10 minutes — nothing is typed into the terminal and the token never leaves the node.
+- Model + effort switch under the composer: shows what the conversation is actually using (from the latest reply), the model list (with supported effort levels) is fetched once per node; switching runs `/model` / `/effort` in that session, refused while Claude is busy.
+
+**Security**
+- Restored the documented Host/Origin guard (HTTP + WebSocket) that went missing in `efd9650`: web pages can no longer drive the workbench API or type into terminals.
+- HTML/SVG previews are served with a CSP sandbox so a page from a node can't call the workbench API.
+
 **Fixes**
 - Web terminal no longer duplicates its history on every reconnect; an ended session shows a notice and reconnects on key press.
 - macOS app: implement JS `alert/confirm/prompt` panels (previously `confirm()` always returned false, e.g. deleting a session never worked).

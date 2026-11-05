@@ -2079,6 +2079,117 @@
       color: var(--text-muted);
       min-width: 0;
     }
+    .reading__tool:has(.reading__images) { flex-wrap: wrap; }
+    .reading__tool .md-file-link,
+    .reading__user-bubble .md-file-link {
+      color: inherit;
+      text-decoration: underline;
+      text-decoration-color: rgba(255, 255, 255, 0.3);
+      text-underline-offset: 2px;
+      cursor: pointer;
+    }
+    .reading__tool .md-file-link:hover,
+    .reading__user-bubble .md-file-link:hover {
+      color: var(--text-primary);
+      text-decoration-color: currentColor;
+    }
+
+    /* Images in the conversation — always loaded from the Mac (mirror, or a cached copy) */
+    .reading__images {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+      margin-top: 8px;
+      min-width: 0;
+    }
+    .reading__user .reading__images { justify-content: flex-end; margin: 0 0 6px; max-width: 85%; }
+    .reading__tool .reading__images { flex-basis: 100%; margin: 3px 0 3px 19px; }
+    .reading__thumb {
+      position: relative;
+      display: block;
+      padding: 0;
+      border: 1px solid var(--border-hairline);
+      border-radius: var(--radius-sm);
+      background: var(--bg-input);
+      overflow: hidden;
+      cursor: zoom-in;
+      max-width: min(320px, 100%);
+    }
+    .reading__thumb:hover { border-color: var(--border-accent); }
+    .reading__thumb img {
+      display: block;
+      max-width: 100%;
+      max-height: 200px;
+      object-fit: contain;
+    }
+    .reading__tool .reading__thumb img { max-height: 120px; }
+    .reading__thumb.is-loading { min-width: 96px; min-height: 64px; }
+    .reading__thumb.is-loading::after {
+      content: '加载中…';
+      position: absolute;
+      inset: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 10.5px;
+      color: var(--text-muted);
+    }
+    .reading__thumb.is-broken { display: none; }
+    .reading__thumb-name {
+      position: absolute;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      padding: 10px 6px 3px;
+      font-family: var(--font-mono);
+      font-size: 10px;
+      color: #fff;
+      text-align: left;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      background: linear-gradient(transparent, rgba(0, 0, 0, 0.7));
+      opacity: 0;
+      transition: opacity 0.12s ease;
+    }
+    .reading__thumb:hover .reading__thumb-name { opacity: 1; }
+
+    /* Full-size image viewer */
+    .dt-lightbox {
+      position: fixed;
+      inset: 0;
+      z-index: 900;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 12px;
+      padding: 28px;
+      background: rgba(0, 0, 0, 0.84);
+    }
+    .dt-lightbox img {
+      max-width: 100%;
+      max-height: calc(100% - 52px);
+      object-fit: contain;
+      border-radius: var(--radius-sm);
+      background: #111;
+      box-shadow: var(--shadow-md);
+    }
+    .dt-lightbox__bar {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      max-width: 100%;
+      font-size: 11.5px;
+      color: var(--text-secondary);
+    }
+    .dt-lightbox__name {
+      font-family: var(--font-mono);
+      max-width: 48vw;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
 
     /* Live "working" card with the last lines of the terminal */
     .reading__live {
@@ -2347,6 +2458,7 @@
       min-width: 0;
     }
     .composer__hints {
+      flex: 1 1 auto;
       overflow: hidden;
       text-overflow: ellipsis;
       white-space: nowrap;
@@ -2383,6 +2495,89 @@
     }
     .composer__send:hover:not(:disabled) { background: #ffffff; }
     .composer__send:disabled { opacity: 0.35; cursor: not-allowed; }
+
+    /* Usage meters inside the composer (5h session + weekly) */
+    .composer__usage {
+      display: inline-flex;
+      align-items: center;
+      gap: 10px;
+      flex-shrink: 0;
+      font-family: var(--font-mono);
+      font-size: 10.5px;
+      color: var(--text-muted);
+      cursor: default;
+    }
+    .usage-meter { display: inline-flex; align-items: center; gap: 4px; }
+    .usage-ring {
+      position: relative;
+      width: 22px;
+      height: 22px;
+      flex-shrink: 0;
+    }
+    .usage-ring svg { display: block; width: 22px; height: 22px; transform: rotate(-90deg); }
+    .usage-ring__track { fill: none; stroke: var(--border-strong); stroke-width: 2.5; }
+    .usage-ring__value { fill: none; stroke: var(--text-secondary); stroke-width: 2.5; stroke-linecap: round; transition: stroke-dasharray 0.4s ease; }
+    .usage-ring__num {
+      position: absolute;
+      inset: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 8.5px;
+      font-weight: 600;
+      letter-spacing: -0.3px;
+      color: var(--text-secondary);
+    }
+    .usage-ring__num.is-full { font-size: 7.5px; letter-spacing: -0.5px; }
+    .usage-meter.is-warn .usage-ring__value { stroke: var(--warning); }
+    .usage-meter.is-warn .usage-ring__num { color: var(--warning); }
+    .usage-meter.is-crit .usage-ring__value { stroke: var(--danger); }
+    .usage-meter.is-crit .usage-ring__num { color: var(--danger); }
+    .composer__usage.is-stale { opacity: 0.6; }
+
+    /* Model / effort switch under the composer */
+    .composer__bar {
+      display: flex;
+      align-items: center;
+      gap: 4px;
+      margin-top: 5px;
+      padding: 0 2px;
+      min-width: 0;
+      font-size: 11px;
+      color: var(--text-muted);
+    }
+    .composer__select {
+      -webkit-appearance: none;
+      appearance: none;
+      height: 22px;
+      max-width: 240px;
+      padding: 0 20px 0 7px;
+      border-radius: var(--radius-xs);
+      border: 1px solid transparent;
+      background: transparent url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='8' height='8' viewBox='0 0 24 24' fill='none' stroke='%238a8a90' stroke-width='3' stroke-linecap='round'%3E%3Cpolyline points='6 9 12 15 18 9'/%3E%3C/svg%3E") no-repeat right 7px center;
+      color: var(--text-secondary);
+      font: inherit;
+      font-size: 11px;
+      cursor: pointer;
+      text-overflow: ellipsis;
+    }
+    .composer__select:hover:not(:disabled),
+    .composer__select:focus-visible {
+      border-color: var(--border-hairline);
+      background-color: var(--bg-hover);
+      color: var(--text-primary);
+      outline: none;
+    }
+    .composer__select:disabled { opacity: 0.5; cursor: not-allowed; }
+    .composer__select option, .composer__select optgroup { background: var(--bg-elevated); color: var(--text-primary); }
+    .composer__bar-sep { color: var(--border-strong); }
+    .composer__bar-note {
+      margin-left: auto;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      min-width: 0;
+    }
 
     /* Generic popover menu items reuse .tag-menu; "more" menu needs icons aligned */
     .tag-menu-item .icon { color: var(--text-muted); }
@@ -2538,6 +2733,7 @@
                     placeholder="给 Claude 发消息… 输入 / 查看命令，可从右侧拖入文件"
                   ></textarea>
                   <div class="composer__foot">
+                    <span class="composer__usage" id="docktermUsage" hidden></span>
                     <span class="composer__hints"><kbd>↵</kbd> 发送 · <kbd>⇧↵</kbd> 换行 · <kbd>/</kbd> 命令 · <kbd>↑</kbd> 上一条 · <kbd>Esc</kbd> 中断</span>
                     <div class="composer__actions">
                       <button type="button" class="btn" id="btnDocktermInterrupt" hidden>■ 中断</button>
@@ -2548,7 +2744,23 @@
                     </div>
                   </div>
                 </div>
+                <div class="composer__bar" id="docktermModelBar">
+                  <select class="composer__select" id="docktermModelSelect" title="模型（切换时会在这个会话里执行 /model）" aria-label="模型"></select>
+                  <span class="composer__bar-sep">·</span>
+                  <select class="composer__select" id="docktermEffortSelect" title="Effort（切换时会在这个会话里执行 /effort）" aria-label="Effort"></select>
+                  <span class="composer__bar-note" id="docktermModelNote"></span>
+                </div>
               </div>
+            </div>
+          </div>
+
+          <div class="dt-lightbox" id="docktermLightbox" hidden>
+            <img id="docktermLightboxImg" alt="" />
+            <div class="dt-lightbox__bar">
+              <span class="dt-lightbox__name" id="docktermLightboxName"></span>
+              <button type="button" class="btn" id="btnLightboxOpen">用 Mac 应用打开</button>
+              <button type="button" class="btn" id="btnLightboxReveal">在 Finder 中显示</button>
+              <button type="button" class="btn" id="btnLightboxClose">关闭 (Esc)</button>
             </div>
           </div>
 
@@ -4614,12 +4826,12 @@
         return { allowed: true };
       }
 
-      function renderUnsupportedPreviewCard({ name, path: filePath, ext, size, reason }) {
+      function renderUnsupportedPreviewCard({ name, path: filePath, ext, size, reason, cwd = currentFilesCwd, nodeId = currentFilesNodeId }) {
         previewPane.classList.remove('collapsed');
         const titleEl = document.getElementById('previewTitle');
         const actionsEl = document.getElementById('previewActions');
         const bodyEl = document.getElementById('previewBody');
-        const localDisplayPath = toLocalMacPath(filePath);
+        const localDisplayPath = toLocalMacPath(filePath, nodeId);
 
         titleEl.textContent = name || (localDisplayPath ? localDisplayPath.split('/').pop() : '跳过预览');
         actionsEl.innerHTML = '';
@@ -4632,7 +4844,8 @@
             <div style="font-size:10.5px; font-family:var(--font-mono); color:var(--text-muted);">
               ${size != null ? `大小: ${formatBytes(size)} · ` : ''}Mac 本地路径: ${escapeHtml(localDisplayPath)}
             </div>
-            <div style="display:flex; gap:8px; margin-top:4px;">
+            <div style="display:flex; gap:8px; margin-top:4px; flex-wrap:wrap; justify-content:center;">
+              <button class="btn" id="btnCardOpenMac">用 Mac 应用打开</button>
               <button class="btn" id="btnCardOpenFinder">在 Finder 中定位</button>
               <button class="btn btn-primary" id="btnCardInjectPath">&gt;_ 注入终端</button>
             </div>
@@ -4642,11 +4855,13 @@
         const btnFinder = document.getElementById('btnCardOpenFinder');
         if (btnFinder) {
           btnFinder.addEventListener('click', () => {
-            fetch('/api/open-finder', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ path: localDisplayPath, cwd: currentFilesCwd, nodeId: currentFilesNodeId }),
-            });
+            openDocktermFileOnMac({ cwd, nodeId }, { path: filePath, reveal: true, label: name });
+          });
+        }
+        const btnOpenMac = document.getElementById('btnCardOpenMac');
+        if (btnOpenMac) {
+          btnOpenMac.addEventListener('click', () => {
+            openDocktermFileOnMac({ cwd, nodeId }, { path: filePath, label: name });
           });
         }
         const btnInject = document.getElementById('btnCardInjectPath');
@@ -4737,7 +4952,7 @@
       }
 
       let previewAbortCtrl = null;
-      async function previewFileInRightPane(filePath, cwd = currentFilesCwd, alsoShowInlineIfImage = false) {
+      async function previewFileInRightPane(filePath, cwd = currentFilesCwd, alsoShowInlineIfImage = false, nodeId = currentFilesNodeId) {
         previewPane.classList.remove('collapsed');
         const titleEl = document.getElementById('previewTitle');
         const actionsEl = document.getElementById('previewActions');
@@ -4748,7 +4963,7 @@
         const ext = extMatch ? extMatch[1] : '';
         const preCheck = checkClientPreviewEligibility({ name: baseName, ext, size: 0 });
         if (!preCheck.allowed) {
-          renderUnsupportedPreviewCard({ name: baseName, path: filePath, ext, size: null, reason: preCheck.reason });
+          renderUnsupportedPreviewCard({ name: baseName, path: filePath, ext, size: null, reason: preCheck.reason, cwd, nodeId });
           return;
         }
 
@@ -4762,7 +4977,7 @@
 
         try {
           const res = await fetch(
-            `/api/file-content?path=${encodeURIComponent(filePath)}&cwd=${encodeURIComponent(cwd)}&nodeId=${encodeURIComponent(currentFilesNodeId)}`,
+            `/api/file-content?path=${encodeURIComponent(filePath)}&cwd=${encodeURIComponent(cwd)}&nodeId=${encodeURIComponent(nodeId)}`,
             { signal: previewAbortCtrl.signal }
           );
           const data = await res.json();
@@ -4779,13 +4994,26 @@
               ext: data.ext || ext,
               size: data.size,
               reason: data.reason || '该对象不支持直接内容预览',
+              cwd,
+              nodeId,
             });
             return;
           }
 
-          const localDisplayPath = toLocalMacPath(data.localPath || data.path || filePath);
+          const localDisplayPath = data.fromRemote ? (data.remotePath || data.path || filePath) : toLocalMacPath(data.localPath || data.path || filePath, nodeId);
           titleEl.textContent = data.name || localDisplayPath;
-          titleEl.title = localDisplayPath;
+          titleEl.title = data.fromRemote ? `${localDisplayPath}\n不在本机同步目录里 · 已从节点拷贝到本机缓存` : localDisplayPath;
+
+          const macBtn = document.createElement('button');
+          macBtn.className = 'btn';
+          macBtn.style.height = '20px';
+          macBtn.style.fontSize = '10.5px';
+          macBtn.title = '用 Mac 上的默认应用打开（⌥点击：在 Finder 中显示）';
+          macBtn.innerHTML = `${SVG_ICONS.externalLink}<span>Mac 打开</span>`;
+          macBtn.addEventListener('click', (ev) => {
+            openDocktermFileOnMac({ cwd, nodeId }, { path: data.fromRemote ? (data.remotePath || filePath) : (data.localPath || filePath), reveal: ev.altKey, label: data.name || baseName });
+          });
+          actionsEl.appendChild(macBtn);
 
           if (data.rawUrl) {
             const openBtn = document.createElement('a');
@@ -5644,6 +5872,12 @@
             resolvedSessionId: '',
             jsonlPath: '',
             stale: false,
+            model: null, // { model, effort, ts } of the latest reply
+            launch: null, // --model / --effort of the running claude process
+            modelOverride: null, // what the user just switched to (until a reply confirms it)
+            settings: null, // model / effortLevel / modelSettings from the node's settings files
+            settingsLoaded: false,
+            modelNote: '',
           };
         }
         return t.chat;
@@ -5697,7 +5931,8 @@
           if (submitEnter) setTimeout(() => postNativeMessage({ action: 'sendInput', tabId: tabObj.tabId, text: '\r' }), enterDelayMs);
           return;
         }
-        if (tabObj.ws && tabObj.ws.readyState === WebSocket.OPEN) {
+        // An ended local pty (ssh dropped) would swallow the input: go through tmux on the node instead
+        if (tabObj.ws && tabObj.ws.readyState === WebSocket.OPEN && !tabObj.exited) {
           if (payload) tabObj.ws.send(JSON.stringify({ type: 'input', data: payload }));
           if (submitEnter) {
             setTimeout(() => {
@@ -5726,27 +5961,66 @@
       const MD_FENCE_RE = /^(\s*)(`{3,}|~{3,})\s*([^\s`]*)[^`]*$/;
       const MD_TABLE_SEP_RE = /^\s*\|?\s*:?-{2,}:?\s*(\|\s*:?-{2,}:?\s*)*\|?\s*$/;
 
+      // ---------------------------------------------------------------- files & images in messages
+      // Paths in the conversation become links: click previews on the right (from the Mac's disk),
+      // ⌘-click opens with the Mac app, ⌥-click reveals in Finder. Images also get thumbnails.
+      const DT_FILE_EXTS = 'py|js|mjs|cjs|ts|tsx|jsx|md|markdown|json|jsonl|ya?ml|toml|sh|bash|zsh|html?|css|scss|less|swift|rs|go|c|cc|cpp|h|hpp|m|mm|java|kt|rb|php|lua|vue|svelte|txt|log|ini|cfg|conf|env|sql|lock|xml|csv|ipynb|png|jpe?g|gif|webp|svg|bmp|ico|pdf|glb|gltf|stl|obj|fbx|3mf|ply|usdz|step|stp|iges|igs|fcstd|blend|dxf|dwg|epro2?|kicad_pcb|kicad_sch|kicad_pro|bin|hex|elf|uf2|docx?|xlsx?|pptx?|key|pages|numbers|mp4|mov|webm|mp3|wav|m4a|zip|tgz|gz';
+      const DT_SEG = '[\\w.@+\\-\\u4e00-\\u9fa5]';
+      const DT_LINE_SUFFIX = '(?::\\d+(?::\\d+)?)?';
+      const DT_REL_FILE_RE = new RegExp(`^${DT_SEG}+(?:\\/${DT_SEG}+)*\\.(?:${DT_FILE_EXTS})${DT_LINE_SUFFIX}$`, 'i');
+      const DT_ABS_FILE_RE = new RegExp(`^(?:~|\\.{1,2})?(?:\\/${DT_SEG}+)+\\.[a-zA-Z0-9_]{1,10}${DT_LINE_SUFFIX}$`);
+      // Paths in running text need a directory part ("a/b.png", "/x/y.py:12") to avoid false hits
+      const DT_BARE_PATH_RE = new RegExp(`(^|[\\s(（\\[「“'：:，,;*])((?:~|\\.{1,2})?\\/?(?:${DT_SEG}+\\/)+[\\w@+\\-\\u4e00-\\u9fa5]${DT_SEG}*\\.(?:${DT_FILE_EXTS})${DT_LINE_SUFFIX})(?=$|[\\s)）\\]」”'，。、,;；:：!?！？*&])`, 'gi');
+      const DT_IMAGE_EXT_RE = /\.(?:png|jpe?g|gif|webp|svg|bmp)$/i;
+      let mdImageSink = null; // collects image paths while one message renders (gallery below it)
+
+      function dtUnescape(s) {
+        return s.replace(/&quot;/g, '"').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&amp;/g, '&');
+      }
+      function dtStripLine(p) {
+        return p.replace(/(?::\d+){1,2}$/, '');
+      }
+      function dtFileLinkHtml(rawPath, labelHtml) {
+        const clean = dtStripLine(rawPath);
+        if (mdImageSink && DT_IMAGE_EXT_RE.test(clean)) mdImageSink.push(clean);
+        return `<a href="#" class="md-file-link" data-file-path="${escapeHtml(rawPath)}" title="${escapeHtml(clean)}\n点击预览 · ⌘点击用 Mac 应用打开 · ⌥点击在 Finder 中显示">${labelHtml}</a>`;
+      }
+      function dtThumbHtml({ path: p, ref, name }) {
+        const attr = p ? `data-thumb-path="${escapeHtml(p)}"` : `data-thumb-ref="${escapeHtml(ref)}"`;
+        return `<button type="button" class="reading__thumb is-loading" ${attr} title="${escapeHtml(name || p || '图片')}"><img alt="${escapeHtml(name || '')}" loading="lazy" data-src-pending="1"><span class="reading__thumb-name">${escapeHtml(name || '')}</span></button>`;
+      }
+      function dtLinkifyBarePaths(escaped) {
+        return escaped.replace(DT_BARE_PATH_RE, (m, pre, p) => `${pre}${dtFileLinkHtml(dtUnescape(p), p)}`);
+      }
+
       function mdInline(raw) {
         const tokens = [];
         const stash = (html) => `\x00${tokens.push(html) - 1}\x00`;
         let s = escapeHtml(raw);
         // code spans (file paths become preview links)
         s = s.replace(/`([^`\n]+)`/g, (_, code) => {
-          const rawCode = code.replace(/&quot;/g, '"').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&amp;/g, '&');
-          if (/^(?:~|\.{0,2})?(?:\/[\w.@+-]+)+\.[a-zA-Z0-9]{1,8}(?::\d+(?::\d+)?)?$/.test(rawCode) ||
-              /^[\w.@+-]+(?:\/[\w.@+-]+)*\.(?:py|js|mjs|cjs|ts|tsx|jsx|md|json|ya?ml|toml|sh|html|css|scss|swift|rs|go|c|cc|cpp|h|hpp|java|kt|rb|php|vue|svelte|txt|ini|env|sql|lock)(?::\d+(?::\d+)?)?$/.test(rawCode)) {
-            const cleanPath = rawCode.replace(/(?::\d+){1,2}$/, '');
-            return stash(`<a href="#" class="md-file-link" data-file-path="${escapeHtml(cleanPath)}" title="在右侧预览 ${escapeHtml(cleanPath)}">${code}</a>`);
-          }
+          const rawCode = dtUnescape(code);
+          if (DT_ABS_FILE_RE.test(rawCode) || DT_REL_FILE_RE.test(rawCode)) return stash(dtFileLinkHtml(rawCode, code));
           return stash(`<code class="md-inline-code">${code}</code>`);
         });
-        // [text](url)
+        // ![alt](local/image.png) — local images render inline; remote ones stay links
+        s = s.replace(/!\[([^\]\n]*)\]\(([^)\s]+)\)/g, (m, alt, src) => {
+          const p = dtUnescape(src);
+          if (/^https?:\/\//i.test(p)) return stash(`<a class="md-link" href="${src}" target="_blank" rel="noopener noreferrer">${alt || src}</a>`);
+          if (!DT_IMAGE_EXT_RE.test(p)) return m;
+          return stash(`<span class="reading__images md-img">${dtThumbHtml({ path: p, name: dtUnescape(alt) || p.split('/').pop() })}</span>`);
+        });
+        // [text](url) and [text](path/to/file)
         s = s.replace(/\[([^\]\n]+)\]\(([^)\s]+)\)/g, (m, label, url) => {
-          if (!/^https?:\/\//i.test(url)) return m;
-          return stash(`<a class="md-link" href="${url}" target="_blank" rel="noopener noreferrer">${label}</a>`);
+          if (/^https?:\/\//i.test(url)) return stash(`<a class="md-link" href="${url}" target="_blank" rel="noopener noreferrer">${label}</a>`);
+          const p = dtUnescape(url).replace(/^file:\/\//, '');
+          if (DT_ABS_FILE_RE.test(p) || DT_REL_FILE_RE.test(p)) return stash(dtFileLinkHtml(p, label));
+          return m;
         });
         // bare URLs
         s = s.replace(/\bhttps?:\/\/[^\s<\x00]+[^\s<\x00.,;:!?)\]'"]/g, (url) => stash(`<a class="md-link" href="${url}" target="_blank" rel="noopener noreferrer">${url}</a>`));
+        // bare file paths
+        s = s.replace(DT_BARE_PATH_RE, (m, pre, p) => `${pre}${stash(dtFileLinkHtml(dtUnescape(p), p))}`);
         s = s.replace(/\*\*([^*\n]+)\*\*/g, '<strong>$1</strong>');
         s = s.replace(/(^|[\s(（])\*([^*\s][^*\n]*?)\*(?=[\s.,!?:;)）。，]|$)/g, '$1<em>$2</em>');
         s = s.replace(/~~([^~\n]+)~~/g, '<del>$1</del>');
@@ -5878,7 +6152,22 @@
       }
 
       function renderDocktermMarkdown(mdText) {
-        return `<div class="reading__md">${renderMarkdownBlocks(mdText)}</div>`;
+        const sink = [];
+        mdImageSink = sink;
+        let html;
+        try {
+          html = renderMarkdownBlocks(mdText);
+        } finally {
+          mdImageSink = null;
+        }
+        // Images mentioned in the text get a thumbnail strip (inline ![]() images are already shown)
+        const inline = new Set();
+        html.replace(/data-thumb-path="([^"]+)"/g, (_, p) => inline.add(dtUnescape(p)));
+        const gallery = [...new Set(sink)].filter((p) => !inline.has(p)).slice(0, 8);
+        const strip = gallery.length
+          ? `<div class="reading__images">${gallery.map((p) => dtThumbHtml({ path: p, name: p.split('/').pop() })).join('')}</div>`
+          : '';
+        return `<div class="reading__md">${html}</div>${strip}`;
       }
 
       // ---------------------------------------------------------------- message elements
@@ -5886,6 +6175,45 @@
         if (!ts) return '';
         const d = new Date(ts);
         return d.toLocaleString('zh-CN', { hour12: false });
+      }
+
+      function dtChatImageThumbs(images, label) {
+        if (!Array.isArray(images) || !images.length) return '';
+        return `<div class="reading__images">${images.map((im, i) => dtThumbHtml({
+          ref: `${im.off}:${im.idx}:${im.u || ''}`,
+          name: images.length > 1 ? `${label} ${i + 1}` : label,
+        })).join('')}</div>`;
+      }
+
+      function dtRawFileUrl(t, p) {
+        return `/api/raw-file?path=${encodeURIComponent(p)}&cwd=${encodeURIComponent((t && t.cwd) || currentFilesCwd)}&nodeId=${encodeURIComponent((t && t.nodeId) || currentFilesNodeId)}`;
+      }
+      function dtChatImageRef(t, ref) {
+        const [off, idx, ...rest] = String(ref || '').split(':');
+        return { nodeId: t.nodeId, path: (t.chat && t.chat.jsonlPath) || '', off: Number(off), idx: Number(idx), u: rest.join(':') };
+      }
+      function dtChatImageUrl(t, ref) {
+        const r = dtChatImageRef(t, ref);
+        return `/api/chat-image?nodeId=${encodeURIComponent(r.nodeId)}&path=${encodeURIComponent(r.path)}&off=${r.off}&idx=${r.idx}&u=${encodeURIComponent(r.u)}`;
+      }
+
+      // Thumbnails get their URL at render time (they depend on the tab's node / cwd / transcript)
+      function hydrateDocktermThumbs(root, t) {
+        if (!t) return;
+        for (const img of root.querySelectorAll('img[data-src-pending]')) {
+          const btn = img.closest('.reading__thumb');
+          img.removeAttribute('data-src-pending');
+          if (!btn) continue;
+          img.addEventListener('load', () => {
+            btn.classList.remove('is-loading');
+            if (dtPinned && !dtStage.hidden) dtScroll.scrollTop = dtScroll.scrollHeight;
+          }, { once: true });
+          img.addEventListener('error', () => {
+            btn.classList.remove('is-loading');
+            btn.classList.add('is-broken');
+          }, { once: true });
+          img.src = btn.dataset.thumbPath ? dtRawFileUrl(t, btn.dataset.thumbPath) : dtChatImageUrl(t, btn.dataset.thumbRef);
+        }
       }
 
       function createDocktermMessageEl(m) {
@@ -5896,7 +6224,10 @@
           el.className = 'reading__user';
           const text = m.text || '';
           const long = text.length > 1400 || text.split('\n').length > 18;
-          el.innerHTML = `<div class="reading__user-wrap"><div class="reading__user-bubble${long ? ' is-clamped' : ''}" title="${escapeHtml(formatClock(m.ts))}">${escapeHtml(text)}</div>${long ? '<button type="button" class="link-btn reading__expand">展开全部</button>' : ''}</div>`;
+          const bubble = text
+            ? `<div class="reading__user-bubble${long ? ' is-clamped' : ''}" title="${escapeHtml(formatClock(m.ts))}">${dtLinkifyBarePaths(escapeHtml(text))}</div>${long ? '<button type="button" class="link-btn reading__expand">展开全部</button>' : ''}`
+            : '';
+          el.innerHTML = `<div class="reading__user-wrap">${dtChatImageThumbs(m.images, '图片')}${bubble}</div>`;
         } else if (m.role === 'assistant') {
           el.className = 'reading__assistant';
           if (!m._html) m._html = renderDocktermMarkdown(m.text || '');
@@ -5904,15 +6235,21 @@
         } else if (m.role === 'tool' && m.tool) {
           const ok = m.tool.ok;
           el.className = `reading__tool${ok === false ? ' reading__tool--err' : ok === true ? ' reading__tool--ok' : ' reading__tool--pending'}`;
-          el.title = `${m.tool.name}${m.tool.summary ? `: ${m.tool.summary}` : ''}`;
+          el.title = `${m.tool.name}${m.tool.path ? `: ${m.tool.path}` : m.tool.summary ? `: ${m.tool.summary}` : ''}`;
+          const summary = !m.tool.summary ? ''
+            : m.tool.path
+              ? `<a href="#" class="reading__tool-summary md-file-link" data-file-path="${escapeHtml(m.tool.path)}" title="${escapeHtml(m.tool.path)}\n点击预览 · ⌘点击用 Mac 应用打开 · ⌥点击在 Finder 中显示">${escapeHtml(m.tool.summary)}</a>`
+              : `<span class="reading__tool-summary">${escapeHtml(m.tool.summary)}</span>`;
           el.innerHTML = `
             <span class="reading__tool-icon">${ok === false ? '✕' : ok === true ? '✓' : '●'}</span>
             <span class="reading__tool-name">${escapeHtml(m.tool.name)}</span>
-            ${m.tool.summary ? `<span class="reading__tool-summary">${escapeHtml(m.tool.summary)}</span>` : ''}
+            ${summary}
+            ${dtChatImageThumbs(m.tool.images, m.tool.path ? m.tool.path.split('/').pop() : `${m.tool.name} 图片`)}
           `;
         } else {
           el.hidden = true;
         }
+        hydrateDocktermThumbs(el, activeChatTab() || tabs.get(dtRenderedTabId));
         return el;
       }
 
@@ -6225,6 +6562,9 @@
         c.jsonlPath = data.jsonlPath || '';
         c.stale = Boolean(data.stale);
         c.loaded = true;
+        c.model = data.model || null;
+        c.launch = data.launch || null;
+        if (c.modelOverride && c.model && c.model.ts > c.modelOverride.at) c.modelOverride = null;
 
         // Optimistic bubbles disappear once the transcript has the real message
         if (c.pending.length) {
@@ -6240,7 +6580,10 @@
         // Once Claude has written this tab's own session, later launches must resume it
         if (c.jsonlPath && c.resolvedSessionId === t.sessionId) t.resume = true;
 
-        if (activeChatTab() === t) renderDocktermView(t, { full, added, updated });
+        if (activeChatTab() === t) {
+          renderDocktermView(t, { full, added, updated });
+          renderDocktermModelBar(t);
+        }
         if (prevStatus !== c.status) renderTabBar();
         if (prevCmd !== claudeLaunchCommand(t) && t.tabId === activeTabId) renderContextBar();
       }
@@ -6362,6 +6705,9 @@
           dtUnseen = 0;
           renderDocktermView(t, { full: true });
           kickDocktermPoll(0);
+          renderDocktermUsage(t);
+          renderDocktermModelBar(t, true);
+          ensureDocktermMeta(t);
           setTimeout(() => dtInput.focus(), 30);
         } else {
           clearTimeout(dtPollTimer);
@@ -6398,6 +6744,291 @@
           syncDocktermViewUI();
           renderTabBar();
         }
+      }
+
+      // ---------------------------------------------------------------- usage + model / effort
+      // Usage: fetched by the node from Anthropic's usage endpoint (what /usage shows) when the
+      // conversation view opens and every 10 minutes while it is open — nothing is typed into
+      // the terminal. Models: listed once per node. /model and /effort only run when you switch.
+      const DT_USAGE_EVERY_MS = 10 * 60 * 1000;
+      const DT_EFFORTS = ['low', 'medium', 'high', 'xhigh', 'max'];
+      const DT_LINE_ORDER = ['fable', 'opus', 'sonnet', 'haiku'];
+      const dtUsageEl = document.getElementById('docktermUsage');
+      const dtModelSelect = document.getElementById('docktermModelSelect');
+      const dtEffortSelect = document.getElementById('docktermEffortSelect');
+      const dtModelNote = document.getElementById('docktermModelNote');
+      const dtNodeMeta = new Map(); // nodeId -> { usage, usageError, plan, usageAt, models, extraModels, modelsLoaded }
+      let dtModelBarSig = '';
+
+      function dtMetaFor(t) {
+        const id = (t && t.nodeId) || '';
+        if (!dtNodeMeta.has(id)) dtNodeMeta.set(id, { usage: null, usageAt: 0, models: [], extraModels: [], modelsLoaded: false, inflight: null });
+        return dtNodeMeta.get(id);
+      }
+
+      async function loadDocktermMeta(t, parts, { force = false } = {}) {
+        const meta = dtMetaFor(t);
+        const c = ensureChatState(t);
+        try {
+          const q = new URLSearchParams({ nodeId: t.nodeId || '', cwd: t.cwd || '', parts: parts.join(',') });
+          if (force) q.set('force', '1');
+          const res = await fetch(`/api/claude-meta?${q}`, { cache: 'no-store' });
+          const data = await res.json();
+          if (parts.includes('usage')) {
+            meta.usageAt = Date.now();
+            if (data.usage) meta.usage = data.usage;
+            meta.usageError = data.usageError || data.error || '';
+            meta.plan = data.plan || meta.plan || '';
+          }
+          if (parts.includes('models') && Array.isArray(data.models)) {
+            meta.models = data.models;
+            meta.extraModels = Array.isArray(data.extraModels) ? data.extraModels : [];
+            meta.modelsLoaded = data.models.length > 0 || meta.extraModels.length > 0;
+          }
+          if (parts.includes('current') && data.settings) {
+            c.settings = data.settings;
+            c.settingsLoaded = true;
+          }
+        } catch {
+          if (parts.includes('usage')) meta.usageAt = Date.now() - DT_USAGE_EVERY_MS + 60 * 1000; // retry in a minute
+        }
+        if (activeChatTab() === t) {
+          renderDocktermUsage(t);
+          renderDocktermModelBar(t, true);
+        }
+      }
+
+      function ensureDocktermMeta(t) {
+        const meta = dtMetaFor(t);
+        const parts = [];
+        if (!meta.modelsLoaded) parts.push('models');
+        if (!t.chat.settingsLoaded) parts.push('current');
+        if (Date.now() - meta.usageAt >= DT_USAGE_EVERY_MS) parts.push('usage');
+        if (parts.length) loadDocktermMeta(t, parts);
+      }
+
+      setInterval(() => {
+        const t = activeChatTab();
+        if (!t || document.hidden) return;
+        if (Date.now() - dtMetaFor(t).usageAt >= DT_USAGE_EVERY_MS) loadDocktermMeta(t, ['usage']);
+      }, 30 * 1000);
+
+      function dtResetText(iso) {
+        const at = Date.parse(iso || '');
+        if (!Number.isFinite(at)) return '';
+        const d = new Date(at);
+        const left = at - Date.now();
+        const hm = d.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit', hour12: false });
+        if (left <= 0) return '即将重置';
+        if (left < 24 * 3600 * 1000) {
+          const h = Math.floor(left / 3600000);
+          const m = Math.round((left % 3600000) / 60000);
+          return `${hm} 重置（${h ? `${h} 小时 ` : ''}${m} 分钟后）`;
+        }
+        return `${d.getMonth() + 1}月${d.getDate()}日 ${hm} 重置`;
+      }
+
+      function renderDocktermUsage(t) {
+        const meta = t ? dtMetaFor(t) : null;
+        const u = meta && meta.usage;
+        if (!u || (!u.fiveHour && !u.week)) {
+          dtUsageEl.hidden = true;
+          return;
+        }
+        const meter = (label, x) => {
+          if (!x) return '';
+          const pct = Math.max(0, Math.min(100, Math.round(Number(x.pct) || 0)));
+          const cls = pct >= 90 ? ' is-crit' : pct >= 75 ? ' is-warn' : '';
+          const r = 9;
+          const len = 2 * Math.PI * r;
+          const arc = pct > 0 ? Math.max(1.5, (len * pct) / 100) : 0;
+          return `<span class="usage-meter${cls}"><span>${label}</span><span class="usage-ring"><svg viewBox="0 0 22 22" aria-hidden="true"><circle class="usage-ring__track" cx="11" cy="11" r="${r}"/>${arc ? `<circle class="usage-ring__value" cx="11" cy="11" r="${r}" stroke-dasharray="${arc.toFixed(2)} ${len.toFixed(2)}"/>` : ''}</svg><span class="usage-ring__num${pct >= 100 ? ' is-full' : ''}">${pct}</span></span></span>`;
+        };
+        dtUsageEl.innerHTML = meter('5h', u.fiveHour) + meter('周', u.week);
+        const lines = [];
+        const withReset = (text, iso) => {
+          const r = dtResetText(iso);
+          return r ? `${text} · ${r}` : text;
+        };
+        if (u.fiveHour) lines.push(withReset(`5 小时用量 ${Math.round(u.fiveHour.pct)}%`, u.fiveHour.resetsAt));
+        if (u.week) lines.push(withReset(`本周用量 ${Math.round(u.week.pct)}%`, u.week.resetsAt));
+        if (u.weekOpus) lines.push(`本周 Opus ${Math.round(u.weekOpus.pct)}%`);
+        if (u.weekSonnet) lines.push(`本周 Sonnet ${Math.round(u.weekSonnet.pct)}%`);
+        const when = u.fetchedAt ? new Date(u.fetchedAt).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit', hour12: false }) : '';
+        lines.push(u.source === 'cache'
+          ? `来自 Claude Code 的缓存（${when}）· 实时查询失败：${meta.usageError || '未知原因'}`
+          : `更新于 ${when} · 每 10 分钟刷新${meta.plan ? ` · ${meta.plan}` : ''}`);
+        dtUsageEl.title = lines.join('\n');
+        dtUsageEl.classList.toggle('is-stale', u.source === 'cache');
+        dtUsageEl.hidden = false;
+      }
+
+      function dtModelLabel(m) {
+        return String((m && m.name) || '').replace(/^Claude\s+/i, '') || (m && m.id) || '';
+      }
+
+      function dtModelOptions(t) {
+        const meta = dtMetaFor(t);
+        const models = (meta.models || []).filter((m) => !m.deprecated);
+        const latest = new Map();
+        for (const m of models) if (m.line && !latest.has(m.line)) latest.set(m.line, m); // API lists newest first
+        const lines = [...DT_LINE_ORDER.filter((l) => latest.has(l)), ...[...latest.keys()].filter((l) => !DT_LINE_ORDER.includes(l))];
+        const primary = lines.map((l) => latest.get(l));
+        const ids = new Set(primary.map((m) => m.id));
+        const extra = (meta.extraModels || []).filter((m) => m.id && !ids.has(m.id));
+        extra.forEach((m) => ids.add(m.id));
+        const others = models.filter((m) => !ids.has(m.id));
+        return { models, primary, extra, others };
+      }
+
+      // Aliases (opus / sonnet / default …) map to the newest model of that line
+      function dtResolveModelId(name, models) {
+        const v = String(name || '').trim();
+        if (!v) return '';
+        if (models.some((m) => m.id === v)) return v;
+        const base = v.replace(/\[.*\]$/, '');
+        if (models.some((m) => m.id === base)) return base;
+        const alias = base.toLowerCase();
+        const hit = models.find((m) => m.line === alias && !m.deprecated);
+        return hit ? hit.id : v;
+      }
+
+      function dtCurrentModel(t) {
+        const c = t.chat;
+        const o = c.modelOverride;
+        const tr = c.model;
+        const st = c.settings || {};
+        const launch = c.launch || {};
+        const models = dtMetaFor(t).models || [];
+        let model = (o && o.model) || (tr && tr.model) || launch.model || st.model || '';
+        let source = o && o.model ? 'pending' : tr && tr.model ? 'reply' : launch.model ? 'launch' : st.model ? 'settings' : '';
+        const id = dtResolveModelId(model, models);
+        const perModel = (st.modelSettings && (st.modelSettings[id] || st.modelSettings[model])) || {};
+        const effort = (o && o.effort) || (!(o && o.model) && tr && tr.effort) || launch.effort || perModel.effortLevel || st.effortLevel || '';
+        if (!model) source = '';
+        return { model: id || model, raw: model, effort, source };
+      }
+
+      function renderDocktermModelBar(t, force = false) {
+        if (!t || !t.chat) return;
+        const c = t.chat;
+        const cur = dtCurrentModel(t);
+        const opts = dtModelOptions(t);
+        const busy = c.status === 'working' || c.status === 'asking';
+        const sig = JSON.stringify([t.tabId, cur, opts.models.length, opts.extra.length, c.claudeRunning, busy, c.modelNote]);
+        if (!force && sig === dtModelBarSig) return;
+        // never rebuild a <select> while its dropdown is open
+        if (document.activeElement === dtModelSelect || document.activeElement === dtEffortSelect) return;
+        dtModelBarSig = sig;
+
+        const opt = (value, label, title = '') => `<option value="${escapeHtml(value)}"${title ? ` title="${escapeHtml(title)}"` : ''}>${escapeHtml(label)}</option>`;
+        let html = '';
+        const known = new Set();
+        if (!cur.model) html += opt('', opts.models.length ? '模型' : '模型（载入中…）');
+        html += opt('default', '默认（账号推荐）');
+        known.add('default');
+        if (opts.primary.length || opts.extra.length) {
+          html += '<optgroup label="最新">';
+          for (const m of opts.primary) { html += opt(m.id, dtModelLabel(m), m.id); known.add(m.id); }
+          for (const m of opts.extra) { html += opt(m.id, m.name || m.id, m.description || m.id); known.add(m.id); }
+          html += '</optgroup>';
+        }
+        if (opts.others.length) {
+          html += '<optgroup label="其他版本">';
+          for (const m of opts.others) { html += opt(m.id, dtModelLabel(m), m.id); known.add(m.id); }
+          html += '</optgroup>';
+        }
+        if (cur.model && !known.has(cur.model)) html = opt(cur.model, cur.model) + html;
+        dtModelSelect.innerHTML = html;
+        dtModelSelect.value = cur.model || '';
+
+        const m = opts.models.find((x) => x.id === cur.model);
+        const levels = m && m.efforts && m.efforts.length ? m.efforts : DT_EFFORTS;
+        let eff = '';
+        if (!cur.effort) eff += opt('', 'effort 默认');
+        eff += levels.map((lv) => opt(lv, lv)).join('') + opt('auto', 'auto');
+        if (cur.effort && !levels.includes(cur.effort) && cur.effort !== 'auto') eff = opt(cur.effort, cur.effort) + eff;
+        dtEffortSelect.innerHTML = eff;
+        dtEffortSelect.value = cur.effort || '';
+        fitDocktermSelect(dtModelSelect);
+        fitDocktermSelect(dtEffortSelect);
+
+        const disabled = !c.claudeRunning;
+        dtModelSelect.disabled = disabled;
+        dtEffortSelect.disabled = disabled;
+        const srcText = { reply: '当前对话正在使用', pending: '刚切换，等下一条回复确认', launch: '启动参数', settings: '来自 Claude 设置' }[cur.source] || '';
+        dtModelSelect.title = disabled ? 'Claude 未运行' : `模型${srcText ? ` · ${srcText}` : ''}\n切换时会在这个会话里执行 /model`;
+        dtEffortSelect.title = disabled ? 'Claude 未运行' : `Effort${srcText ? ` · ${srcText}` : ''}\n切换时会在这个会话里执行 /effort`;
+        dtModelNote.textContent = c.modelNote || (disabled ? 'Claude 未运行' : busy ? 'Claude 正在执行，空闲后可切换' : '');
+      }
+
+      // A <select> is as wide as its longest option; size it to the chosen label instead
+      const dtMeasureCtx = document.createElement('canvas').getContext('2d');
+      function fitDocktermSelect(sel) {
+        const o = sel.options[sel.selectedIndex];
+        const cs = getComputedStyle(sel);
+        dtMeasureCtx.font = `${cs.fontWeight} ${cs.fontSize} ${cs.fontFamily}`;
+        const w = Math.ceil(dtMeasureCtx.measureText(o ? o.textContent : '').width);
+        sel.style.width = `${Math.min(240, w + 30)}px`;
+      }
+
+      function switchDocktermModel(kind, value) {
+        const t = activeChatTab();
+        if (!t || !value) return;
+        const c = t.chat;
+        const cur = dtCurrentModel(t);
+        if (!c.claudeRunning) {
+          showToast('Claude 未运行，无法切换');
+          renderDocktermModelBar(t, true);
+          return;
+        }
+        if (c.status === 'working' || c.status === 'asking') {
+          showToast(`Claude 正在执行，等它空闲后再切换${kind === 'model' ? '模型' : ' effort'}`);
+          renderDocktermModelBar(t, true);
+          return;
+        }
+        if ((kind === 'model' && value === cur.model) || (kind === 'effort' && value === cur.effort)) return;
+        const cmd = kind === 'model' ? `/model ${value}` : `/effort ${value}`;
+        sendDocktermRawInput(t, cmd, true);
+        const o = { ...(c.modelOverride || {}), at: Date.now() };
+        if (kind === 'model') {
+          o.model = value;
+          // Claude Code keeps an effort per model; show that one until the next reply confirms
+          const st = c.settings || {};
+          const id = dtResolveModelId(value, dtMetaFor(t).models || []);
+          const per = st.modelSettings && st.modelSettings[id];
+          o.effort = (per && per.effortLevel) || o.effort || '';
+        } else {
+          o.effort = value;
+          if (!o.model) o.model = cur.raw || cur.model;
+        }
+        c.modelOverride = o;
+        c.modelNote = `已执行 ${cmd}`;
+        renderDocktermModelBar(t, true);
+        setTimeout(() => {
+          if (c.modelNote === `已执行 ${cmd}`) c.modelNote = '';
+          if (activeChatTab() === t) renderDocktermModelBar(t, true);
+        }, 4000);
+        // settings may have changed (Claude Code saves /model as the default)
+        setTimeout(() => loadDocktermMeta(t, ['current']), 2500);
+        kickDocktermPoll(800);
+      }
+
+      dtModelSelect.addEventListener('change', () => {
+        const v = dtModelSelect.value;
+        dtModelSelect.blur();
+        switchDocktermModel('model', v);
+      });
+      dtEffortSelect.addEventListener('change', () => {
+        const v = dtEffortSelect.value;
+        dtEffortSelect.blur();
+        switchDocktermModel('effort', v);
+      });
+      for (const sel of [dtModelSelect, dtEffortSelect]) {
+        sel.addEventListener('blur', () => {
+          const t = activeChatTab();
+          if (t) setTimeout(() => renderDocktermModelBar(t), 0);
+        });
       }
 
       function launchClaudeInActiveTab() {
@@ -6618,13 +7249,102 @@
       dtJumpBtn.addEventListener('click', scrollDocktermToBottom);
       dtOlderBtn.addEventListener('click', loadOlderDockterm);
 
+      // ---------------------------------------------------------------- files & images: open on the Mac
+      async function openDocktermFileOnMac(t, { path: p, chatImage, reveal = false, label = '' } = {}) {
+        const name = label || (p ? dtStripLine(p).split('/').pop() : '图片');
+        try {
+          const res = await fetch('/api/open-local', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(chatImage
+              ? { chatImage, reveal }
+              : { path: dtStripLine(p), cwd: (t && t.cwd) || currentFilesCwd, nodeId: (t && t.nodeId) || currentFilesNodeId, reveal }),
+          });
+          const data = await res.json();
+          if (!data.ok) {
+            showToast(data.error || `无法打开 ${name}`);
+            return;
+          }
+          const how = data.mode === 'reveal' ? '已在 Finder 中显示' : data.mode === 'text' ? '已在文本编辑器中打开' : '已用 Mac 应用打开';
+          showToast(`${how}：${name}${data.fromRemote && !chatImage ? '（已从节点拷贝到本机）' : ''}`);
+        } catch {
+          showToast(`无法打开 ${name}`);
+        }
+      }
+
+      function previewOrOpenDocktermFile(t, p) {
+        const clean = dtStripLine(p);
+        const base = clean.split('/').pop();
+        const extMatch = base.toLowerCase().match(/(\.[a-z0-9_-]+)$/);
+        const ext = extMatch ? extMatch[1] : '';
+        // Previewable (code, images, web) -> right pane; CAD / EDA / office / media -> its Mac app
+        if (checkClientPreviewEligibility({ name: base, ext, size: 0 }).allowed) {
+          previewFileInRightPane(p, (t && t.cwd) || currentFilesCwd, false, (t && t.nodeId) || currentFilesNodeId);
+        } else {
+          openDocktermFileOnMac(t, { path: p });
+        }
+      }
+
+      const dtLightbox = document.getElementById('docktermLightbox');
+      const dtLightboxImg = document.getElementById('docktermLightboxImg');
+      const dtLightboxName = document.getElementById('docktermLightboxName');
+      let dtLightboxItem = null;
+      document.body.appendChild(dtLightbox); // fixed overlay above everything
+
+      function openDocktermLightbox(t, thumb) {
+        const img = thumb.querySelector('img');
+        if (!img || !img.src) return;
+        const p = thumb.dataset.thumbPath || '';
+        dtLightboxItem = p ? { t, path: p } : { t, chatImage: dtChatImageRef(t, thumb.dataset.thumbRef) };
+        dtLightboxImg.src = img.src;
+        dtLightboxName.textContent = p || thumb.title || '图片';
+        dtLightboxName.title = p || '';
+        dtLightbox.hidden = false;
+      }
+      function closeDocktermLightbox() {
+        dtLightbox.hidden = true;
+        dtLightboxImg.removeAttribute('src');
+        dtLightboxItem = null;
+      }
+      dtLightbox.addEventListener('click', (e) => {
+        if (e.target === dtLightbox) closeDocktermLightbox();
+      });
+      document.getElementById('btnLightboxClose').addEventListener('click', closeDocktermLightbox);
+      document.getElementById('btnLightboxOpen').addEventListener('click', () => {
+        if (dtLightboxItem) openDocktermFileOnMac(dtLightboxItem.t, { ...dtLightboxItem, label: dtLightboxName.textContent.split('/').pop() });
+      });
+      document.getElementById('btnLightboxReveal').addEventListener('click', () => {
+        if (dtLightboxItem) openDocktermFileOnMac(dtLightboxItem.t, { ...dtLightboxItem, reveal: true, label: dtLightboxName.textContent.split('/').pop() });
+      });
+      document.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape' && !dtLightbox.hidden) {
+          e.preventDefault();
+          e.stopPropagation();
+          closeDocktermLightbox();
+        }
+      }, true);
+
       dtStage.addEventListener('click', (e) => {
+        const thumb = e.target.closest('.reading__thumb');
+        if (thumb) {
+          e.preventDefault();
+          const t = activeChatTab();
+          if (!t) return;
+          if (thumb.dataset.thumbPath && (e.metaKey || e.ctrlKey || e.altKey)) {
+            openDocktermFileOnMac(t, { path: thumb.dataset.thumbPath, reveal: e.altKey });
+          } else {
+            openDocktermLightbox(t, thumb);
+          }
+          return;
+        }
         const fileLink = e.target.closest('.md-file-link');
         if (fileLink) {
           e.preventDefault();
           const fp = fileLink.getAttribute('data-file-path');
           const t = activeChatTab();
-          if (fp) previewFileInRightPane(fp, t ? t.cwd : currentFilesCwd, false);
+          if (!fp) return;
+          if (e.metaKey || e.ctrlKey || e.altKey) openDocktermFileOnMac(t, { path: fp, reveal: e.altKey });
+          else previewOrOpenDocktermFile(t, fp);
           return;
         }
         const copyBtn = e.target.closest('.md-code-copy');

@@ -41,6 +41,21 @@ const VENDOR_DIR = path.join(PUBLIC_DIR, 'vendor');
 fs.mkdirSync(LOCAL_WORK_DIR, { recursive: true });
 fs.mkdirSync(path.dirname(DSH_WEB_LOG), { recursive: true });
 
+// Local-only guard helpers (see SECURITY.md): loopback Host blocks DNS rebinding,
+// same-origin check blocks cross-site requests from web pages.
+function isLoopbackHost(hostHeader) {
+  const h = String(hostHeader || '').replace(/:\d+$/, '').replace(/^\[|\]$/g, '').toLowerCase();
+  return h === '127.0.0.1' || h === 'localhost' || h === '::1';
+}
+function isSameLocalOrigin(origin) {
+  try {
+    const o = new URL(origin);
+    return isLoopbackHost(o.host) && Number(o.port || 80) === PORT;
+  } catch {
+    return false;
+  }
+}
+
 function shSingleQuote(str) {
   return `'${String(str).replace(/'/g, `'\\''`)}'`;
 }
@@ -1200,6 +1215,15 @@ function mapAnyCwdToRemote(inputCwd = '/root/work', nodeId = '') {
   return rel ? `${remoteBase}/${rel}` : remoteBase;
 }
 
+function cwdMapsToLocal(cwd, node) {
+  const clean = String(cwd || '').trim().replace(/\/+$/, '');
+  if (!clean || !clean.startsWith('/')) return true;
+  const localBase = node.localWorkDir || LOCAL_WORK_DIR;
+  const remoteBase = (node.remoteWorkDir || '/root/work').replace(/\/+$/, '') || '/root/work';
+  const docAliasBase = path.join(KOREA_WORKSPACE_DIR, node.localWorkAlias || 'work');
+  return [localBase, remoteBase, docAliasBase, '/root/work'].some((b) => clean === b || clean.startsWith(`${b}/`));
+}
+
 function resolveAnyFilePathToLocalAndRemote(inputPath, sessionCwd = '/root/work', nodeId = '') {
   let raw = String(inputPath || '').trim();
   raw = raw.replace(/^['"`]+|['"`]+$/g, '');
@@ -1239,6 +1263,13 @@ function resolveAnyFilePathToLocalAndRemote(inputPath, sessionCwd = '/root/work'
     remotePath = localPath;
   } else if (raw.startsWith('/')) {
     remotePath = path.posix.normalize(raw);
+    localPath = '';
+  } else if (raw === '~' || raw.startsWith('~/')) {
+    remotePath = raw; // node home: only reachable over SSH
+    localPath = '';
+  } else if (!cwdMapsToLocal(sessionCwd, node)) {
+    // Session runs outside the synced work dir: the file only exists on the node
+    remotePath = path.posix.normalize(path.posix.join(String(sessionCwd).trim(), raw));
     localPath = '';
   } else {
     const baseLocal = mapRemoteCwdToLocal(sessionCwd, node.id);
@@ -1546,17 +1577,27 @@ function summarizeDocktermTool(name, input) {
  */
 function parseTranscriptRecords(records, ctx, idPrefix) {
   const out = [];
-  const setToolResult = (toolUseId, ok) => {
+  const setToolResult = (toolUseId, ok, images) => {
     const hit = ctx.toolById.get(toolUseId);
     if (!hit) {
-      ctx.orphanResults.set(toolUseId, ok);
+      ctx.orphanResults.set(toolUseId, { ok, images });
       return;
     }
+    let changed = false;
     if (hit.tool.ok !== ok) {
       hit.tool.ok = ok;
-      if (ctx.onToolUpdate) ctx.onToolUpdate(hit);
+      changed = true;
     }
+    if (images && images.length && !hit.tool.images) {
+      hit.tool.images = images;
+      changed = true;
+    }
+    if (changed && ctx.onToolUpdate) ctx.onToolUpdate(hit);
   };
+  // Inline images stay on the node; rows carry a reference the UI resolves via /api/chat-image
+  const imageRefs = (blocks, uuid) => (Array.isArray(blocks) ? blocks : [])
+    .filter((b) => b && b.type === 'image' && Number.isInteger(b.off) && Number.isInteger(b.idx))
+    .map((b) => ({ off: b.off, idx: b.idx, mt: typeof b.mt === 'string' ? b.mt : 'image/png', u: uuid || '' }));
 
   for (let i = 0; i < records.length; i++) {
     const obj = records[i];
@@ -1573,25 +1614,30 @@ function parseTranscriptRecords(records, ctx, idPrefix) {
       if (typeof content === 'string') {
         const clean = stripDocktermNoise(content);
         if (clean) textParts.push(clean);
-      } else if (Array.isArray(content)) {
-        let images = 0;
+      }
+      let images = [];
+      let unreadable = 0;
+      if (Array.isArray(content)) {
         for (const b of content) {
           if (!b || typeof b !== 'object') continue;
           if (b.type === 'tool_result' && typeof b.tool_use_id === 'string') {
-            setToolResult(b.tool_use_id, !b.is_error);
+            setToolResult(b.tool_use_id, !b.is_error, imageRefs(b.images, obj.uuid));
           } else if (b.type === 'text' && typeof b.text === 'string') {
             const clean = stripDocktermNoise(b.text);
             if (clean) textParts.push(clean);
-          } else if (b.type === 'image') {
-            images += 1;
+          } else if (b.type === 'image' && !Number.isInteger(b.off)) {
+            unreadable += 1;
           }
         }
-        if (images > 0) textParts.push(images === 1 ? '[图片]' : `[图片 ×${images}]`);
+        images = imageRefs(content, obj.uuid);
+        if (unreadable > 0) textParts.push(unreadable === 1 ? '[图片]' : `[图片 ×${unreadable}]`);
       }
-      if (textParts.length > 0) {
+      if (textParts.length > 0 || images.length > 0) {
         const joined = textParts.join('\n\n');
-        if (joined !== ctx.lastUserText) {
-          out.push({ id: baseId, role: 'user', ts, text: joined });
+        if (images.length || joined !== ctx.lastUserText) {
+          const row = { id: baseId, role: 'user', ts, text: joined };
+          if (images.length) row.images = images.slice(0, 12);
+          out.push(row);
           ctx.lastUserText = joined;
         }
       }
@@ -1621,8 +1667,13 @@ function parseTranscriptRecords(records, ctx, idPrefix) {
             ts,
             tool: { name: b.name, summary: summarizeDocktermTool(b.name, b.input), ok: null },
           };
+          const inp = b.input && typeof b.input === 'object' ? b.input : {};
+          const filePath = typeof inp.file_path === 'string' ? inp.file_path : typeof inp.notebook_path === 'string' ? inp.notebook_path : '';
+          if (filePath) row.tool.path = filePath;
           if (ctx.orphanResults.has(toolId)) {
-            row.tool.ok = ctx.orphanResults.get(toolId);
+            const res = ctx.orphanResults.get(toolId);
+            row.tool.ok = res.ok;
+            if (res.images && res.images.length) row.tool.images = res.images;
             ctx.orphanResults.delete(toolId);
           }
           out.push(row);
@@ -1653,6 +1704,9 @@ function newTranscriptState(host, jsonlPath, startOffset) {
     toolById: new Map(),
     orphanResults: new Map(),
     lastUserText: null,
+    model: '',
+    effort: '',
+    modelTs: 0,
     ver: 0,
     seqHead: 0,
     seqTail: 0,
@@ -1670,6 +1724,15 @@ function appendTranscriptRecords(st, records, chunkStart) {
   };
   const rows = parseTranscriptRecords(records, ctx, `o${chunkStart}`);
   st.lastUserText = ctx.lastUserText;
+  // Model / effort actually used by the latest reply (reflects /model and /effort changes)
+  for (const r of records) {
+    if (r && r.type === 'assistant' && typeof r.model === 'string' && r.model) {
+      st.model = r.model;
+      if (typeof r.effort === 'string') st.effort = r.effort;
+      const ts = typeof r.timestamp === 'string' ? Date.parse(r.timestamp) : NaN;
+      st.modelTs = Number.isFinite(ts) ? ts : Date.now();
+    }
+  }
   for (const r of rows) {
     if (st.byId.has(r.id)) continue;
     r.seq = ++st.seqTail;
@@ -1956,7 +2019,14 @@ def out(obj):
 def clip(s):
     return s if len(s) <= MAX_TEXT else s[:MAX_TEXT] + "\n…"
 
-def compact(obj):
+def img_ref(b, off, k):
+    # Inline (base64) images stay on the node; the UI fetches them later by line offset + index
+    src = b.get("source") if isinstance(b.get("source"), dict) else {}
+    if src.get("type") == "base64" and isinstance(src.get("data"), str) and off is not None:
+        return {"type": "image", "off": off, "idx": k, "mt": src.get("media_type") or "image/png"}
+    return {"type": "image"}
+
+def compact(obj, off=None):
     t = obj.get("type")
     if t not in ("user", "assistant"):
         return None
@@ -1966,6 +2036,7 @@ def compact(obj):
     if not isinstance(msg, dict):
         return None
     c = msg.get("content")
+    k = 0
     if isinstance(c, str):
         cc = clip(c)
     elif isinstance(c, list):
@@ -1979,33 +2050,76 @@ def compact(obj):
             elif bt == "tool_use":
                 inp = b.get("input") if isinstance(b.get("input"), dict) else {}
                 small = {}
-                for k in KEEP_KEYS:
-                    v = inp.get(k)
+                for key in KEEP_KEYS:
+                    v = inp.get(key)
                     if isinstance(v, str):
-                        small[k] = v[:400]
+                        small[key] = v[:400]
                 if isinstance(inp.get("todos"), list):
                     small["todos"] = len(inp["todos"])
                 cc.append({"type": "tool_use", "id": b.get("id"), "name": b.get("name"), "input": small})
             elif bt == "tool_result":
-                cc.append({"type": "tool_result", "tool_use_id": b.get("tool_use_id"), "is_error": bool(b.get("is_error"))})
+                r = {"type": "tool_result", "tool_use_id": b.get("tool_use_id"), "is_error": bool(b.get("is_error"))}
+                inner = b.get("content")
+                if isinstance(inner, list):
+                    imgs = []
+                    for ib in inner:
+                        if isinstance(ib, dict) and ib.get("type") == "image":
+                            imgs.append(img_ref(ib, off, k))
+                            k += 1
+                    if imgs:
+                        r["images"] = imgs[:6]
+                cc.append(r)
             elif bt == "image":
-                cc.append({"type": "image"})
+                cc.append(img_ref(b, off, k))
+                k += 1
     else:
         return None
-    return {"type": t, "uuid": obj.get("uuid"), "timestamp": obj.get("timestamp"), "message": {"content": cc}}
+    rec = {"type": t, "uuid": obj.get("uuid"), "timestamp": obj.get("timestamp"), "message": {"content": cc}}
+    if t == "assistant":
+        model = msg.get("model")
+        if isinstance(model, str) and model and not model.startswith("<"):
+            rec["model"] = obj.get("requestedModel") if isinstance(obj.get("requestedModel"), str) else model
+            if isinstance(obj.get("effort"), str):
+                rec["effort"] = obj["effort"]
+    return rec
 
-def records_from(data):
+def iter_images(content):
+    # Same order as compact() numbers them
+    found = []
+    if isinstance(content, list):
+        for b in content:
+            if not isinstance(b, dict):
+                continue
+            if b.get("type") == "image":
+                found.append(b)
+            elif b.get("type") == "tool_result" and isinstance(b.get("content"), list):
+                for ib in b["content"]:
+                    if isinstance(ib, dict) and ib.get("type") == "image":
+                        found.append(ib)
+    return found
+
+def records_from(data, base=0):
     recs = []
-    for line in data.split(b"\n"):
-        line = line.strip()
-        if not line or line[:1] != b"{":
-            continue
+    pos = 0
+    n = len(data)
+    while pos < n:
+        nl = data.find(b"\n", pos)
+        if nl < 0:
+            nl = n
+        line = data[pos:nl]
+        off = base + pos
+        pos = nl + 1
+        if line[:1] != b"{":
+            line = line.strip()
+            if line[:1] != b"{":
+                continue
+            off = None
         try:
             obj = json.loads(line.decode("utf-8", "ignore"))
         except Exception:
             continue
         if isinstance(obj, dict):
-            r = compact(obj)
+            r = compact(obj, off)
             if r:
                 recs.append(r)
     return recs
@@ -2065,7 +2179,153 @@ if mode == "history":
         if start is None or start >= before:
             start = prev_line_start(f, before)
         data, _ = read_lines(f, start, before)
-    out({"jsonlPath": fp, "chunkStart": start, "chunkEnd": before, "records": records_from(data)})
+    out({"jsonlPath": fp, "chunkStart": start, "chunkEnd": before, "records": records_from(data, start)})
+    sys.exit(0)
+
+# ---------------------------------------------------------------- one inline image
+if mode == "image":
+    fp = safe_jsonl(cfg.get("path", ""))
+    off = int(cfg.get("off", -1))
+    idx = int(cfg.get("idx", -1))
+    if not fp or off < 0 or idx < 0:
+        out({"error": "bad-ref"})
+        sys.exit(0)
+    with open(fp, "rb") as f:
+        f.seek(off)
+        line = f.readline()
+    try:
+        obj = json.loads(line.decode("utf-8", "ignore"))
+    except Exception:
+        obj = None
+    if not isinstance(obj, dict) or (cfg.get("uuid") and obj.get("uuid") != cfg.get("uuid")):
+        out({"error": "moved"})
+        sys.exit(0)
+    msg = obj.get("message") if isinstance(obj.get("message"), dict) else {}
+    imgs = iter_images(msg.get("content"))
+    src = imgs[idx].get("source") if idx < len(imgs) and isinstance(imgs[idx].get("source"), dict) else {}
+    if src.get("type") != "base64" or not isinstance(src.get("data"), str):
+        out({"error": "not-inline"})
+        sys.exit(0)
+    out({"mediaType": src.get("media_type") or "image/png", "data": src["data"]})
+    sys.exit(0)
+
+# ---------------------------------------------------------------- usage / models / settings
+# The OAuth token never leaves the node: only the numbers / model ids are returned.
+if mode == "meta":
+    want = set(cfg.get("parts") or [])
+    res = {}
+    try:
+        with open(os.path.join(home, ".claude", ".credentials.json")) as f:
+            cred = (json.load(f) or {}).get("claudeAiOauth") or {}
+    except Exception:
+        cred = {}
+    try:
+        with open(os.path.join(home, ".claude.json")) as f:
+            cj = json.load(f)
+        if not isinstance(cj, dict):
+            cj = {}
+    except Exception:
+        cj = {}
+    tok = cred.get("accessToken") if isinstance(cred.get("accessToken"), str) else ""
+    exp = cred.get("expiresAt") or 0
+    live = bool(tok) and (not exp or exp / 1000.0 > time.time() + 30)
+    res["plan"] = cred.get("subscriptionType") or ""
+
+    def api_get(path_):
+        import urllib.request
+        req = urllib.request.Request("https://api.anthropic.com" + path_, headers={
+            "Authorization": "Bearer " + tok,
+            "anthropic-beta": "oauth-2025-04-20",
+            "anthropic-version": "2023-06-01",
+            "User-Agent": "takt-workbench",
+            "Accept": "application/json",
+        })
+        with urllib.request.urlopen(req, timeout=6) as r:
+            return json.loads(r.read().decode("utf-8"))
+
+    if "usage" in want:
+        u = None
+        src = ""
+        err = "" if live else ("no-oauth" if not tok else "token-expired")
+        fetched = int(time.time() * 1000)
+        if live:
+            try:
+                u = api_get("/api/oauth/usage")
+                src = "live"
+            except Exception as e:
+                err = str(e)[:160]
+        if not isinstance(u, dict):
+            # Claude Code keeps its own last /usage result; better than nothing when offline
+            cu = cj.get("cachedUsageUtilization") if isinstance(cj.get("cachedUsageUtilization"), dict) else {}
+            if isinstance(cu.get("utilization"), dict):
+                u = cu["utilization"]
+                src = "cache"
+                fetched = cu.get("fetchedAtMs") or 0
+        def pick(key):
+            v = u.get(key) if isinstance(u, dict) else None
+            if isinstance(v, dict) and v.get("utilization") is not None:
+                return {"pct": v.get("utilization"), "resetsAt": v.get("resets_at")}
+            return None
+        res["usage"] = {
+            "fiveHour": pick("five_hour"),
+            "week": pick("seven_day"),
+            "weekOpus": pick("seven_day_opus"),
+            "weekSonnet": pick("seven_day_sonnet"),
+            "source": src,
+            "fetchedAt": fetched,
+        } if isinstance(u, dict) else None
+        res["usageError"] = err
+
+    if "models" in want:
+        models = []
+        if live:
+            try:
+                d = api_get("/v1/models?limit=100")
+                for m in d.get("data") or []:
+                    if not isinstance(m, dict) or not m.get("id"):
+                        continue
+                    eff = (m.get("capabilities") or {}).get("effort") or {}
+                    levels = [lv for lv in ("low", "medium", "high", "xhigh", "max")
+                              if eff.get("supported") and isinstance(eff.get(lv), dict) and eff[lv].get("supported")]
+                    models.append({
+                        "id": m["id"],
+                        "name": m.get("display_name") or m["id"],
+                        "line": m.get("line") or "",
+                        "efforts": levels,
+                        "deprecated": bool(m.get("deprecated_at")),
+                    })
+            except Exception as e:
+                res["modelsError"] = str(e)[:160]
+        else:
+            res["modelsError"] = "no-oauth" if not tok else "token-expired"
+        extra = cj.get("additionalModelOptionsCache")
+        res["extraModels"] = [
+            {"id": o.get("value"), "name": o.get("label") or o.get("value"), "description": o.get("description") or ""}
+            for o in (extra if isinstance(extra, list) else []) if isinstance(o, dict) and isinstance(o.get("value"), str)
+        ]
+        res["models"] = models
+
+    if "current" in want:
+        merged = {}
+        cwd_ = (cfg.get("cwd") or home).rstrip("/") or "/"
+        for p in (os.path.join(home, ".claude", "settings.json"),
+                  os.path.join(cwd_, ".claude", "settings.json"),
+                  os.path.join(cwd_, ".claude", "settings.local.json")):
+            try:
+                with open(p) as f:
+                    d = json.load(f)
+            except Exception:
+                continue
+            if isinstance(d, dict):
+                for key in ("model", "effortLevel", "modelSettings"):
+                    if key in d:
+                        merged[key] = d[key]
+        res["settings"] = {
+            "model": merged.get("model") if isinstance(merged.get("model"), str) else "",
+            "effortLevel": merged.get("effortLevel") if isinstance(merged.get("effortLevel"), str) else "",
+            "modelSettings": merged.get("modelSettings") if isinstance(merged.get("modelSettings"), dict) else {},
+        }
+    out(res)
     sys.exit(0)
 
 # ---------------------------------------------------------------- poll
@@ -2139,6 +2399,8 @@ claude_running = bool(claude_pid)
 claude_start = 0
 claude_cwd = ""
 hint_ids = []
+launch_model = ""
+launch_effort = ""
 if claude_pid:
     ppid, et, args = procs[claude_pid]
     claude_start = time.time() - et
@@ -2149,6 +2411,10 @@ if claude_pid:
     m = UUID_RE.search(args)
     if m:
         hint_ids.append(m.group(1))
+    m = re.search(r"--model[ =](\S+)", args)
+    launch_model = m.group(1) if m else ""
+    m = re.search(r"--effort[ =](\S+)", args)
+    launch_effort = m.group(1) if m else ""
 elif pane_text and ("esc to interrupt" in pane_text.lower() or "? for shortcuts" in pane_text):
     claude_running = True
 if sid and sid not in hint_ids:
@@ -2251,6 +2517,8 @@ res = {
     "tmuxAlive": bool(pane_pid),
     "jsonlPath": chosen,
     "resolvedSessionId": os.path.splitext(os.path.basename(chosen))[0] if chosen else "",
+    "launchModel": launch_model,
+    "launchEffort": launch_effort,
 }
 if chosen:
     size = os.path.getsize(chosen)
@@ -2261,14 +2529,14 @@ if chosen:
             if not data and size - known_end > int(cfg.get("maxBytes", 8388608)):
                 nxt = next_line_start(f, known_end + 1)
                 end = nxt if nxt is not None else known_end
-            res.update({"reset": False, "chunkStart": known_end, "chunkEnd": end, "records": records_from(data)})
+            res.update({"reset": False, "chunkStart": known_end, "chunkEnd": end, "records": records_from(data, known_end)})
         else:
             initial = int(cfg.get("initialBytes", 2097152))
             start = 0 if size <= initial else next_line_start(f, size - initial)
             if start is None:
                 start = prev_line_start(f, size)
             data, end = read_lines(f, start, size)
-            res.update({"reset": True, "chunkStart": start, "chunkEnd": end, "records": records_from(data)})
+            res.update({"reset": True, "chunkStart": start, "chunkEnd": end, "records": records_from(data, start)})
     res["size"] = size
 out(res)
 `.trim();
@@ -2278,15 +2546,20 @@ function buildDocktermRemotePy(cfg) {
   return DOCKTERM_REMOTE_PY.replace('CFG_B64', JSON.stringify(cfgB64));
 }
 
+// One multiplexed SSH connection per node, shared by all DockTerm requests
+const DOCKTERM_SSH_OPTS = [
+  '-o', 'ConnectTimeout=4',
+  '-o', 'BatchMode=yes',
+  '-o', 'ControlMaster=auto',
+  '-o', 'ControlPath=/tmp/takt-chat-mux-%r@%h:%p',
+  '-o', 'ControlPersist=120s',
+  '-o', 'ClearAllForwardings=yes',
+];
+
 async function runDocktermRemotePy(host, cfg, timeoutMs) {
   const b64 = Buffer.from(buildDocktermRemotePy(cfg), 'utf8').toString('base64');
   const r = await runCmd('ssh', [
-    '-o', 'ConnectTimeout=4',
-    '-o', 'BatchMode=yes',
-    '-o', 'ControlMaster=auto',
-    '-o', 'ControlPath=/tmp/takt-chat-mux-%r@%h:%p',
-    '-o', 'ControlPersist=120s',
-    '-o', 'ClearAllForwardings=yes',
+    ...DOCKTERM_SSH_OPTS,
     host,
     `python3 -c "import base64;exec(base64.b64decode('${b64}'))"`,
   ], timeoutMs);
@@ -2355,6 +2628,7 @@ async function refreshDocktermTab(tab, { tabId, sessionId, cwd }) {
 
   tab.stale = false;
   tab.claudeRunning = Boolean(raw.claudeRunning);
+  tab.launch = { model: raw.launchModel || '', effort: raw.launchEffort || '' };
   tab.screen = classifyClaudeScreen(raw.paneText || '');
   tab.resolvedSessionId = raw.resolvedSessionId || sessionId;
 
@@ -2412,6 +2686,8 @@ async function fetchDocktermChatView({ tabId, sessionId, cwd, nodeId, sshHost, e
     ask: screen.ask,
     tail: screen.tail,
     stale: tab.stale,
+    model: st && st.model ? { model: st.model, effort: st.effort, ts: st.modelTs } : null,
+    launch: tab.launch || null,
     timestamp: Date.now(),
   };
 }
@@ -2454,6 +2730,305 @@ async function fetchDocktermHistory({ tabId, sessionId, nodeId, sshHost, epoch: 
 }
 
 // ============================================================================
+// 4C. Local copies on the Mac: remote files, inline chat images, Claude usage/models
+//     Everything the UI previews or opens is read from the Mac's disk. Files outside the
+//     Syncthing mirror (or not synced yet) are copied once over SSH into a local cache.
+// ============================================================================
+const TAKT_CACHE_DIR = path.join(BASE_TAKT_DIR, 'cache');
+const REMOTE_FILE_CACHE_DIR = path.join(TAKT_CACHE_DIR, 'remote-files');
+const CHAT_IMAGE_CACHE_DIR = path.join(TAKT_CACHE_DIR, 'chat-images');
+const TAKT_CACHE_MAX_AGE_MS = 7 * 24 * 3600 * 1000;
+const REMOTE_PREVIEW_MAX_BYTES = 50 * 1024 * 1024;
+const REMOTE_OPEN_MAX_BYTES = 512 * 1024 * 1024;
+
+function sha1Hex(str) {
+  return crypto.createHash('sha1').update(String(str)).digest('hex');
+}
+
+function formatByteSize(n) {
+  const v = Number(n) || 0;
+  if (v < 1024) return `${v} B`;
+  if (v < 1024 * 1024) return `${(v / 1024).toFixed(1)} KB`;
+  if (v < 1024 * 1024 * 1024) return `${(v / 1024 / 1024).toFixed(1)} MB`;
+  return `${(v / 1024 / 1024 / 1024).toFixed(2)} GB`;
+}
+
+// Paths that already live on this Mac (never fetched from a node)
+function isLocalMacPath(p) {
+  const s = String(p || '');
+  return s.startsWith('/Users/') || s === BASE_TAKT_DIR || s.startsWith(`${BASE_TAKT_DIR}/`) || s.startsWith(`${KOREA_WORKSPACE_DIR}/`);
+}
+
+function remoteShellPath(p) {
+  if (p === '~') return '"$HOME"';
+  if (p.startsWith('~/')) return `"$HOME"/${shSingleQuote(p.slice(2))}`;
+  return shSingleQuote(p);
+}
+
+function streamSshToFile(host, command, filePath, timeoutMs) {
+  return new Promise((resolve) => {
+    let fd;
+    try {
+      fd = fs.openSync(filePath, 'w');
+    } catch {
+      resolve(false);
+      return;
+    }
+    let settled = false;
+    let timer = null;
+    const finish = (ok) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      try { fs.closeSync(fd); } catch {}
+      resolve(ok);
+    };
+    const child = spawn('ssh', [...DOCKTERM_SSH_OPTS, host, command], {
+      env: {
+        ...process.env,
+        PATH: `/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin:${process.env.PATH || ''}`,
+      },
+      stdio: ['ignore', fd, 'ignore'],
+    });
+    timer = setTimeout(() => {
+      try { child.kill('SIGKILL'); } catch {}
+    }, timeoutMs);
+    child.on('error', () => finish(false));
+    child.on('close', (code) => finish(code === 0));
+  });
+}
+
+let taktCacheLastPrune = 0;
+async function pruneTaktCache() {
+  const now = Date.now();
+  if (now - taktCacheLastPrune < 3600 * 1000) return;
+  taktCacheLastPrune = now;
+  const walk = async (dir, depth) => {
+    let entries = [];
+    try {
+      entries = await fsp.readdir(dir, { withFileTypes: true });
+    } catch {
+      return;
+    }
+    for (const e of entries) {
+      const p = path.join(dir, e.name);
+      try {
+        if (e.isDirectory()) {
+          if (depth > 0) await walk(p, depth - 1);
+          const left = await fsp.readdir(p);
+          if (!left.length) await fsp.rmdir(p);
+        } else if (now - (await fsp.stat(p)).mtimeMs > TAKT_CACHE_MAX_AGE_MS) {
+          await fsp.rm(p, { force: true });
+        }
+      } catch {}
+    }
+  };
+  await walk(REMOTE_FILE_CACHE_DIR, 2);
+  await walk(CHAT_IMAGE_CACHE_DIR, 0);
+}
+
+const remoteFileInflight = new Map();
+const remoteFileMisses = new Map(); // short negative cache: a gallery of missing paths must not hammer SSH
+
+/** Copy a node file into the Mac cache (re-used while size + mtime are unchanged). */
+async function ensureRemoteFileCopy(node, remotePath, maxBytes = REMOTE_PREVIEW_MAX_BYTES) {
+  const rp = String(remotePath || '');
+  if (!node || !node.sshHost || !(rp.startsWith('/') || rp.startsWith('~/')) || isLocalMacPath(rp)) {
+    return { ok: false, error: 'Mac 本地没有这个文件，也没有可读取它的远端节点' };
+  }
+  const key = `${node.id}::${rp}`;
+  const miss = remoteFileMisses.get(key);
+  if (miss && Date.now() - miss.at < 15000) return miss.result;
+  if (remoteFileInflight.has(key)) return remoteFileInflight.get(key);
+
+  const job = (async () => {
+    const q = remoteShellPath(rp);
+    const st = await runCmd('ssh', [...DOCKTERM_SSH_OPTS, node.sshHost, `stat -L -c '%s %Y %F' -- ${q}`], 8000);
+    const m = (st.stdout.trim().split('\n').pop() || '').match(/^(\d+) (\d+) (.+)$/);
+    if (st.exitCode !== 0 || !m) return { ok: false, error: `Mac 本地和节点 ${node.badge || node.id} 上都没有找到这个文件`, missing: true };
+    const size = Number(m[1]);
+    const mtime = Number(m[2]);
+    if (!/regular/.test(m[3])) {
+      const isDir = /directory/.test(m[3]);
+      return { ok: false, isDir, missing: true, error: isDir ? '这是一个目录' : '不是普通文件' };
+    }
+    if (size > maxBytes) {
+      return { ok: false, tooLarge: true, size, error: `文件太大（${formatByteSize(size)}），超过 ${formatByteSize(maxBytes)} 的拷贝上限` };
+    }
+    const dir = path.join(REMOTE_FILE_CACHE_DIR, String(node.id).replace(/[^a-zA-Z0-9_-]/g, '_'), sha1Hex(rp).slice(0, 16));
+    const localPath = path.join(dir, path.posix.basename(rp) || 'file');
+    const metaPath = path.join(dir, '.meta.json');
+    try {
+      const meta = JSON.parse(await fsp.readFile(metaPath, 'utf8'));
+      if (meta.size === size && meta.mtime === mtime && fs.existsSync(localPath)) {
+        return { ok: true, localPath, size, cached: true };
+      }
+    } catch {}
+    await fsp.mkdir(dir, { recursive: true });
+    const tmp = `${localPath}.part-${process.pid}-${Date.now()}`;
+    const ok = await streamSshToFile(node.sshHost, `cat -- ${q}`, tmp, 20000 + Math.ceil(size / (1024 * 1024)) * 3000);
+    let got = -1;
+    try { got = (await fsp.stat(tmp)).size; } catch {}
+    if (!ok || got !== size) {
+      await fsp.rm(tmp, { force: true });
+      return { ok: false, error: '从节点拷贝文件失败（文件可能正在写入）' };
+    }
+    await fsp.rename(tmp, localPath);
+    await fsp.writeFile(metaPath, JSON.stringify({ remotePath: rp, nodeId: node.id, size, mtime, fetchedAt: Date.now() }));
+    pruneTaktCache().catch(() => {});
+    return { ok: true, localPath, size, cached: false };
+  })()
+    .catch((err) => ({ ok: false, error: err.message }))
+    .then((result) => {
+      if (!result.ok && result.missing) remoteFileMisses.set(key, { at: Date.now(), result });
+      else remoteFileMisses.delete(key);
+      return result;
+    })
+    .finally(() => remoteFileInflight.delete(key));
+  remoteFileInflight.set(key, job);
+  return job;
+}
+
+/** Resolve a path from the conversation to something readable on this Mac. */
+async function resolveReadableLocalFile(reqPath, cwd, nodeId, maxBytes = REMOTE_PREVIEW_MAX_BYTES) {
+  const r = resolveAnyFilePathToLocalAndRemote(reqPath, cwd, nodeId);
+  if (r.localPath) {
+    try {
+      const st = fs.statSync(r.localPath);
+      return { ...r, readPath: r.localPath, fromRemote: false, isDir: st.isDirectory(), size: st.size };
+    } catch {}
+  }
+  const copy = await ensureRemoteFileCopy(r.node, r.remotePath, maxBytes);
+  if (!copy.ok) return { ...r, readPath: '', fromRemote: false, error: copy.error, isDir: Boolean(copy.isDir), tooLarge: Boolean(copy.tooLarge), size: copy.size };
+  return { ...r, readPath: copy.localPath, fromRemote: true, isDir: false, size: copy.size };
+}
+
+const CHAT_IMAGE_EXT = { 'image/png': '.png', 'image/jpeg': '.jpg', 'image/jpg': '.jpg', 'image/gif': '.gif', 'image/webp': '.webp' };
+const chatImageInflight = new Map();
+
+/** Images pasted into the conversation live base64-encoded in the node's transcript. */
+async function ensureChatImageCopy({ nodeId, path: jsonlPath, off, idx, u }) {
+  const node = getNodeById(nodeId);
+  const host = node && node.sshHost;
+  const p = String(jsonlPath || '');
+  const o = Number(off);
+  const i = Number(idx);
+  if (!host || !/\/\.claude\/projects\/[^/]+\/[^/]+\.jsonl$/.test(p) || !Number.isInteger(o) || o < 0 || !Number.isInteger(i) || i < 0 || i > 256) {
+    return { ok: false, error: '图片引用无效' };
+  }
+  const key = sha1Hex(`${host}|${p}|${o}|${i}|${u || ''}`).slice(0, 24);
+  for (const ext of new Set(Object.values(CHAT_IMAGE_EXT))) {
+    const f = path.join(CHAT_IMAGE_CACHE_DIR, key + ext);
+    if (fs.existsSync(f)) return { ok: true, localPath: f };
+  }
+  if (chatImageInflight.has(key)) return chatImageInflight.get(key);
+  const job = (async () => {
+    const raw = await runDocktermRemotePy(host, { mode: 'image', path: p, off: o, idx: i, uuid: String(u || '') }, 20000);
+    if (!raw || raw.error || typeof raw.data !== 'string') {
+      return { ok: false, error: raw && raw.error === 'moved' ? '对话记录已变化，找不到这张图片' : '从节点读取图片失败' };
+    }
+    const ext = CHAT_IMAGE_EXT[String(raw.mediaType || '').toLowerCase()];
+    if (!ext) return { ok: false, error: `不支持的图片格式 ${raw.mediaType}` };
+    await fsp.mkdir(CHAT_IMAGE_CACHE_DIR, { recursive: true });
+    const f = path.join(CHAT_IMAGE_CACHE_DIR, key + ext);
+    const tmp = `${f}.part-${process.pid}-${Date.now()}`;
+    await fsp.writeFile(tmp, Buffer.from(raw.data, 'base64'));
+    await fsp.rename(tmp, f);
+    pruneTaktCache().catch(() => {});
+    return { ok: true, localPath: f };
+  })()
+    .catch((err) => ({ ok: false, error: err.message }))
+    .finally(() => chatImageInflight.delete(key));
+  chatImageInflight.set(key, job);
+  return job;
+}
+
+// What `open` may do with a file. Documents open in their app, text in the text editor;
+// anything that could execute (apps, scripts with a launcher, unknown binaries) is only revealed.
+const MAC_OPEN_DOC_EXTS = new Set([
+  '.png', '.jpg', '.jpeg', '.gif', '.webp', '.bmp', '.tif', '.tiff', '.heic', '.svg', '.ico', '.psd',
+  '.pdf', '.html', '.htm',
+  '.glb', '.gltf', '.stl', '.obj', '.fbx', '.3mf', '.ply', '.usdz', '.step', '.stp', '.iges', '.igs',
+  '.fcstd', '.blend', '.dxf', '.dwg', '.epro', '.epro2', '.kicad_pcb', '.kicad_sch', '.kicad_pro',
+  '.doc', '.docx', '.xls', '.xlsx', '.ppt', '.pptx', '.key', '.pages', '.numbers', '.rtf', '.csv',
+  '.mp4', '.mov', '.m4v', '.webm', '.mp3', '.wav', '.m4a', '.aac', '.flac', '.ogg',
+]);
+const MAC_OPEN_TEXT_EXTS = new Set([
+  '.txt', '.md', '.markdown', '.log', '.json', '.jsonl', '.yaml', '.yml', '.toml', '.ini', '.conf', '.cfg', '.env',
+  '.js', '.mjs', '.cjs', '.ts', '.tsx', '.jsx', '.vue', '.svelte', '.css', '.scss', '.less', '.xml',
+  '.py', '.ipynb', '.sh', '.bash', '.zsh', '.fish', '.c', '.cc', '.cpp', '.h', '.hpp', '.m', '.mm', '.swift',
+  '.rs', '.go', '.java', '.kt', '.rb', '.php', '.pl', '.lua', '.r', '.sql', '.cmake', '.mk', '.ld', '.s',
+  '.gitignore', '.stignore', '.dockerfile', '.lock',
+]);
+
+function macOpenArgs(target, reveal) {
+  if (reveal) return { mode: 'reveal', args: ['-R', target] };
+  let st = null;
+  try { st = fs.statSync(target); } catch {}
+  if (!st) return { mode: 'reveal', args: ['-R', target] };
+  if (st.isDirectory()) {
+    return /\.(app|bundle|framework|plugin|kext|prefpane|workflow|action|pkg|mpkg|saver|qlgenerator)$/i.test(target)
+      ? { mode: 'reveal', args: ['-R', target] }
+      : { mode: 'open', args: [target] };
+  }
+  const ext = path.extname(target).toLowerCase();
+  const base = path.basename(target).toLowerCase();
+  if (MAC_OPEN_DOC_EXTS.has(ext)) return { mode: 'open', args: [target] };
+  if (MAC_OPEN_TEXT_EXTS.has(ext) || ['dockerfile', 'makefile', 'readme', 'license', 'claude.md'].includes(base)) {
+    return { mode: 'text', args: ['-t', target] };
+  }
+  return { mode: 'reveal', args: ['-R', target] };
+}
+
+// Claude usage (/usage) and model list (/model) per node — fetched on the node with its own
+// OAuth credentials; nothing is typed into the terminal.
+const claudeMetaCache = new Map(); // host -> { usage: {at, data}, models: {at, data} }
+
+async function fetchClaudeMeta({ nodeId, cwd, parts, force }) {
+  const node = getNodeById(nodeId);
+  const host = node && node.sshHost;
+  if (!host) return { ok: false, error: '该节点没有配置 SSH 主机' };
+  const want = new Set(String(parts || 'usage,models,current').split(',').map((x) => x.trim()).filter(Boolean));
+  const now = Date.now();
+  let c = claudeMetaCache.get(host);
+  if (!c) {
+    c = {};
+    claudeMetaCache.set(host, c);
+  }
+  const need = [];
+  if (want.has('usage') && (force || !c.usage || now - c.usage.at > 60 * 1000)) need.push('usage');
+  if (want.has('models') && (force || !c.models || now - c.models.at > (c.models.data.models.length ? 6 * 3600 * 1000 : 60 * 1000))) need.push('models');
+  if (want.has('current')) need.push('current');
+
+  let settings = null;
+  let error = '';
+  if (need.length) {
+    const raw = await runDocktermRemotePy(host, { mode: 'meta', parts: need, cwd: String(cwd || '') }, 15000);
+    if (!raw) {
+      error = '无法连接节点';
+    } else {
+      if (need.includes('usage')) c.usage = { at: now, data: { usage: raw.usage || null, error: raw.usageError || '', plan: raw.plan || '' } };
+      if (need.includes('models')) c.models = { at: now, data: { models: Array.isArray(raw.models) ? raw.models : [], extraModels: Array.isArray(raw.extraModels) ? raw.extraModels : [], error: raw.modelsError || '' } };
+      if (need.includes('current')) settings = raw.settings || null;
+    }
+  }
+  const out = { ok: !error || Boolean(c.usage || c.models), nodeId: node.id, error };
+  if (want.has('usage')) {
+    out.usage = c.usage ? c.usage.data.usage : null;
+    out.usageError = c.usage ? c.usage.data.error : error;
+    out.plan = c.usage ? c.usage.data.plan : '';
+    out.usageCheckedAt = c.usage ? c.usage.at : 0;
+  }
+  if (want.has('models')) {
+    out.models = c.models ? c.models.data.models : [];
+    out.extraModels = c.models ? c.models.data.extraModels : [];
+    out.modelsError = c.models ? c.models.data.error : error;
+  }
+  if (want.has('current')) out.settings = settings;
+  return out;
+}
+
+// ============================================================================
 // 5. HTTP & WebSocket Server
 // ============================================================================
 function readJsonBody(req) {
@@ -2477,6 +3052,18 @@ function sendJson(res, status, obj) {
 const server = http.createServer(async (req, res) => {
   try {
     const u = new URL(req.url, `http://${req.headers.host || '127.0.0.1'}`);
+
+    // --- Local-only guard: blocks DNS-rebinding (bad Host) and cross-site requests (bad Origin) ---
+    if (!isLoopbackHost(req.headers.host)) {
+      res.writeHead(403, { 'Content-Type': 'text/plain' });
+      res.end('Forbidden host');
+      return;
+    }
+    if (req.headers.origin && req.method !== 'GET' && req.method !== 'HEAD' && !isSameLocalOrigin(req.headers.origin)) {
+      res.writeHead(403, { 'Content-Type': 'text/plain' });
+      res.end('Forbidden origin');
+      return;
+    }
 
     // Serve vendor static files
     if (req.method === 'GET' && u.pathname.startsWith('/vendor/')) {
@@ -2821,8 +3408,39 @@ const server = http.createServer(async (req, res) => {
       const MAX_CODE_BYTES = 200 * 1024;
 
       let localStat = null;
+      let readPath = localPath;
+      let fromRemote = false;
       if (localPath && fs.existsSync(localPath)) {
         try { localStat = await fsp.stat(localPath); } catch {}
+      }
+      // Not on this Mac (outside the mirror / not synced yet): copy it from the node first
+      if (!localStat && (isImage || isWeb || isCode)) {
+        const copy = await ensureRemoteFileCopy(node, remotePath, isImage ? MAX_IMAGE_BYTES : isWeb ? MAX_WEB_BYTES : MAX_CODE_BYTES);
+        if (copy.ok) {
+          readPath = copy.localPath;
+          fromRemote = true;
+          try { localStat = await fsp.stat(readPath); } catch {}
+        } else if (copy.isDir) {
+          sendJson(res, 200, { ok: true, kind: 'directory', path: displayPath, localPath: '', remotePath, nodeId: node.id, name: baseName });
+          return;
+        } else if (copy.tooLarge) {
+          sendJson(res, 200, {
+            ok: true,
+            kind: 'unsupported',
+            path: displayPath,
+            localPath: '',
+            remotePath,
+            nodeId: node.id,
+            name: baseName,
+            ext,
+            size: copy.size,
+            reason: copy.error,
+          });
+          return;
+        } else if (remotePath && !isLocalMacPath(remotePath)) {
+          sendJson(res, 404, { ok: false, error: copy.error || `没有找到该文件: ${displayPath}` });
+          return;
+        }
       }
 
       if (localStat && localStat.isDirectory()) {
@@ -2870,6 +3488,7 @@ const server = http.createServer(async (req, res) => {
         sendJson(res, 200, {
           ok: true,
           kind: 'image',
+          fromRemote,
           path: displayPath,
           localPath,
           remotePath,
@@ -2901,6 +3520,7 @@ const server = http.createServer(async (req, res) => {
         sendJson(res, 200, {
           ok: true,
           kind: 'html',
+          fromRemote,
           path: displayPath,
           localPath,
           remotePath,
@@ -2929,7 +3549,7 @@ const server = http.createServer(async (req, res) => {
         return;
       }
 
-      const buf = await fsp.readFile(localPath);
+      const buf = await fsp.readFile(readPath);
       const sampleLen = Math.min(buf.length, 4096);
       for (let i = 0; i < sampleLen; i++) {
         if (buf[i] === 0) {
@@ -2952,6 +3572,7 @@ const server = http.createServer(async (req, res) => {
       sendJson(res, 200, {
         ok: true,
         kind: ext === '.md' ? 'markdown' : 'code',
+        fromRemote,
         path: displayPath,
         localPath,
         remotePath,
@@ -2971,21 +3592,94 @@ const server = http.createServer(async (req, res) => {
       const reqPath = String(u.searchParams.get('path') || '').trim();
       const cwd = String(u.searchParams.get('cwd') || '/root/work').trim();
       const nodeId = String(u.searchParams.get('nodeId') || '').trim();
-      const { localPath, remotePath } = resolveAnyFilePathToLocalAndRemote(reqPath, cwd, nodeId);
-      const ext = path.extname(localPath || remotePath).toLowerCase();
+      const found = await resolveReadableLocalFile(reqPath, cwd, nodeId, REMOTE_PREVIEW_MAX_BYTES);
+      const ext = path.extname(found.localPath || found.remotePath || '').toLowerCase();
       const contentType = MIME_MAP[ext] || 'application/octet-stream';
 
-      if (localPath && fs.existsSync(localPath) && fs.statSync(localPath).isFile()) {
+      if (found.readPath && !found.isDir) {
+        // Pages from a node run in an opaque origin: their scripts can't drive this workbench's API
+        const active = ['.html', '.htm', '.xhtml', '.svg'].includes(ext);
         res.writeHead(200, {
           'Content-Type': contentType,
           'Cache-Control': 'no-cache',
+          'X-Content-Type-Options': 'nosniff',
+          ...(active ? { 'Content-Security-Policy': 'sandbox allow-scripts allow-forms allow-popups allow-modals' } : {}),
         });
-        fs.createReadStream(localPath).pipe(res);
+        fs.createReadStream(found.readPath).pipe(res);
         return;
       }
 
       res.writeHead(404);
       res.end('Local file not found');
+      return;
+    }
+
+    // API: image pasted into a Claude conversation (cached on the Mac after the first view)
+    if (req.method === 'GET' && u.pathname === '/api/chat-image') {
+      const r = await ensureChatImageCopy({
+        nodeId: u.searchParams.get('nodeId') || '',
+        path: u.searchParams.get('path') || '',
+        off: u.searchParams.get('off'),
+        idx: u.searchParams.get('idx'),
+        u: u.searchParams.get('u') || '',
+      });
+      if (!r.ok) {
+        res.writeHead(404, { 'Content-Type': 'text/plain; charset=utf-8' });
+        res.end(r.error || 'not found');
+        return;
+      }
+      res.writeHead(200, {
+        'Content-Type': MIME_MAP[path.extname(r.localPath).toLowerCase()] || 'application/octet-stream',
+        'Cache-Control': 'private, max-age=604800, immutable',
+        'X-Content-Type-Options': 'nosniff',
+      });
+      fs.createReadStream(r.localPath).pipe(res);
+      return;
+    }
+
+    // API: open a file from the conversation with its Mac app (or reveal it in Finder)
+    if (req.method === 'POST' && u.pathname === '/api/open-local') {
+      const body = await readJsonBody(req);
+      let target = '';
+      let fromRemote = false;
+      if (body.chatImage && typeof body.chatImage === 'object') {
+        const r = await ensureChatImageCopy(body.chatImage);
+        if (!r.ok) {
+          sendJson(res, 404, { ok: false, error: r.error });
+          return;
+        }
+        target = r.localPath;
+        fromRemote = true;
+      } else {
+        const r = await resolveReadableLocalFile(String(body.path || ''), String(body.cwd || ''), String(body.nodeId || ''), REMOTE_OPEN_MAX_BYTES);
+        if (!r.readPath) {
+          sendJson(res, 404, { ok: false, error: r.error || '没有找到该文件' });
+          return;
+        }
+        target = r.readPath;
+        fromRemote = r.fromRemote;
+      }
+      const how = macOpenArgs(target, Boolean(body.reveal));
+      const r = await runCmd('open', how.args, 8000);
+      sendJson(res, r.exitCode === 0 ? 200 : 500, {
+        ok: r.exitCode === 0,
+        target,
+        mode: how.mode,
+        fromRemote,
+        error: r.exitCode === 0 ? undefined : (r.stderr.trim() || 'open 失败'),
+      });
+      return;
+    }
+
+    // API: Claude usage (5h / weekly) + model list + configured model/effort for a node
+    if (req.method === 'GET' && u.pathname === '/api/claude-meta') {
+      const data = await fetchClaudeMeta({
+        nodeId: u.searchParams.get('nodeId') || '',
+        cwd: u.searchParams.get('cwd') || '',
+        parts: u.searchParams.get('parts') || '',
+        force: u.searchParams.get('force') === '1',
+      });
+      sendJson(res, 200, data);
       return;
     }
 
@@ -3198,6 +3892,10 @@ const wss = new WebSocketServer({ noServer: true });
 
 server.on('upgrade', (req, socket, head) => {
   const u = new URL(req.url, `http://${req.headers.host || '127.0.0.1'}`);
+  if (!isLoopbackHost(req.headers.host) || (req.headers.origin && !isSameLocalOrigin(req.headers.origin))) {
+    socket.destroy();
+    return;
+  }
   if (u.pathname === '/ws/term') {
     wss.handleUpgrade(req, socket, head, (ws) => {
       wss.emit('connection', ws, req, u);
