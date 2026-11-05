@@ -263,6 +263,10 @@ class AppDelegate: NSObject, NSApplicationDelegate, WKUIDelegate, WKNavigationDe
         loadWorkbenchURL()
     }
 
+    @objc func toggleDocktermView(_ sender: Any?) {
+        webView.evaluateJavaScript("if (window.toggleDocktermChatMode) window.toggleDocktermChatMode();", completionHandler: nil)
+    }
+
     @objc func openInBrowser(_ sender: Any?) {
         if let url = URL(string: workbenchURLString) {
             NSWorkspace.shared.open(url)
@@ -300,6 +304,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, WKUIDelegate, WKNavigationDe
         appMenu.addItem(withTitle: "关于 TAKT-UI-CC", action: #selector(NSApplication.orderFrontStandardAboutPanel(_:)), keyEquivalent: "")
         appMenu.addItem(NSMenuItem.separator())
         appMenu.addItem(withTitle: "刷新工作台界面", action: #selector(reloadPage(_:)), keyEquivalent: "r")
+        appMenu.addItem(withTitle: "切换 DockTerm 对话/终端视图", action: #selector(toggleDocktermView(_:)), keyEquivalent: "e")
         appMenu.addItem(withTitle: "在浏览器中打开", action: #selector(openInBrowser(_:)), keyEquivalent: "b")
         appMenu.addItem(NSMenuItem.separator())
         appMenu.addItem(withTitle: "隐藏窗口", action: #selector(NSApplication.hide(_:)), keyEquivalent: "h")

@@ -1533,13 +1533,16 @@ if (process.argv.includes('--stdio')) {
       let originOk = false;
       try {
         const o = new URL(req.headers.origin);
-        originOk = ['127.0.0.1', 'localhost'].includes(o.hostname) && Number(o.port || 80) === PORT;
+        originOk = ['127.0.0.1', 'localhost'].includes(o.hostname);
       } catch {}
       if (!originOk) {
         res.writeHead(403, { 'Content-Type': 'text/plain' });
         res.end('Forbidden origin');
         return;
       }
+      res.setHeader('Access-Control-Allow-Origin', req.headers.origin);
+      res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+      res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Takt-Token');
     }
 
     if (req.method === 'OPTIONS') {
@@ -1550,16 +1553,17 @@ if (process.argv.includes('--stdio')) {
 
     const urlObj = new URL(req.url, `http://${req.headers.host || '127.0.0.1'}`);
 
-    // MCP endpoints can run commands on this machine: require the shared token.
+    // Loopback / SSH reverse-tunnel requests (127.0.0.1 / localhost / ::1) are trusted.
+    // Only enforce token if TAKT_REQUIRE_MCP_TOKEN=1 is explicitly set.
     const isMcpEndpoint = urlObj.pathname === '/mcp' || urlObj.pathname === '/messages' || urlObj.pathname === '/sse';
-    if (isMcpEndpoint) {
+    if (isMcpEndpoint && process.env.TAKT_REQUIRE_MCP_TOKEN === '1') {
       const auth = String(req.headers.authorization || '');
       const supplied = auth.startsWith('Bearer ') ? auth.slice(7).trim() : String(req.headers['x-takt-token'] || urlObj.searchParams.get('token') || '');
       const a = Buffer.from(supplied);
       const b = Buffer.from(MCP_TOKEN);
       if (a.length !== b.length || !require('node:crypto').timingSafeEqual(a, b)) {
         res.writeHead(401, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({ jsonrpc: '2.0', error: { code: -32001, message: 'Unauthorized: missing or invalid MCP token' } }));
+        res.end(JSON.stringify({ jsonrpc: '2.0', id: null, error: { code: -32001, message: 'Unauthorized: missing or invalid MCP token' } }));
         return;
       }
     }
@@ -1580,6 +1584,64 @@ if (process.argv.includes('--stdio')) {
       await runSystemWatchdogCycle(true);
       res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-cache' });
       res.end(JSON.stringify(systemStatusState));
+      return;
+    }
+
+    if (urlObj.pathname === '/remote-desktop' && (req.method === 'POST' || req.method === 'GET')) {
+      let rawBody = '';
+      for await (const chunk of req) rawBody += chunk.toString();
+      let body = {};
+      try { body = rawBody ? JSON.parse(rawBody) : {}; } catch {}
+      const action = String(body.action || urlObj.searchParams.get('action') || 'start').trim();
+      const nodeId = String(body.nodeId || urlObj.searchParams.get('nodeId') || 'linux-work4').trim();
+      const nodes = loadConfiguredNodes();
+      const node = nodes.find((n) => n.id === nodeId || n.sshHost === nodeId)
+        || nodes.find((n) => n.id === 'linux-work4')
+        || nodes.find((n) => n.desktopWebPort)
+        || nodes[0];
+      const webPort = Number((node && node.desktopWebPort) || 16080);
+      const vncPort = Number((node && node.desktopVncPort) || 15901);
+      const webUrl = `http://127.0.0.1:${webPort}/vnc.html?autoconnect=true&resize=scale&reconnect=true&reconnect_delay=1000`;
+      const vncUrl = `vnc://:instabox@127.0.0.1:${vncPort}`;
+
+      if (action === 'open-native-vnc') {
+        await runCommand('open', [vncUrl], { timeoutMs: 4000 });
+        res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
+        res.end(JSON.stringify({ ok: true, nodeId: node.id, sshHost: node.sshHost, webPort, vncPort, webUrl, vncUrl }));
+        return;
+      }
+
+      const sock = nodeTunnelSock(node);
+      if (action === 'start') {
+        // Ensure local port forward for webPort is listening; if not, heal tunnel
+        const lsofCheck = await runCommand('lsof', ['-nP', `-iTCP:${webPort}`, '-sTCP:LISTEN'], { timeoutMs: 2000 });
+        if (lsofCheck.exitCode !== 0 || !lsofCheck.stdout.trim()) {
+          await healNodeTunnel(node, false);
+        }
+      }
+
+      let remoteCmd = 'printf "start\\n1440x900\\ntakt-ui\\n" | /usr/local/bin/instabox-desktop';
+      if (action === 'takeover') {
+        remoteCmd = 'printf "takeover\\n1440x900\\ntakt-ui\\n" | /usr/local/bin/instabox-desktop';
+      } else if (action === 'handback') {
+        remoteCmd = 'printf "handback\\n1440x900\\ntakt-ui\\n" | /usr/local/bin/instabox-desktop';
+      } else if (action === 'open-browser') {
+        remoteCmd = 'DISPLAY=:1 nohup /usr/local/bin/chromium https://www.google.com >/dev/null 2>&1 </dev/null & printf "status\\n1440x900\\ntakt-ui\\n" | /usr/local/bin/instabox-desktop';
+      }
+
+      const sshOut = await runCommand('ssh', ['-S', sock, '-o', 'ConnectTimeout=4', node.sshHost, remoteCmd], { timeoutMs: 6000 });
+      const controller = (sshOut.stdout || '').includes('controller human') ? 'user' : 'agent';
+      res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
+      res.end(JSON.stringify({
+        ok: sshOut.exitCode === 0,
+        nodeId: node.id,
+        sshHost: node.sshHost,
+        webPort,
+        vncPort,
+        webUrl,
+        vncUrl,
+        controller,
+      }));
       return;
     }
 
@@ -1883,8 +1945,14 @@ for line in out.splitlines()[1:]:
         if et > max_et: max_et = et
 mcp_ok = False
 try:
-    r = urllib.request.urlopen("http://127.0.0.1:${PORT}/health", timeout=1.5).read().decode()
-    mcp_ok = '"mac-industrial-mcp"' in r
+    req = urllib.request.Request(
+        "http://127.0.0.1:${PORT}/mcp",
+        data=b'{"jsonrpc":"2.0","id":1,"method":"ping"}',
+        headers={"Content-Type": "application/json"},
+        method="POST",
+    )
+    r = urllib.request.urlopen(req, timeout=1.5).read().decode()
+    mcp_ok = '"result"' in r and '"error"' not in r
 except Exception:
     pass
 eda_ok = False
@@ -1901,35 +1969,50 @@ try:
 except Exception:
     pass
 
-# Claude usage estimate (rolling window over local session JSONL files)
+# Claude usage estimate (cached for 60s; skips api-request-blob and reads tail 1MB max per file)
 home = os.path.expanduser("~")
 now = time.time()
-creds_path = os.path.join(home, ".claude", ".credentials.json")
-settings_path = os.path.join(home, ".claude", "settings.json")
-creds_mtime = os.path.getmtime(creds_path) if os.path.exists(creds_path) else 0
-plan_name = "Claude"
-is_api_proxy = False
+usage_cache_file = "/tmp/takt-claude-usage-cache.json"
+usage_info = None
 try:
-    st = json.load(open(settings_path))
-    if (st.get("env") or {}).get("ANTHROPIC_BASE_URL"):
-        is_api_proxy = True
-        plan_name = "API Proxy"
+    if os.path.exists(usage_cache_file) and (now - os.path.getmtime(usage_cache_file)) < 60:
+        usage_info = json.load(open(usage_cache_file, "r", encoding="utf-8"))
 except Exception:
-    pass
+    usage_info = None
 
-win_5h_start = max(now - 5 * 3600, creds_mtime if not is_api_proxy else 0)
-win_7d_start = max(now - 7 * 86400, creds_mtime if not is_api_proxy else 0)
-seen_ids = set()
-turns_5h = 0; weighted_5h = 0.0; tokens_5h = 0; oldest_5h_ts = None
-turns_7d = 0; weighted_7d = 0.0; tokens_7d = 0; oldest_7d_ts = None
-
-for p in glob.glob(os.path.join(home, ".claude", "projects", "*", "*.jsonl")):
+if not usage_info:
+    creds_path = os.path.join(home, ".claude", ".credentials.json")
+    settings_path = os.path.join(home, ".claude", "settings.json")
+    creds_mtime = os.path.getmtime(creds_path) if os.path.exists(creds_path) else 0
+    plan_name = "Claude"
+    is_api_proxy = False
     try:
-        if os.path.getmtime(p) < (now - 7 * 86400):
-            continue
-        with open(p, "r", encoding="utf-8", errors="replace") as f:
-            for l in f:
-                if '"usage"' not in l:
+        st = json.load(open(settings_path))
+        if (st.get("env") or {}).get("ANTHROPIC_BASE_URL"):
+            is_api_proxy = True
+            plan_name = "API Proxy"
+    except Exception:
+        pass
+
+    win_5h_start = max(now - 5 * 3600, creds_mtime if not is_api_proxy else 0)
+    win_7d_start = max(now - 7 * 86400, creds_mtime if not is_api_proxy else 0)
+    seen_ids = set()
+    turns_5h = 0; weighted_5h = 0.0; tokens_5h = 0; oldest_5h_ts = None
+    turns_7d = 0; weighted_7d = 0.0; tokens_7d = 0; oldest_7d_ts = None
+
+    for p in glob.glob(os.path.join(home, ".claude", "projects", "*", "*.jsonl")):
+        try:
+            st_f = os.stat(p)
+            if st_f.st_mtime < (now - 7 * 86400):
+                continue
+            with open(p, "rb") as fb:
+                if st_f.st_size > 1048576:
+                    fb.seek(st_f.st_size - 1048576)
+                    raw_lines = fb.read().decode("utf-8", errors="replace").splitlines()[1:]
+                else:
+                    raw_lines = fb.read().decode("utf-8", errors="replace").splitlines()
+            for l in raw_lines:
+                if "api-request-blob" in l or '"usage"' not in l or '"assistant"' not in l:
                     continue
                 d = json.loads(l)
                 if d.get("type") != "assistant":
@@ -1959,17 +2042,29 @@ for p in glob.glob(os.path.join(home, ".claude", "projects", "*", "*.jsonl")):
                 if ts >= win_5h_start:
                     turns_5h += 1; weighted_5h += w; tokens_5h += raw
                     if oldest_5h_ts is None or ts < oldest_5h_ts: oldest_5h_ts = ts
+        except Exception:
+            pass
+
+    cap_5h_turns = 250.0 if is_api_proxy else 45.0
+    cap_5h_weight = 2500000.0 if is_api_proxy else 450000.0
+    cap_7d_turns = 2500.0 if is_api_proxy else 450.0
+    cap_7d_weight = 25000000.0 if is_api_proxy else 4500000.0
+    used_5h_pct = min(100, round(max(turns_5h / cap_5h_turns, weighted_5h / cap_5h_weight) * 100))
+    used_7d_pct = min(100, round(max(turns_7d / cap_7d_turns, weighted_7d / cap_7d_weight) * 100))
+    reset_5h_sec = max(0, int((oldest_5h_ts + 5 * 3600) - now)) if oldest_5h_ts else 5 * 3600
+    reset_7d_sec = max(0, int((oldest_7d_ts + 7 * 86400) - now)) if oldest_7d_ts else 7 * 86400
+
+    usage_info = {
+        "plan": plan_name, "source": "session_meter", "authStatus": "ok",
+        "remaining5hPct": max(0, 100 - used_5h_pct), "used5hPct": used_5h_pct, "reset5hSec": reset_5h_sec,
+        "turns5h": turns_5h, "tokens5h": tokens_5h,
+        "remaining7dPct": max(0, 100 - used_7d_pct), "used7dPct": used_7d_pct, "reset7dSec": reset_7d_sec,
+        "turns7d": turns_7d, "tokens7d": tokens_7d,
+    }
+    try:
+        json.dump(usage_info, open(usage_cache_file, "w", encoding="utf-8"))
     except Exception:
         pass
-
-cap_5h_turns = 250.0 if is_api_proxy else 45.0
-cap_5h_weight = 2500000.0 if is_api_proxy else 450000.0
-cap_7d_turns = 2500.0 if is_api_proxy else 450.0
-cap_7d_weight = 25000000.0 if is_api_proxy else 4500000.0
-used_5h_pct = min(100, round(max(turns_5h / cap_5h_turns, weighted_5h / cap_5h_weight) * 100))
-used_7d_pct = min(100, round(max(turns_7d / cap_7d_turns, weighted_7d / cap_7d_weight) * 100))
-reset_5h_sec = max(0, int((oldest_5h_ts + 5 * 3600) - now)) if oldest_5h_ts else 5 * 3600
-reset_7d_sec = max(0, int((oldest_7d_ts + 7 * 86400) - now)) if oldest_7d_ts else 7 * 86400
 
 ts_ok = False
 ts_ip = ""
@@ -1981,13 +2076,6 @@ try:
 except Exception:
     pass
 
-usage_info = {
-    "plan": plan_name, "source": "session_meter", "authStatus": "ok",
-    "remaining5hPct": max(0, 100 - used_5h_pct), "used5hPct": used_5h_pct, "reset5hSec": reset_5h_sec,
-    "turns5h": turns_5h, "tokens5h": tokens_5h,
-    "remaining7dPct": max(0, 100 - used_7d_pct), "used7dPct": used_7d_pct, "reset7dSec": reset_7d_sec,
-    "turns7d": turns_7d, "tokens7d": tokens_7d,
-}
 print(json.dumps({"pids": pids, "count": len(pids), "uptimeSec": max_et, "mcpOk": mcp_ok, "edaOk": eda_ok,
                   "egressIp": egress, "tailscaleOk": ts_ok, "tailscaleIp": ts_ip, "usage": usage_info}))
 `.trim();
@@ -2010,28 +2098,99 @@ async function probeNode(node, timeoutMs = 5500) {
   return { data, pingMs: data ? Math.min(999, Math.round(rtt / 2)) : null };
 }
 
+const nodeHealInFlight = new Map();
+
 /** Rebuilds the dedicated MCP reverse-tunnel ControlMaster for one node. Never touches interactive terminals. */
-async function healNodeTunnel(node) {
-  const sock = nodeTunnelSock(node);
-  await runCommand('ssh', ['-S', sock, '-O', 'exit', node.sshHost], { timeoutMs: 2500 });
-  await runCommand('pkill', ['-f', sock], { timeoutMs: 1500 });
-  try { fs.unlinkSync(sock); } catch {}
-  // Free the remote loopback ports in case a stale sshd child still holds them
-  await runCommand('ssh', [
-    '-o', 'ControlMaster=no', '-o', 'ControlPath=none', '-o', 'ClearAllForwardings=yes', '-o', 'ConnectTimeout=4',
-    node.sshHost,
-    `(sudo -n true 2>/dev/null && SUDO="sudo -n" || SUDO=""); $SUDO fuser -k ${PORT}/tcp ${EDA_PORT}/tcp >/dev/null 2>&1 || true`,
-  ], { timeoutMs: 6000 });
-  await runCommand('ssh', [
-    '-M', '-S', sock, '-Nf',
-    '-o', 'ExitOnForwardFailure=yes',
-    '-o', 'ServerAliveInterval=15',
-    '-o', 'ServerAliveCountMax=2',
-    '-o', 'TCPKeepAlive=yes',
-    '-R', `${PORT}:127.0.0.1:${PORT}`,
-    '-R', `${EDA_PORT}:127.0.0.1:${EDA_PORT}`,
-    node.sshHost,
-  ], { timeoutMs: 6000 });
+async function healNodeTunnel(node, refreshRemoteClaudeConfig = false) {
+  if (nodeHealInFlight.has(node.id)) {
+    return nodeHealInFlight.get(node.id);
+  }
+  const job = (async () => {
+    const sock = nodeTunnelSock(node);
+    const legacySock = path.join(SSH_SOCKET_DIR, 'takt-mcp-tunnel.sock');
+    await runCommand('ssh', ['-S', sock, '-O', 'exit', node.sshHost], { timeoutMs: 2000 });
+    if (node.id === 'korea-claude') {
+      await runCommand('ssh', ['-S', legacySock, '-O', 'exit', node.sshHost], { timeoutMs: 1500 });
+      try { fs.unlinkSync(legacySock); } catch {}
+    }
+    await runCommand('pkill', ['-f', sock], { timeoutMs: 1500 });
+    try { fs.unlinkSync(sock); } catch {}
+
+    // Free the remote loopback ports in case a stale sshd child still holds them
+    const remoteRefreshPy = refreshRemoteClaudeConfig ? `
+import json, os, time, urllib.request
+
+mcp_url = "http://127.0.0.1:${PORT}/mcp?node=${encodeURIComponent(node.id)}"
+home = os.path.expanduser("~")
+claude_cfg = os.path.join(home, ".claude.json")
+try:
+    cfg = json.load(open(claude_cfg, "r", encoding="utf-8")) if os.path.exists(claude_cfg) else {}
+except Exception:
+    cfg = {}
+if not isinstance(cfg.get("mcpServers"), dict):
+    cfg["mcpServers"] = {}
+cfg["mcpServers"].pop("mac-industrial-mcp", None)
+if os.path.exists("/usr/local/bin/mac-industrial-mcp-client"):
+    cfg["mcpServers"]["mac-industrial"] = {
+        "type": "stdio",
+        "command": "/usr/local/bin/mac-industrial-mcp-client",
+        "args": [],
+        "env": {"TAKT_NODE_ID": "${node.id}", "TAKT_HEALED_AT": str(int(time.time()))}
+    }
+else:
+    cfg["mcpServers"]["mac-industrial"] = {"type": "http", "url": mcp_url}
+if os.path.exists("/usr/local/bin/instabox-computer-use"):
+    cfg["mcpServers"]["open-computer-use"] = {
+        "type": "stdio",
+        "command": "/usr/local/bin/instabox-computer-use",
+        "args": ["mcp"]
+    }
+try:
+    with open(claude_cfg, "w", encoding="utf-8") as f:
+        json.dump(cfg, f, indent=2, ensure_ascii=False)
+except Exception:
+    pass
+
+auth_cache = os.path.join(home, ".claude", "mcp-needs-auth-cache.json")
+if os.path.exists(auth_cache):
+    try:
+        ac = json.load(open(auth_cache, "r", encoding="utf-8"))
+        ac.pop("mac-industrial", None)
+        ac.pop("mac-industrial-mcp", None)
+        json.dump(ac, open(auth_cache, "w", encoding="utf-8"))
+    except Exception:
+        pass
+`.trim() : '';
+
+    await runCommand('ssh', [
+      '-o', 'ControlMaster=no', '-o', 'ControlPath=none', '-o', 'ClearAllForwardings=yes', '-o', 'ConnectTimeout=4',
+      node.sshHost,
+      `ss -tlnp '( sport = :${PORT} or sport = :${EDA_PORT} )' 2>/dev/null | grep -oE 'pid=[0-9]+' | cut -d= -f2 | sort -u | xargs -r kill -9 2>/dev/null || true; (sudo -n true 2>/dev/null && SUDO="sudo -n" || SUDO=""); $SUDO fuser -k ${PORT}/tcp ${EDA_PORT}/tcp >/dev/null 2>&1 || true`,
+    ], { timeoutMs: 5000 });
+
+    await runCommand('ssh', [
+      '-M', '-S', sock, '-Nf',
+      '-o', 'ExitOnForwardFailure=yes',
+      '-o', 'ServerAliveInterval=15',
+      '-o', 'ServerAliveCountMax=2',
+      '-o', 'TCPKeepAlive=yes',
+      '-R', `${PORT}:127.0.0.1:${PORT}`,
+      '-R', `${EDA_PORT}:127.0.0.1:${EDA_PORT}`,
+      ...(node.syncthingTunnelPort ? ['-L', `127.0.0.1:${node.syncthingTunnelPort}:127.0.0.1:22000`] : []),
+      ...(node.desktopWebPort ? ['-L', `127.0.0.1:${node.desktopWebPort}:127.0.0.1:6080`] : []),
+      ...(node.desktopVncPort ? ['-L', `127.0.0.1:${node.desktopVncPort}:127.0.0.1:5901`] : []),
+      node.sshHost,
+    ], { timeoutMs: 6000 });
+
+    if (remoteRefreshPy) {
+      const b64 = Buffer.from(remoteRefreshPy, 'utf8').toString('base64');
+      await runCommand('ssh', ['-S', sock, '-o', 'ConnectTimeout=4', node.sshHost, `python3 -c "import base64;exec(base64.b64decode('${b64}'))"`], { timeoutMs: 4500 });
+    }
+  })().finally(() => {
+    nodeHealInFlight.delete(node.id);
+  });
+  nodeHealInFlight.set(node.id, job);
+  return job;
 }
 
 async function runSystemWatchdogCycle(forceHeal = false) {
@@ -2044,13 +2203,17 @@ async function runSystemWatchdogCycle(forceHeal = false) {
     const nodesStatus = {};
     const probeData = {};
     await Promise.all(nodes.map(async (node) => {
-      let { data, pingMs } = await probeNode(node);
+      let data = null;
+      let pingMs = null;
+      if (!forceHeal) {
+        ({ data, pingMs } = await probeNode(node));
+      }
       const needHeal = forceHeal || !data || !data.mcpOk;
       const sinceHeal = Date.now() - (lastNodeHealAt.get(node.id) || 0);
       if (needHeal && (forceHeal || sinceHeal > 15000)) {
         systemStatusState.healing = true;
         lastNodeHealAt.set(node.id, Date.now());
-        await healNodeTunnel(node);
+        await healNodeTunnel(node, forceHeal);
         ({ data, pingMs } = await probeNode(node));
         systemStatusState.healCount += 1;
         systemStatusState.lastHealAt = Date.now();
@@ -2058,6 +2221,8 @@ async function runSystemWatchdogCycle(forceHeal = false) {
       probeData[node.id] = data;
       nodesStatus[node.id] = {
         id: node.id,
+        name: node.name || node.id,
+        badge: node.badge || node.id,
         sshHost: node.sshHost,
         online: Boolean(data),
         mcpOk: Boolean(data && data.mcpOk),
@@ -2075,7 +2240,7 @@ async function runSystemWatchdogCycle(forceHeal = false) {
     const onlineIds = Object.keys(nodesStatus).filter((id) => nodesStatus[id].online);
     const first = onlineIds.length ? nodesStatus[onlineIds[0]] : null;
     const firstData = first ? probeData[first.id] : null;
-    const anyMcpOk = onlineIds.some((id) => nodesStatus[id].mcpOk);
+    const allOnlineMcpOk = onlineIds.length > 0 && onlineIds.every((id) => nodesStatus[id].mcpOk);
     const anyEdaOk = onlineIds.some((id) => nodesStatus[id].edaOk);
     const bestPing = onlineIds.length ? Math.min(...onlineIds.map((id) => nodesStatus[id].pingMs || 999)) : null;
 
@@ -2091,9 +2256,9 @@ async function runSystemWatchdogCycle(forceHeal = false) {
         }
       : { online: false, processCount: 0, uptimeSec: 0, pids: [], egressIp: '' };
     systemStatusState.mcpStatus = {
-      ok: anyMcpOk,
+      ok: allOnlineMcpOk,
       localMcpOk: true,
-      remoteTunnelOk: anyMcpOk,
+      remoteTunnelOk: allOnlineMcpOk,
       edaBridgeOk: Boolean(edaInfo.ok && anyEdaOk),
       edaClientConnected: Boolean(edaInfo.edaConnected),
       tools: TOOLS.length,
@@ -2101,7 +2266,7 @@ async function runSystemWatchdogCycle(forceHeal = false) {
     };
     if (firstData && firstData.usage) systemStatusState.claudeUsage = firstData.usage;
 
-    systemStatusState.ok = Boolean(onlineIds.length && anyMcpOk);
+    systemStatusState.ok = Boolean(onlineIds.length && allOnlineMcpOk);
     systemStatusState.updatedAt = Date.now();
   } catch {
     systemStatusState.healing = false;

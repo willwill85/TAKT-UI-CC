@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <meta name="color-scheme" content="dark light" />
-  <title>TAKT-UI-CC Workbench</title>
+  <title>TAKT Workbench — Codex Dark Edition</title>
   <link rel="stylesheet" href="/vendor/xterm.css" />
   <style>
     :root {
@@ -35,11 +35,11 @@
       --accent-bright: #f4f4f5;
       --accent-soft: rgba(255, 255, 255, 0.08);
 
-      --status-online: #93c5fd;
+      --status-online: #34d399;
       --warning: #f59e0b;
-      --warning-bg: rgba(245, 158, 11, 0.12);
+      --warning-bg: rgba(255, 255, 255, 0.06);
       --danger: #f87171;
-      --danger-bg: rgba(248, 113, 113, 0.14);
+      --danger-bg: rgba(248, 113, 113, 0.12);
 
       --radius-xs: 4px;
       --radius-sm: 6px;
@@ -127,16 +127,16 @@
       color: #f4f4f5;
     }
     .icon-code {
-      color: #93c5fd;
-    }
-    .icon-config {
       color: #d4d4d8;
     }
+    .icon-config {
+      color: #a1a1aa;
+    }
     .icon-image {
-      color: #c4b5fd;
+      color: #a1a1aa;
     }
     .icon-cube {
-      color: #a5b4fc;
+      color: #a1a1aa;
     }
     .icon-doc {
       color: #71717a;
@@ -444,8 +444,8 @@
     }
     .tag-chip.active {
       color: var(--text-primary);
-      border-color: color-mix(in srgb, var(--tag-c) 60%, transparent);
-      background: color-mix(in srgb, var(--tag-c) 14%, transparent);
+      border-color: var(--border-strong);
+      background: var(--bg-elevated);
     }
     .tag-chip.add { color: var(--text-muted); border-style: dashed; }
 
@@ -574,9 +574,9 @@
     }
 
     .machine-badge.secondary {
-      color: #bae6fd;
-      background: rgba(125, 211, 252, 0.10);
-      border-color: rgba(125, 211, 252, 0.24);
+      color: #a1a1aa;
+      background: rgba(255, 255, 255, 0.05);
+      border-color: rgba(255, 255, 255, 0.12);
     }
 
     .dialog-input:user-invalid {
@@ -1533,17 +1533,14 @@
 
     .status-dot.ok {
       background: var(--status-online);
-      box-shadow: 0 0 6px rgba(147, 197, 253, 0.5);
     }
 
     .status-dot.warn {
       background: var(--warning);
-      box-shadow: 0 0 6px var(--warning);
     }
 
     .status-dot.err {
       background: var(--danger);
-      box-shadow: 0 0 6px var(--danger);
     }
 
     /* Native Modal Dialog */
@@ -1653,6 +1650,617 @@
     #manualCwdText { flex: 0 1 auto; max-width: 45%; }
     #manualCmdText { flex: 1 1 auto; }
     .cmd-hint-bar span { white-space: nowrap; }
+
+    /* ============================================================================
+       DockTerm Chat Mode — Pure OpenAI Codex Desktop Monochrome Graphite Style
+       ============================================================================ */
+    .view-mode-toggle {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      height: 25px;
+      padding: 0 9px;
+      border-radius: var(--radius-sm);
+      border: 1px solid var(--border-hairline);
+      background: var(--bg-surface);
+      color: var(--text-secondary);
+      font-size: 11.5px;
+      font-weight: 500;
+      cursor: pointer;
+      transition: background 0.12s ease, color 0.12s ease, border-color 0.12s ease;
+    }
+    .view-mode-toggle:hover {
+      background: var(--bg-elevated);
+      border-color: var(--border-strong);
+      color: var(--text-primary);
+    }
+    .view-mode-toggle.active {
+      background: #ededef;
+      border-color: #ffffff;
+      color: #0d0d0d;
+      font-weight: 600;
+    }
+    .view-mode-kbd {
+      font-family: var(--font-mono);
+      font-size: 9.5px;
+      padding: 1px 4px;
+      border-radius: 3px;
+      background: rgba(255, 255, 255, 0.08);
+      color: inherit;
+      opacity: 0.75;
+    }
+    .view-mode-toggle.active .view-mode-kbd {
+      background: rgba(0, 0, 0, 0.12);
+      color: #0d0d0d;
+    }
+
+    .dockterm-panechat {
+      position: absolute;
+      inset: 0;
+      z-index: 20;
+      display: flex;
+      flex-direction: column;
+      background: var(--bg-app);
+      color: var(--text-primary);
+      overflow: hidden;
+    }
+
+    .dockterm-Subbar {
+      height: 30px;
+      padding: 0 14px;
+      background: var(--bg-sidebar);
+      border-bottom: 1px solid var(--border-hairline);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      font-size: 11px;
+      flex-shrink: 0;
+    }
+
+    .dockterm-subbar-left {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      min-width: 0;
+      overflow: hidden;
+    }
+
+    .dockterm-status-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      padding: 1px 7px;
+      border-radius: var(--radius-xs);
+      font-size: 10.5px;
+      font-weight: 500;
+      background: var(--bg-surface);
+      border: 1px solid var(--border-hairline);
+      color: var(--text-secondary);
+      flex-shrink: 0;
+    }
+    .dockterm-status-badge .term-tab-dot {
+      background: var(--text-muted);
+    }
+    .dockterm-status-badge.online {
+      background: var(--bg-surface);
+      color: var(--text-primary);
+      border: 1px solid var(--border-hairline);
+    }
+    .dockterm-status-badge.online .term-tab-dot {
+      background: #34d399;
+    }
+    .dockterm-status-badge.working {
+      background: var(--bg-elevated);
+      color: var(--text-primary);
+      border: 1px solid var(--border-strong);
+    }
+    .dockterm-status-badge.working .term-tab-dot {
+      background: #f59e0b;
+      animation: docktermPulse 1.2s infinite ease-in-out;
+    }
+    .dockterm-status-badge.asking {
+      background: var(--bg-elevated);
+      color: var(--text-primary);
+      border: 1px solid var(--border-strong);
+    }
+    .dockterm-status-badge.asking .term-tab-dot {
+      background: #38bdf8;
+    }
+
+    .reading__scroll {
+      flex: 1;
+      min-height: 0;
+      overflow-y: auto;
+      padding: 20px 24px 14px;
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+
+    .reading__inner {
+      width: 100%;
+      max-width: 780px;
+      margin: 0 auto;
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+
+    .reading__empty {
+      margin: 40px auto;
+      padding: 26px 24px;
+      max-width: 430px;
+      text-align: center;
+      color: var(--text-secondary);
+      font-size: 12px;
+      line-height: 1.55;
+      background: var(--bg-surface);
+      border: 1px solid var(--border-hairline);
+      border-radius: var(--radius-lg);
+      box-shadow: var(--shadow-sm);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .reading__empty-cta {
+      height: 28px;
+      padding: 0 13px;
+      border-radius: var(--radius-sm);
+      border: 1px solid #ffffff;
+      background: #ededef;
+      color: #0d0d0d;
+      font-size: 11.5px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: background 0.12s ease;
+    }
+    .reading__empty-cta:hover {
+      background: #ffffff;
+    }
+
+    .reading__user {
+      display: flex;
+      justify-content: flex-end;
+      margin-top: 6px;
+    }
+
+    .reading__user-bubble {
+      max-width: 78%;
+      padding: 8px 13px;
+      border-radius: 10px;
+      background: var(--bg-surface);
+      border: 1px solid var(--border-hairline);
+      color: var(--text-primary);
+      font-size: 13px;
+      line-height: 1.55;
+      white-space: pre-wrap;
+      word-break: break-word;
+    }
+
+    .reading__assistant {
+      padding: 2px 2px;
+      color: var(--text-primary);
+      font-size: 13px;
+      line-height: 1.65;
+    }
+
+    /* Markdown inside Assistant messages */
+    .reading__md {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      word-break: break-word;
+    }
+    .reading__md p { margin: 0; }
+    .reading__md h1, .reading__md h2, .reading__md h3, .reading__md h4 {
+      margin: 8px 0 2px;
+      font-weight: 600;
+      color: var(--text-primary);
+      line-height: 1.35;
+    }
+    .reading__md h1 { font-size: 16px; }
+    .reading__md h2 { font-size: 14.5px; }
+    .reading__md h3 { font-size: 13px; }
+    .reading__md ul, .reading__md ol {
+      margin: 0;
+      padding-left: 20px;
+      display: flex;
+      flex-direction: column;
+      gap: 3px;
+    }
+    .reading__md code.md-inline-code {
+      font-family: var(--font-mono);
+      font-size: 11.5px;
+      padding: 1px 5px;
+      border-radius: 4px;
+      background: rgba(255, 255, 255, 0.06);
+      border: 1px solid var(--border-hairline);
+      color: var(--text-primary);
+    }
+    .reading__md .md-file-link {
+      font-family: var(--font-mono);
+      font-size: 11.5px;
+      padding: 1px 5px;
+      border-radius: 4px;
+      background: rgba(255, 255, 255, 0.07);
+      border: 1px solid var(--border-strong);
+      color: var(--text-primary);
+      cursor: pointer;
+      text-decoration: underline;
+      text-decoration-color: rgba(255, 255, 255, 0.35);
+      text-underline-offset: 2px;
+    }
+    .reading__md .md-file-link:hover {
+      background: var(--bg-elevated);
+      border-color: var(--border-accent);
+    }
+    .reading__md pre.md-code-block {
+      margin: 4px 0;
+      padding: 10px 12px;
+      border-radius: var(--radius-sm);
+      background: var(--bg-input);
+      border: 1px solid var(--border-hairline);
+      overflow-x: auto;
+      font-family: var(--font-mono);
+      font-size: 12px;
+      line-height: 1.5;
+      color: var(--text-primary);
+      position: relative;
+    }
+    .reading__md table {
+      border-collapse: collapse;
+      width: 100%;
+      font-size: 12px;
+      margin: 4px 0;
+    }
+    .reading__md th, .reading__md td {
+      border: 1px solid var(--border-hairline);
+      padding: 5px 9px;
+      text-align: left;
+    }
+    .reading__md th {
+      background: rgba(255, 255, 255, 0.04);
+      font-weight: 600;
+    }
+
+    /* Compact Tool Row */
+    .reading__tool {
+      display: flex;
+      align-items: center;
+      gap: 7px;
+      padding: 3px 9px;
+      border-radius: var(--radius-xs);
+      background: rgba(255, 255, 255, 0.02);
+      border: 1px solid var(--border-hairline);
+      font-family: var(--font-mono);
+      font-size: 11px;
+      color: var(--text-secondary);
+      min-width: 0;
+    }
+    .reading__tool-icon {
+      flex-shrink: 0;
+      width: 12px;
+      text-align: center;
+      font-size: 10px;
+      color: var(--text-muted);
+    }
+    .reading__tool--ok .reading__tool-icon { color: #34d399; }
+    .reading__tool--err .reading__tool-icon { color: #f87171; }
+    .reading__tool-name {
+      flex-shrink: 0;
+      color: var(--text-secondary);
+      font-weight: 600;
+    }
+    .reading__tool-summary {
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      color: var(--text-muted);
+    }
+
+    /* Live Working / Terminal Tail Card */
+    .reading__live {
+      margin-top: 4px;
+      padding: 10px 12px;
+      border-radius: var(--radius-md);
+      background: var(--bg-sidebar);
+      border: 1px solid var(--border-hairline);
+      display: flex;
+      flex-direction: column;
+      gap: 7px;
+    }
+    .reading__live-head {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 11.5px;
+      font-weight: 500;
+      color: var(--text-secondary);
+    }
+    .reading__live-dot {
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      background: #f59e0b;
+      animation: docktermPulse 1.2s infinite ease-in-out;
+    }
+    @keyframes docktermPulse {
+      0%, 100% { opacity: 0.25; }
+      50% { opacity: 0.95; }
+    }
+    .reading__live-stop {
+      margin-left: auto;
+      padding: 2px 8px;
+      border-radius: var(--radius-xs);
+      border: 1px solid var(--border-hairline);
+      background: var(--bg-surface);
+      color: var(--text-secondary);
+      font-size: 10.5px;
+      cursor: pointer;
+    }
+    .reading__live-stop:hover {
+      background: var(--bg-elevated);
+      color: var(--text-primary);
+      border-color: var(--border-strong);
+    }
+    .reading__live-tail {
+      margin: 0;
+      padding: 7px 9px;
+      border-radius: var(--radius-xs);
+      background: var(--bg-app);
+      border: 1px solid var(--border-hairline);
+      font-family: var(--font-mono);
+      font-size: 11px;
+      line-height: 1.45;
+      color: var(--text-secondary);
+      max-height: 140px;
+      overflow-y: auto;
+      white-space: pre-wrap;
+    }
+
+    /* Interactive Permission Prompt Card (AskCard) */
+    .askcard {
+      margin-top: 6px;
+      padding: 12px 14px;
+      border-radius: var(--radius-md);
+      background: var(--bg-surface);
+      border: 1px solid var(--border-strong);
+      box-shadow: var(--shadow-md);
+      display: flex;
+      flex-direction: column;
+      gap: 9px;
+    }
+    .askcard__head {
+      display: flex;
+      align-items: center;
+      gap: 7px;
+      font-size: 11.5px;
+      font-weight: 600;
+      color: var(--text-primary);
+    }
+    .askcard__dot {
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      background: #38bdf8;
+    }
+    .askcard__term {
+      margin-left: auto;
+      padding: 2px 8px;
+      border-radius: var(--radius-xs);
+      border: 1px solid var(--border-hairline);
+      background: var(--bg-elevated);
+      color: var(--text-secondary);
+      font-size: 10.5px;
+      cursor: pointer;
+    }
+    .askcard__term:hover {
+      color: var(--text-primary);
+      border-color: var(--border-strong);
+    }
+    .askcard__title {
+      margin: 0;
+      padding: 8px 10px;
+      border-radius: var(--radius-xs);
+      background: var(--bg-input);
+      border: 1px solid var(--border-hairline);
+      font-family: var(--font-mono);
+      font-size: 11.5px;
+      line-height: 1.5;
+      color: var(--text-primary);
+      white-space: pre-wrap;
+      word-break: break-word;
+    }
+    .askcard__actions {
+      display: flex;
+      flex-direction: column;
+      gap: 5px;
+    }
+    .askcard__btn {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 7px 11px;
+      border-radius: var(--radius-sm);
+      border: 1px solid var(--border-hairline);
+      background: var(--bg-input);
+      color: var(--text-primary);
+      font-size: 12px;
+      text-align: left;
+      cursor: pointer;
+      transition: background 0.12s ease, border-color 0.12s ease;
+    }
+    .askcard__btn:hover {
+      background: var(--bg-elevated);
+      border-color: var(--border-strong);
+    }
+    .askcard__btn--allow {
+      background: var(--bg-elevated);
+      border-color: var(--border-accent);
+    }
+    .askcard__btn--allow:hover {
+      background: rgba(255, 255, 255, 0.16);
+      border-color: #ffffff;
+    }
+    .askcard__btn--deny, .askcard__btn--cancel {
+      color: var(--text-secondary);
+    }
+    .askcard__btn--deny:hover, .askcard__btn--cancel:hover {
+      background: var(--bg-hover);
+      color: var(--text-primary);
+    }
+    .askcard__key {
+      font-family: var(--font-mono);
+      font-size: 10.5px;
+      padding: 1px 5px;
+      border-radius: 3px;
+      background: rgba(255, 255, 255, 0.07);
+      color: var(--text-secondary);
+      flex-shrink: 0;
+    }
+    .askcard__desc {
+      display: block;
+      font-size: 11px;
+      color: var(--text-muted);
+      margin-top: 2px;
+    }
+
+    /* Jump to Latest Floating Pill */
+    .reading__jump {
+      position: absolute;
+      bottom: 104px;
+      left: 50%;
+      transform: translateX(-50%);
+      z-index: 25;
+      padding: 4px 12px;
+      border-radius: 999px;
+      border: 1px solid var(--border-strong);
+      background: var(--bg-elevated);
+      color: var(--text-primary);
+      font-size: 11px;
+      font-weight: 500;
+      cursor: pointer;
+      box-shadow: var(--shadow-md);
+    }
+
+    /* Bottom Composer Input */
+    .composer {
+      padding: 8px 20px 12px;
+      background: var(--bg-app);
+      border-top: 1px solid var(--border-hairline);
+      flex-shrink: 0;
+      position: relative;
+    }
+    .composer__inner {
+      max-width: 780px;
+      margin: 0 auto;
+      position: relative;
+    }
+    .composer__menu {
+      position: absolute;
+      bottom: calc(100% + 6px);
+      left: 0;
+      right: 0;
+      max-height: 210px;
+      overflow-y: auto;
+      background: var(--bg-surface);
+      border: 1px solid var(--border-strong);
+      border-radius: var(--radius-md);
+      box-shadow: var(--shadow-md);
+      padding: 4px;
+      z-index: 40;
+      display: none;
+    }
+    .composer__menu.open {
+      display: block;
+    }
+    .composer__menu-item {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      padding: 6px 10px;
+      border-radius: var(--radius-xs);
+      font-size: 12px;
+      cursor: pointer;
+      color: var(--text-secondary);
+    }
+    .composer__menu-item.active, .composer__menu-item:hover {
+      background: var(--bg-active);
+      color: var(--text-primary);
+    }
+    .composer__menu-cmd {
+      font-family: var(--font-mono);
+      font-weight: 600;
+      color: var(--text-primary);
+    }
+    .composer__box {
+      border-radius: var(--radius-md);
+      border: 1px solid var(--border-hairline);
+      background: var(--bg-sidebar);
+      padding: 8px 11px;
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      transition: border-color 0.12s ease;
+    }
+    .composer__box:focus-within {
+      border-color: var(--border-accent);
+    }
+    .composer__input {
+      width: 100%;
+      min-height: 36px;
+      max-height: 200px;
+      border: none;
+      outline: none;
+      resize: none;
+      background: transparent;
+      color: var(--text-primary);
+      font-family: var(--font-sans);
+      font-size: 13px;
+      line-height: 1.5;
+    }
+    .composer__input::placeholder {
+      color: var(--text-muted);
+    }
+    .composer__foot {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      font-size: 11px;
+      color: var(--text-muted);
+    }
+    .composer__actions {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+    .composer__send {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      height: 24px;
+      padding: 0 10px;
+      border-radius: var(--radius-xs);
+      border: 1px solid #ffffff;
+      background: #ededef;
+      color: #0d0d0d;
+      font-size: 11.5px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: background 0.12s ease;
+    }
+    .composer__send:hover:not(:disabled) {
+      background: #ffffff;
+    }
+    .composer__send:disabled {
+      opacity: 0.4;
+      cursor: not-allowed;
+    }
   </style>
 </head>
 <body>
@@ -1702,6 +2310,12 @@
           <div class="tabs-scroll scroller" id="tabBarList"></div>
 
           <div class="header-actions">
+            <button class="view-mode-toggle" id="btnToggleDocktermChat" title="一键切换 DockTerm 对话格式视图 / 原始 SSH 终端视图 (快捷键 ⌘E)">
+              <svg class="icon icon-sm" viewBox="0 0 24 24"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+              <span id="btnToggleDocktermLabel">DockTerm 对话视图</span>
+              <kbd class="view-mode-kbd">⌘E</kbd>
+            </button>
+
             <div class="engine-switch" id="engineSwitch" title="切换内嵌终端渲染引擎 (共享同一远端持久化会话)">
               <button class="engine-opt" id="btnEngineNative" data-engine="native">
                 <svg class="icon icon-sm" viewBox="0 0 24 24"><rect x="4" y="4" width="16" height="16" rx="2"/><rect x="9" y="9" width="6" height="6"/><path d="M15 2v2"/><path d="M15 20v2"/><path d="M2 15h2"/><path d="M2 9h2"/><path d="M20 15h2"/><path d="M20 9h2"/><path d="M9 2v2"/><path d="M9 20v2"/></svg>
@@ -1716,6 +2330,11 @@
             <button class="btn" id="btnNewQuickSession" title="在当前项目目录新建终端标签页">
               <svg class="icon icon-sm" viewBox="0 0 24 24"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
               <span>终端</span>
+            </button>
+
+            <button class="btn" id="btnOpenRemoteDesktop" title="连接 Instabox 远程 Linux 桌面 (XFCE4 / Chromium / AI Computer-Use 实时画面)">
+              <svg class="icon icon-sm" viewBox="0 0 24 24"><rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>
+              <span>远程桌面</span>
             </button>
 
             <button class="btn btn-icon" id="btnPopSystemTerminal" title="在 macOS 原生 Terminal.app 中弹出当前会话">
@@ -1738,6 +2357,10 @@
             <code class="cmd-pill" id="manualCmdText">claude</code>
           </div>
           <div style="display:flex; align-items:center; gap:5px;">
+            <button class="btn" id="btnCmdBarToggleChat" style="height:20px; font-size:10.5px; padding:0 7px;" title="在原始 SSH 终端与 DockTerm 对话视图之间切换 (⌘E)">
+              <svg class="icon icon-sm" viewBox="0 0 24 24"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+              <span id="cmdBarToggleChatLabel">切换 DockTerm 样式</span>
+            </button>
             <button class="btn" id="btnInjectManualCmd" style="height:20px; font-size:10.5px; padding:0 7px;" title="直接将启动命令注入当前终端并执行">
               <svg class="icon icon-sm" viewBox="0 0 24 24"><polyline points="9 10 4 15 9 20"/><path d="M20 4v7a4 4 0 0 1-4 4H4"/></svg>
               <span>注入终端</span>
@@ -1753,7 +2376,69 @@
           <!-- Drag & Drop Overlay when dragging file from right sidebar -->
           <div class="term-drop-overlay" id="termDropOverlay">
             <svg class="icon icon-lg" viewBox="0 0 24 24"><polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/></svg>
-            <span>释放鼠标：将文件/目录路径直接注入当前终端</span>
+            <span>释放鼠标：将文件/目录路径直接注入当前会话</span>
+          </div>
+
+          <!-- DockTerm Chat Mode View (PaneChat + ConversationList + AskCard + Composer) -->
+          <div class="dockterm-panechat" id="docktermChatStage" style="display: none;">
+            <div class="dockterm-Subbar">
+              <div class="dockterm-subbar-left">
+                <span class="dockterm-status-badge online" id="docktermStatusBadge">
+                  <span class="term-tab-dot" id="docktermStatusDot"></span>
+                  <span id="docktermStatusText">DockTerm 对话模式</span>
+                </span>
+                <span id="docktermSessionMeta" style="font-family:var(--font-mono); color:var(--text-muted); overflow:hidden; text-overflow:ellipsis; white-space:nowrap;"></span>
+              </div>
+              <div style="display:flex; align-items:center; gap:6px; flex-shrink:0;">
+                <button class="btn" id="btnDocktermStartClaude" style="height:21px; font-size:10.5px; padding:0 8px;">
+                  <svg class="icon icon-sm" viewBox="0 0 24 24"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+                  <span id="btnDocktermStartClaudeLabel">启动 / 恢复 Claude</span>
+                </button>
+                <button class="btn" id="btnDocktermRefreshNow" style="height:21px; font-size:10.5px; padding:0 7px;" title="立即刷新远端会话记录与终端状态">
+                  <svg class="icon icon-sm" viewBox="0 0 24 24"><path d="M21 12a9 9 0 0 0-9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/><path d="M3 12a9 9 0 0 0 9 9 9.75 9.75 0 0 0 6.74-2.74L21 16"/><path d="M16 16h5v5"/></svg>
+                </button>
+                <button class="btn" id="btnDocktermBackToTerm" style="height:21px; font-size:10.5px; padding:0 8px;" title="切回原始 SSH 终端视图 (⌘E)">
+                  <svg class="icon icon-sm" viewBox="0 0 24 24"><polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/></svg>
+                  <span>切回 SSH 终端 (⌘E)</span>
+                </button>
+              </div>
+            </div>
+
+            <div class="reading__scroll scroller" id="docktermScroll">
+              <div class="reading__inner" id="docktermInner">
+                <div id="docktermMessages"></div>
+                <div id="docktermLiveMount"></div>
+                <div id="docktermAskMount"></div>
+              </div>
+            </div>
+
+            <button type="button" class="reading__jump" id="docktermJumpBtn" style="display: none;">↓ 跳至最新消息</button>
+
+            <div class="composer">
+              <div class="composer__inner">
+                <div class="composer__menu scroller" id="docktermSlashMenu"></div>
+                <div class="composer__box">
+                  <textarea
+                    id="docktermComposerInput"
+                    class="composer__input"
+                    rows="1"
+                    placeholder="向 Claude 发送消息… (Enter 发送，Shift+Enter 换行，输入 / 唤起命令菜单，支持从右侧直接拖入文件)"
+                  ></textarea>
+                  <div class="composer__foot">
+                    <span><kbd>↵</kbd> 发送 &nbsp;·&nbsp; <kbd>⇧↵</kbd> 换行 &nbsp;·&nbsp; <kbd>/</kbd> 命令 &nbsp;·&nbsp; <kbd>↑↓</kbd> 历史消息 &nbsp;·&nbsp; <kbd>Esc</kbd> 中断 &nbsp;·&nbsp; <kbd>⌘E</kbd> 切换终端</span>
+                    <div class="composer__actions">
+                      <button type="button" class="btn" id="btnDocktermInterrupt" style="height:24px; font-size:11px; padding:0 8px; display:none;">
+                        <span>■ 中断 (Esc)</span>
+                      </button>
+                      <button type="button" class="composer__send" id="btnDocktermSend">
+                        <span>发送</span>
+                        <span>↵</span>
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
           </div>
 
           <div class="empty-term-placeholder" id="emptyTermPlaceholder">
@@ -1765,7 +2450,7 @@
               <p>每个标签页均采用独立 SSH 通道与远端 <code>tmux</code> 会话守护，彻底隔离后台探针，断网自动毫秒级重连。支持右侧目录折叠与文件拖拽注入。</p>
               <button class="btn btn-primary" id="btnStartDefaultSession" style="height:30px; padding:0 14px;">
                 <svg class="icon icon-sm" viewBox="0 0 24 24"><polygon points="5 3 19 12 5 21 5 3"/></svg>
-                <span>打开主工作区终端</span>
+                <span>打开主工作区终端 (/root/work)</span>
               </button>
             </div>
           </div>
@@ -1795,6 +2480,10 @@
               <svg class="icon icon-sm" viewBox="0 0 24 24"><path d="M2 9V5a2 2 0 0 1 2-2h3.9a2 2 0 0 1 1.69.9l.81 1.2a2 2 0 0 0 1.67.9H20a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2v-1"/><path d="M2 13h10"/><path d="m9 16 3-3-3-3"/></svg>
               <span>Finder</span>
             </button>
+            <button class="btn" id="btnDockRemoteDesktop" title="在右侧预览窗格内嵌显示 Instabox 远程桌面 (边敲终端边看桌面)">
+              <svg class="icon icon-sm" viewBox="0 0 24 24"><rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>
+              <span>桌面分屏</span>
+            </button>
             <button class="btn btn-icon" id="btnRefreshFiles" title="刷新目录树">
               <svg class="icon" viewBox="0 0 24 24"><path d="M21 12a9 9 0 0 0-9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/><path d="M3 12a9 9 0 0 0 9 9 9.75 9.75 0 0 0 6.74-2.74L21 16"/><path d="M16 16h5v5"/></svg>
             </button>
@@ -1813,7 +2502,7 @@
             </div>
 
             <div class="file-path-bar" id="rootDropBar" title="可将子目录内的文件拖拽至此栏，移动回当前项目根目录">
-              <span class="file-path-text" id="currentSessionCwdLabel">工作区</span>
+              <span class="file-path-text" id="currentSessionCwdLabel">/Users/will/.takt-ai/work</span>
               <span class="machine-badge" id="rightNodeBadge">KR-1 · work</span>
             </div>
 
@@ -1851,7 +2540,7 @@
     <!-- 4. BOTTOM STATUS BAR -->
     <footer class="status-bar">
       <div class="status-group">
-        <div class="status-pill" id="pillSsh" title="SSH 链路与出网 IP 状态">
+        <div class="status-pill" id="pillSsh" title="SSH 链路与首尔家宽出网 IP 状态">
           <span class="status-dot" id="dotSsh"></span>
           <span id="textSsh">SSH: 检测中</span>
         </div>
@@ -1940,7 +2629,7 @@
         <div style="display:grid; grid-template-columns: 1.3fr 1fr; gap:8px;">
           <div>
             <div style="font-size:10.5px; color:var(--text-muted); margin-bottom:3px;">SSH Host (别名或 root@IP，留空则仅本地目录)</div>
-            <input type="text" class="dialog-input" id="nodeInputSshHost" placeholder="例如: my-server 或 root@1.2.3.4" />
+            <input type="text" class="dialog-input" id="nodeInputSshHost" placeholder="例如: linuxpc 或 root@1.2.3.4" />
             <div class="ssh-chip-bar" id="sshCandidateChips"></div>
           </div>
           <div>
@@ -1960,6 +2649,49 @@
         <button type="submit" class="btn btn-primary" id="btnSaveNodeConfig">保存并接入节点</button>
       </div>
     </form>
+  </dialog>
+
+  <!-- Modal Dialog: Instabox Remote Desktop Plugin (HTML5 noVNC + Native Screen Sharing + AI/Human Control) -->
+  <dialog id="remoteDesktopDialog" class="ag-dialog" closedby="any" aria-labelledby="remoteDesktopDialogTitle" style="width: min(94vw, 1480px); max-width: 94vw;">
+    <div class="dialog-box" style="padding: 10px 12px; gap: 8px; height: min(88vh, 920px); display: flex; flex-direction: column;">
+      <div style="display:flex; align-items:center; justify-content:space-between; gap:8px; flex-wrap:wrap;">
+        <div style="display:flex; align-items:center; gap:8px;">
+          <h3 id="remoteDesktopDialogTitle" style="margin:0; font-size:13px;">
+            <svg class="icon" viewBox="0 0 24 24"><rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>
+            <span>东京 AWS 远程桌面 (tokyo-claude · DISPLAY :1)</span>
+          </h3>
+          <span class="machine-badge" id="rdStatusBadge">连接中...</span>
+          <span class="machine-badge secondary" id="rdControlBadge">AI 托管模式</span>
+        </div>
+
+        <div style="display:flex; align-items:center; gap:6px; flex-wrap:wrap;">
+          <button type="button" class="btn" id="btnRdToggleControl" title="在 AI 自动操作 (open-computer-use) 与人工键鼠接管之间切换">
+            <span>人工接管键鼠</span>
+          </button>
+          <button type="button" class="btn" id="btnRdLaunchBrowser" title="在远端桌面 (:1) 启动 Chromium 浏览器">
+            <span>启动 Chromium</span>
+          </button>
+          <button type="button" class="btn" id="btnRdDockRight" title="将远程桌面固定到主界面右侧预览栏，实现左侧终端 + 右侧桌面同屏">
+            <span>固定到右侧分屏</span>
+          </button>
+          <button type="button" class="btn" id="btnRdNativeVnc" title="唤起 macOS 原生「屏幕共享.app」连接 (vnc://127.0.0.1:15901)">
+            <span>Mac 原生屏幕共享</span>
+          </button>
+          <button type="button" class="btn" id="btnRdPopWindow" title="在独立浏览器窗口打开 noVNC 桌面">
+            <svg class="icon icon-sm" viewBox="0 0 24 24"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
+            <span>独立窗口</span>
+          </button>
+          <button type="button" class="btn btn-icon" id="btnRdReload" title="重连并刷新远程桌面画面">
+            <svg class="icon icon-sm" viewBox="0 0 24 24"><path d="M21 12a9 9 0 0 0-9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/><path d="M3 12a9 9 0 0 0 9 9 9.75 9.75 0 0 0 6.74-2.74L21 16"/><path d="M16 16h5v5"/></svg>
+          </button>
+          <button type="button" class="btn" id="btnRdClose">关闭</button>
+        </div>
+      </div>
+
+      <div style="flex:1; min-height:0; border:1px solid var(--border-subtle); border-radius:6px; overflow:hidden; background:#09090b; position:relative;">
+        <iframe id="rdIframe" src="about:blank" style="width:100%; height:100%; border:0; display:block;" allow="clipboard-read; clipboard-write; fullscreen"></iframe>
+      </div>
+    </div>
   </dialog>
 
   <div class="toast-msg" id="toastMsg"></div>
@@ -2043,12 +2775,12 @@
       let foldersData = [];
       let activeTabId = null;
       let currentFilesCwd = '/root/work';
-      let currentFilesNodeId = 'node-1';
+      let currentFilesNodeId = 'korea-claude';
       let currentFileTree = [];
       let selectedFilePath = '';
       let modalMode = 'project'; // 'project' | 'subfolder' | 'rename-session'
       let renamingSessionId = '';
-      let renamingSessionNodeId = 'node-1';
+      let renamingSessionNodeId = 'korea-claude';
       let isDraggingFile = false;
 
       // Persistent Collapsible States & Startup Non-Empty Project Filter
@@ -2059,19 +2791,19 @@
       const tabs = new Map();
 
       function getFolderKey(folder) {
-        return folder.key || `${folder.nodeId || 'node-1'}::${folder.path}`;
+        return folder.key || `${folder.nodeId || 'korea-claude'}::${folder.path}`;
       }
 
       function getNodeInfo(nodeId) {
         return (
           nodesData.find((n) => n.id === nodeId || n.sshHost === nodeId || n.localWorkAlias === nodeId) ||
           nodesData[0] || {
-            id: 'node-1',
-            name: 'Linux 节点 1',
-            badge: 'LX-1',
-            sshHost: '',
+            id: 'korea-claude',
+            name: '韩国首尔主节点',
+            badge: 'KR-1',
+            sshHost: 'korea-claude',
             remoteWorkDir: '/root/work',
-            localWorkDir: '',
+            localWorkDir: '/Users/will/.takt-ai/work',
             localWorkAlias: 'work',
             enabled: true,
           }
@@ -2110,17 +2842,21 @@
 
       const newProjectDialog = document.getElementById('newProjectDialog');
       const nodeManagerDialog = document.getElementById('nodeManagerDialog');
+      const remoteDesktopDialog = document.getElementById('remoteDesktopDialog');
 
       function syncNativeTerminalGeometry() {
         if (!hasNativeHost) return;
         const stage = document.getElementById('terminalStage');
         const rect = stage.getBoundingClientRect();
+        const activeTab = activeTabId && tabs.has(activeTabId) ? tabs.get(activeTabId) : null;
+        const inDocktermChat = Boolean(activeTab && activeTab.viewMode === 'chat');
         const isVisible = (
           terminalEngine === 'native' &&
-          activeTabId !== null &&
-          tabs.has(activeTabId) &&
+          activeTab !== null &&
+          !inDocktermChat &&
           !newProjectDialog.open &&
           !nodeManagerDialog.open &&
+          !remoteDesktopDialog.open &&
           !isDraggingFile &&
           rect.width > 20 &&
           rect.height > 20
@@ -2163,7 +2899,7 @@
             tabId: t.tabId,
             sessionId: t.sessionId,
             cwd: t.cwd,
-            sshHost: t.sshHost || '',
+            sshHost: t.sshHost || 'korea-claude',
             title: t.title,
             resume: t.resume,
           });
@@ -2205,6 +2941,7 @@
       }
       bindLightDismissDialog(newProjectDialog);
       bindLightDismissDialog(nodeManagerDialog);
+      bindLightDismissDialog(remoteDesktopDialog);
 
       // ============================================================================
       // 5. Resizable & Collapsible Sidebars and Splitters
@@ -2387,7 +3124,7 @@
             if (Array.isArray(data.openTabs)) {
               for (const ot of data.openTabs) {
                 if (ot.cwd) {
-                  visibleProjectKeys.add(`${ot.nodeId || 'node-1'}::${ot.cwd}`);
+                  visibleProjectKeys.add(`${ot.nodeId || 'korea-claude'}::${ot.cwd}`);
                 }
                 if (!tabs.has(ot.tabId)) {
                   openOrSwitchTerminalTab({
@@ -2395,9 +3132,9 @@
                     sessionId: ot.sessionId,
                     title: ot.title,
                     cwd: ot.cwd,
-                    nodeId: ot.nodeId || 'node-1',
-                    nodeBadge: ot.nodeBadge || 'LX-1',
-                    sshHost: ot.sshHost || '',
+                    nodeId: ot.nodeId || 'korea-claude',
+                    nodeBadge: ot.nodeBadge || 'KR-1',
+                    sshHost: ot.sshHost || 'korea-claude',
                     localWorkAlias: ot.localWorkAlias || 'work',
                     resume: true,
                     mode: ot.mode || 'claude',
@@ -2706,7 +3443,7 @@
                 <span class="machine-badge secondary">${escapeHtml(activeNode.badge)} · 待接入 SSH</span>
               </div>
               <div style="font-size:11px; color:var(--text-secondary); line-height:1.45;">
-                本地同步目录 <code>${escapeHtml(activeNode.localWorkDir)}</code> 已就绪。点击下方按钮选择这台 Linux 的 SSH Host，即可自动打通 Mac MCP 逆向隧道与 Syncthing 同步。
+                本地同步目录 <code>${escapeHtml(activeNode.localWorkDir)}</code> 已就绪。点击下方按钮填入第二台 Linux 的 SSH Host 即可自动打通 Mac MCP 逆向隧道与 Syncthing。
               </div>
               <button class="btn btn-primary" id="btnBannerBindSsh" style="align-self:flex-start; margin-top:2px;">配置此节点 SSH 与同步</button>
             `;
@@ -2733,7 +3470,7 @@
           const sessCount = (folder.sessions || []).length;
           totalSessions += sessCount;
           const isCollapsed = collapsedProjects.has(folderKey);
-          const badgeText = `${folder.nodeBadge || 'LX-1'} · ${folder.localWorkAlias || 'work'}`;
+          const badgeText = `${folder.nodeBadge || 'KR-1'} · ${folder.localWorkAlias || 'work'}`;
           const mappingTitle = `${folder.nodeName || folder.nodeId} (${folder.sshHost || '未配SSH'}:${folder.path} <-> Mac ${folder.localPath || folder.localWorkDir})`;
 
           if (selectedNodeFilter === 'all' && folder.nodeId !== lastSectionNodeId) {
@@ -2952,7 +3689,7 @@
         });
       }
 
-      function startNewConversationInProject(projectPath = '/root/work', projectName = 'work', nodeId = 'node-1') {
+      function startNewConversationInProject(projectPath = '/root/work', projectName = 'work', nodeId = 'korea-claude') {
         const node = getNodeInfo(nodeId);
         if (!node.sshHost) {
           openNodeManagerModal(node.id);
@@ -2996,7 +3733,7 @@
         sessionId,
         title,
         cwd,
-        nodeId = 'node-1',
+        nodeId = 'korea-claude',
         nodeBadge = '',
         sshHost = '',
         localWorkAlias = '',
@@ -3010,8 +3747,8 @@
 
         const node = getNodeInfo(nodeId);
         const resolvedNodeId = node.id;
-        const resolvedBadge = nodeBadge || node.badge || 'LX-1';
-        const resolvedSshHost = sshHost || node.sshHost || '';
+        const resolvedBadge = nodeBadge || node.badge || 'KR-1';
+        const resolvedSshHost = sshHost || node.sshHost || 'korea-claude';
         const resolvedAlias = localWorkAlias || node.localWorkAlias || 'work';
 
         const stage = document.getElementById('terminalStage');
@@ -3087,8 +3824,8 @@
           tabId: tabObj.tabId,
           sessionId: tabObj.sessionId,
           cwd: tabObj.cwd,
-          nodeId: tabObj.nodeId || 'node-1',
-          sshHost: tabObj.sshHost || '',
+          nodeId: tabObj.nodeId || 'korea-claude',
+          sshHost: tabObj.sshHost || 'korea-claude',
           title: tabObj.title,
           resume: tabObj.resume ? '1' : '0',
           mode: tabObj.mode,
@@ -3173,7 +3910,7 @@
             const cmdText = document.getElementById('manualCmdText');
             if (cmdBar && cwdText && cmdText) {
               cmdBar.style.display = 'flex';
-              cwdText.textContent = `[${t.nodeBadge || 'LX-1'} · ${t.sshHost || ''}] ${t.cwd}`;
+              cwdText.textContent = `[${t.nodeBadge || 'KR-1'} · ${t.sshHost || 'korea-claude'}] ${t.cwd}`;
               cmdText.textContent = t.resume ? `claude -r ${t.sessionId}` : 'claude';
             }
             if (terminalEngine === 'native' && hasNativeHost) {
@@ -3182,7 +3919,7 @@
                 tabId: t.tabId,
                 sessionId: t.sessionId,
                 cwd: t.cwd,
-                sshHost: t.sshHost || '',
+                sshHost: t.sshHost || 'korea-claude',
                 title: t.title,
                 resume: t.resume,
               });
@@ -3206,6 +3943,9 @@
 
         renderTabBar();
         renderProjectTree();
+        if (typeof syncDocktermViewUI === 'function') {
+          syncDocktermViewUI();
+        }
       }
 
       async function closeTerminalTab(tabId) {
@@ -3234,6 +3974,7 @@
             activeTabId = null;
             document.getElementById('emptyTermPlaceholder').style.display = 'flex';
             document.getElementById('manualCmdBar').style.display = 'none';
+            if (typeof syncDocktermViewUI === 'function') syncDocktermViewUI();
             syncNativeTerminalGeometry();
           }
         }
@@ -3250,11 +3991,16 @@
           const btn = document.createElement('div');
           btn.className = `term-tab${tabId === activeTabId ? ' active' : ''}`;
           const projShort = t.cwd === '/root/work' ? (t.localWorkAlias || 'work') : t.cwd.split('/').pop();
-          const badgePrefix = `${t.nodeBadge || 'LX-1'} · ${projShort}`;
+          const badgePrefix = `${t.nodeBadge || 'KR-1'} · ${projShort}`;
+          const isChat = t.viewMode === 'chat';
+          const modeSvg = isChat
+            ? '<svg class="icon icon-sm" viewBox="0 0 24 24"><polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/></svg>'
+            : '<svg class="icon icon-sm" viewBox="0 0 24 24"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>';
           btn.innerHTML = `
             <span class="term-tab-dot"></span>
             <span class="term-tab-label" title="[${escapeHtml(t.sshHost)}] ${escapeHtml(t.cwd)} / ${escapeHtml(t.title)} (双击可重命名)">[${escapeHtml(badgePrefix)}] ${escapeHtml(t.title)}</span>
-            <button class="term-tab-close" title="关闭此标签页并终止远端 tmux 会话">${SVG_ICONS.close}</button>
+            <button class="term-tab-close term-tab-mode" title="${isChat ? '当前为 DockTerm 对话视图 · 点击切回 SSH 终端' : '点击切换为 DockTerm 对话视图'}" style="color:${isChat ? 'var(--text-primary)' : 'var(--text-muted)'};">${modeSvg}</button>
+            <button class="term-tab-close term-tab-kill" title="关闭此标签页并终止远端 tmux 会话">${SVG_ICONS.close}</button>
           `;
 
           btn.addEventListener('click', () => activateTerminalTab(tabId));
@@ -3262,7 +4008,12 @@
             e.stopPropagation();
             openRenameSessionModal(tabId, t.title, t.nodeId);
           });
-          btn.querySelector('.term-tab-close').addEventListener('click', (e) => {
+          btn.querySelector('.term-tab-mode').addEventListener('click', (e) => {
+            e.stopPropagation();
+            if (activeTabId !== tabId) activateTerminalTab(tabId);
+            toggleDocktermChatMode(tabId);
+          });
+          btn.querySelector('.term-tab-kill').addEventListener('click', (e) => {
             e.stopPropagation();
             closeTerminalTab(tabId);
           });
@@ -3276,7 +4027,7 @@
       // ============================================================================
       function toLocalMacPath(p, nodeId = currentFilesNodeId) {
         const node = getNodeInfo(nodeId);
-        const localRoot = node.localWorkDir || '';
+        const localRoot = node.localWorkDir || '/Users/will/.takt-ai/work';
         const remoteRoot = (node.remoteWorkDir || '/root/work').replace(/\/+$/, '') || '/root/work';
         const clean = String(p || '').trim().replace(/\/+$/, '');
         if (!clean || clean === remoteRoot || clean === localRoot) {
@@ -3293,13 +4044,13 @@
 
       async function loadSessionFiles(cwd = currentFilesCwd, nodeId = currentFilesNodeId) {
         currentFilesCwd = cwd || '/root/work';
-        currentFilesNodeId = nodeId || currentFilesNodeId || 'node-1';
+        currentFilesNodeId = nodeId || currentFilesNodeId || 'korea-claude';
         const activeNode = getNodeInfo(currentFilesNodeId);
         document.getElementById('currentSessionCwdLabel').textContent = toLocalMacPath(currentFilesCwd, currentFilesNodeId);
         const badgeEl = document.getElementById('rightNodeBadge');
         if (badgeEl && activeNode) {
           badgeEl.textContent = `${activeNode.badge} · ${activeNode.localWorkAlias}`;
-          badgeEl.className = (nodesData[0] && activeNode.id === nodesData[0].id) ? 'machine-badge' : 'machine-badge secondary';
+          badgeEl.className = activeNode.id === 'korea-claude' ? 'machine-badge' : 'machine-badge secondary';
         }
         try {
           const res = await fetch(`/api/files?cwd=${encodeURIComponent(currentFilesCwd)}&nodeId=${encodeURIComponent(currentFilesNodeId)}`);
@@ -3600,6 +4351,21 @@
         const pathToInject = taktPath ? shellEscapePath(taktPath) : plain;
         syncNativeTerminalGeometry();
         if (pathToInject) {
+          const activeTab = activeTabId && tabs.has(activeTabId) ? tabs.get(activeTabId) : null;
+          if (activeTab && activeTab.viewMode === 'chat') {
+            const ta = document.getElementById('docktermComposerInput');
+            if (ta) {
+              const start = ta.selectionStart || ta.value.length;
+              const end = ta.selectionEnd || ta.value.length;
+              const prefix = start > 0 && !/\s$/.test(ta.value.slice(0, start)) ? ' ' : '';
+              const insert = `${prefix}@${pathToInject} `;
+              ta.value = ta.value.slice(0, start) + insert + ta.value.slice(end);
+              ta.focus();
+              ta.dispatchEvent(new Event('input'));
+              showToast(`已将文件引用注入 DockTerm 输入框: @${pathToInject}`);
+              return;
+            }
+          }
           sendTextToActiveTerminal(`${pathToInject} `);
           showToast(`已将路径注入终端: ${pathToInject}`);
         }
@@ -3704,7 +4470,7 @@
         }
       }
 
-      const FILE_PATH_REGEX = /(?:\/root\/work\/[^\s"'<>()`]+|\/(?:Users|home)\/[^\/\s"'<>()`]+\/[^\s"'<>()`]+|(?:\.\/|\.\.\/)?[a-zA-Z0-9_\-\u4e00-\u9fa5/]+\.(?:png|jpg|jpeg|gif|webp|svg|md|py|js|mjs|ts|tsx|json|html|htm|css|sh|c|cpp|h|swift|rs|go|yaml|yml|toml|txt|log)(?::\d+(?::\d+)?)?)/g;
+      const FILE_PATH_REGEX = /(?:\/root\/work\/[^\s"'<>()`]+|\/Users\/will\/[^\s"'<>()`]+|(?:\.\/|\.\.\/)?[a-zA-Z0-9_\-\u4e00-\u9fa5/]+\.(?:png|jpg|jpeg|gif|webp|svg|md|py|js|mjs|ts|tsx|json|html|htm|css|sh|c|cpp|h|swift|rs|go|yaml|yml|toml|txt|log)(?::\d+(?::\d+)?)?)/g;
 
       function registerFilePathLinkProvider(term, sessionCwd) {
         if (typeof term.registerLinkProvider !== 'function') return;
@@ -3926,12 +4692,9 @@
           const st = await res.json();
           if (!st || !st.ok) throw new Error('Invalid status payload');
 
-          const boundNodeCount = nodesData.filter((n) => n.enabled !== false && n.sshHost).length;
-          dotSsh.className = `status-dot ${boundNodeCount === 0 ? 'warn' : st.ssh.online ? 'ok' : 'err'}`;
-          textSsh.textContent = boundNodeCount === 0
-            ? '未绑定 SSH 节点 · 点左上角「节点」添加'
-            : st.ssh.online
-            ? `SSH (${st.ssh.host || '在线'}) ${st.ssh.pingMs || '--'}ms ${st.ssh.egressIp ? ' · 出网 ' + st.ssh.egressIp : ''}`
+          dotSsh.className = `status-dot ${st.ssh.online ? 'ok' : 'err'}`;
+          textSsh.textContent = st.ssh.online
+            ? `SSH (${st.ssh.host || '在线'}) ${st.ssh.pingMs || '--'}ms · 出网 ${st.ssh.egressIp}`
             : 'SSH 断开 (重连中)';
 
           dotTs.className = `status-dot ${st.tailscale.ok ? 'ok' : 'warn'}`;
@@ -3940,13 +4703,12 @@
             ? `Tailscale${tsIp ? ' ' + tsIp : ' 在线'}`
             : 'Tailscale 待机';
 
-          dotMcp.className = `status-dot ${st.mcp.ok ? 'ok' : boundNodeCount === 0 && st.mcp.localHttpOk ? 'warn' : 'err'}`;
-          textMcp.textContent = boundNodeCount === 0 && st.mcp.localHttpOk
-            ? `MCP 本地服务就绪 (${st.mcp.tools} tools) · 等待节点`
-            : st.mcp.ok
+          const failedMcpHosts = Array.isArray(st.mcp.failedHosts) ? st.mcp.failedHosts : [];
+          dotMcp.className = `status-dot ${st.mcp.ok ? 'ok' : 'err'}`;
+          textMcp.textContent = st.mcp.ok
             ? `MCP 隧道 (${st.mcp.tools} tools)`
             : st.mcp.localHttpOk
-              ? 'MCP 隧道断开 (自愈重连中...)'
+              ? (failedMcpHosts.length ? `MCP 异常 (${failedMcpHosts.join('+')} 断开)` : 'MCP 隧道断开 (自愈重连中...)')
               : 'MCP 本地服务离线 (正在拉起...)';
 
           const needFiles = Number(st.syncthing.needFiles || 0);
@@ -3960,7 +4722,7 @@
               : 'Syncthing 连接中';
 
           // Automatically trigger self-heal if MCP tunnel or SSH is down
-          if (boundNodeCount > 0 && (!st.mcp.ok || !st.ssh.online) && Date.now() - lastAutoHealAt > 8000) {
+          if ((!st.mcp.ok || !st.ssh.online) && Date.now() - lastAutoHealAt > 8000) {
             lastAutoHealAt = Date.now();
             fetch('/api/heal', { method: 'POST' }).catch(() => {});
           }
@@ -4342,17 +5104,921 @@
       });
 
       document.getElementById('btnHealLinks').addEventListener('click', async () => {
+        const btn = document.getElementById('btnHealLinks');
         const txt = document.getElementById('healBtnText');
-        txt.textContent = '自愈中...';
-        await fetch('/api/heal', { method: 'POST' }).catch(() => {});
-        await pollStatusBar();
-        txt.textContent = '隧道自愈';
-        showToast('全节点 MCP 隧道自愈完成 (不影响任何活动 SSH 终端)');
+        if (btn.disabled) return;
+        btn.disabled = true;
+        txt.textContent = '自愈重连中...';
+        if (window.webkit?.messageHandlers?.taktNative) {
+          try {
+            window.webkit.messageHandlers.taktNative.postMessage({ action: 'ensureServices' });
+          } catch {}
+        }
+        try {
+          const res = await fetch('/api/heal', { method: 'POST', signal: AbortSignal.timeout(20000) });
+          const st = res.ok ? await res.json() : null;
+          await pollStatusBar();
+          if (st && st.mcp && st.mcp.ok) {
+            const hosts = (st.mcp.healthyHosts && st.mcp.healthyHosts.length)
+              ? st.mcp.healthyHosts.join(', ')
+              : (st.ssh?.host || '全节点');
+            showToast(`✅ 隧道自愈成功：${hosts} (MCP ${st.mcp.tools || 23} tools 握手通过)`);
+          } else {
+            const failed = (st?.mcp?.failedHosts && st.mcp.failedHosts.length)
+              ? st.mcp.failedHosts.join(', ')
+              : '远端节点';
+            showToast(`⚠️ 隧道自愈未完全恢复 (${failed} MCP 仍未连通)，后台将继续重试`);
+          }
+        } catch (err) {
+          await pollStatusBar();
+          showToast(`⚠️ 自愈请求超时或本地服务正在重启: ${err.message || '请稍候再试'}`);
+        } finally {
+          txt.textContent = '隧道自愈';
+          btn.disabled = false;
+        }
       });
+
+      // ============================================================================
+      // 11. Instabox Remote Desktop Plugin (noVNC / Xvnc :1 / Takeover & Dock — Tokyo Node)
+      // ============================================================================
+      let rdCurrentUrl = 'http://127.0.0.1:16080/vnc.html?autoconnect=true&resize=scale&reconnect=true&reconnect_delay=1000';
+      let rdCurrentVncUrl = 'vnc://:instabox@127.0.0.1:15901';
+      let rdControlMode = 'agent';
+
+      async function callRemoteDesktopApi(action, nodeId = 'linux-work4') {
+        try {
+          const res = await fetch('http://127.0.0.1:18765/remote-desktop', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ action, nodeId }),
+          });
+          return await res.json();
+        } catch (err) {
+          try {
+            const res2 = await fetch('/api/remote-desktop', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ action, nodeId }),
+            });
+            return await res2.json();
+          } catch (err2) {
+            return { ok: false, error: err2.message || err.message };
+          }
+        }
+      }
+
+      function updateRdControlBadge(mode) {
+        rdControlMode = (mode === 'human' || mode === 'user') ? 'user' : 'agent';
+        const badge = document.getElementById('rdControlBadge') || document.getElementById('rdControlModeBadge');
+        const btn = document.getElementById('btnRdToggleControl');
+        if (!badge || !btn) return;
+        if (rdControlMode === 'user') {
+          badge.textContent = '控制权: 人工接管 (User Control)';
+          badge.style.color = '#f4f4f5';
+          badge.style.background = 'rgba(255,255,255,0.08)';
+          badge.style.borderColor = 'rgba(255,255,255,0.22)';
+          btn.textContent = '交还给 Agent (Handback)';
+        } else {
+          badge.textContent = '控制权: Agent (Claude)';
+          badge.style.color = '#a1a1aa';
+          badge.style.background = 'rgba(255,255,255,0.04)';
+          badge.style.borderColor = 'rgba(255,255,255,0.12)';
+          btn.textContent = '接管鼠标键盘 (Takeover)';
+        }
+      }
+
+      async function ensureInstaboxDesktopReady() {
+        const statusBadge = document.getElementById('rdStatusBadge');
+        if (statusBadge) statusBadge.textContent = '连接 SSH 隧道中...';
+        const data = await callRemoteDesktopApi('start', 'linux-work4');
+        if (data && data.ok) {
+          if (data.webUrl || data.url) rdCurrentUrl = data.webUrl || data.url;
+          if (data.vncUrl) rdCurrentVncUrl = data.vncUrl;
+          updateRdControlBadge(data.controller || data.controlMode || 'agent');
+          if (statusBadge) {
+            statusBadge.textContent = `ONLINE · ${data.sshHost || 'tokyo-claude'} (127.0.0.1:${data.webPort || 16080})`;
+            statusBadge.style.color = '#f4f4f5';
+          }
+          return true;
+        } else {
+          if (statusBadge) {
+            statusBadge.textContent = '连接异常 (尝试直连 16080)';
+            statusBadge.style.color = '#a1a1aa';
+          }
+          return false;
+        }
+      }
+
+      async function openRemoteDesktopModal() {
+        remoteDesktopDialog.showModal();
+        syncNativeTerminalGeometry();
+        await ensureInstaboxDesktopReady();
+        const iframe = document.getElementById('rdIframe') || document.getElementById('remoteDesktopIframe');
+        if (iframe && (!iframe.src || iframe.src === 'about:blank' || iframe.src.endsWith('about:blank') || iframe.src.includes(':18765/novnc/'))) {
+          iframe.src = rdCurrentUrl;
+        }
+      }
+
+      async function dockRemoteDesktopToPreview() {
+        if (remoteDesktopDialog.open) {
+          remoteDesktopDialog.close();
+        }
+        syncNativeTerminalGeometry();
+        if (panelRight.classList.contains('collapsed')) {
+          panelRight.classList.remove('collapsed');
+          document.getElementById('btnToggleRight').classList.add('active');
+        }
+        if (previewPane && previewPane.classList.contains('collapsed')) {
+          previewPane.classList.remove('collapsed');
+        }
+        syncNativeTerminalGeometry();
+        showToast('正在将东京节点远程桌面嵌入右侧预览栏...');
+        await ensureInstaboxDesktopReady();
+        document.getElementById('previewFileName').textContent = '东京 AWS 远程桌面 (Xvnc :1 · 实时分屏)';
+        document.getElementById('previewFileMeta').textContent = '127.0.0.1:16080 · VNC :1';
+        const body = document.getElementById('previewBody');
+        body.innerHTML = `
+          <div style="position:absolute; inset:0; display:flex; flex-direction:column; width:100%; height:100%; background:#050608;">
+            <div style="display:flex; align-items:center; justify-content:space-between; padding:6px 10px; background:#0d1017; border-bottom:1px solid var(--border); gap:6px; flex-wrap:wrap;">
+              <div style="display:flex; align-items:center; gap:6px;">
+                <button class="btn" id="btnDockRdTakeover" style="height:22px; font-size:11px; padding:0 8px;">${rdControlMode === 'user' ? '交还 Agent' : '接管鼠键'}</button>
+                <button class="btn" id="btnDockRdBrowser" style="height:22px; font-size:11px; padding:0 8px;">启动 Chrome</button>
+              </div>
+              <div style="display:flex; align-items:center; gap:6px;">
+                <button class="btn" id="btnDockRdFullscreen" style="height:22px; font-size:11px; padding:0 8px;">弹窗全屏</button>
+                <button class="btn" id="btnDockRdNativeVnc" style="height:22px; font-size:11px; padding:0 8px;">macOS 屏幕共享</button>
+              </div>
+            </div>
+            <iframe src="${rdCurrentUrl}" style="flex:1; width:100%; height:100%; border:none; background:#050608;" allow="clipboard-read; clipboard-write; fullscreen"></iframe>
+          </div>
+        `;
+        const btnTakeover = document.getElementById('btnDockRdTakeover');
+        if (btnTakeover) {
+          btnTakeover.addEventListener('click', async () => {
+            const nextAction = rdControlMode === 'user' ? 'handback' : 'takeover';
+            const res = await callRemoteDesktopApi(nextAction, 'linux-work4');
+            if (res && res.ok) {
+              updateRdControlBadge(res.controller || res.controlMode);
+              btnTakeover.textContent = rdControlMode === 'user' ? '交还 Agent' : '接管鼠键';
+              showToast(rdControlMode === 'user' ? '已切换为人工接管模式' : '已将桌面控制权交还给 Claude Agent');
+            }
+          });
+        }
+        const btnBrowser = document.getElementById('btnDockRdBrowser');
+        if (btnBrowser) {
+          btnBrowser.addEventListener('click', async () => {
+            await callRemoteDesktopApi('open-browser', 'linux-work4');
+            showToast('已在东京远程桌面启动 Chrome 浏览器');
+          });
+        }
+        const btnFs = document.getElementById('btnDockRdFullscreen');
+        if (btnFs) {
+          btnFs.addEventListener('click', () => openRemoteDesktopModal());
+        }
+        const btnVnc = document.getElementById('btnDockRdNativeVnc');
+        if (btnVnc) {
+          btnVnc.addEventListener('click', async () => {
+            await callRemoteDesktopApi('open-native-vnc', 'linux-work4');
+            showToast(`已唤起 macOS 原生屏幕共享 (${rdCurrentVncUrl})`);
+          });
+        }
+      }
+
+      document.getElementById('btnOpenRemoteDesktop').addEventListener('click', () => {
+        openRemoteDesktopModal();
+      });
+
+      document.getElementById('btnDockRemoteDesktop').addEventListener('click', () => {
+        dockRemoteDesktopToPreview();
+      });
+
+      document.getElementById('btnRdToggleControl').addEventListener('click', async () => {
+        const nextAction = rdControlMode === 'user' ? 'handback' : 'takeover';
+        const res = await callRemoteDesktopApi(nextAction, 'linux-work4');
+        if (res && res.ok) {
+          updateRdControlBadge(res.controller || res.controlMode);
+          showToast(rdControlMode === 'user'
+            ? '已切换为【人工接管】模式：您可直接在桌面中登录账号或完成验证码'
+            : '已切换为【Agent 控制】模式：Claude 可继续自动化操作');
+        }
+      });
+
+      document.getElementById('btnRdLaunchBrowser').addEventListener('click', async () => {
+        const res = await callRemoteDesktopApi('open-browser', 'linux-work4');
+        if (res && res.ok) {
+          showToast('已在东京桌面 (:1) 启动 Chrome 浏览器');
+        }
+      });
+
+      document.getElementById('btnRdDockRight').addEventListener('click', () => {
+        dockRemoteDesktopToPreview();
+      });
+
+      document.getElementById('btnRdNativeVnc').addEventListener('click', async () => {
+        await callRemoteDesktopApi('open-native-vnc', 'linux-work4');
+        showToast(`已唤起 macOS 原生屏幕共享 (${rdCurrentVncUrl})`);
+      });
+
+      document.getElementById('btnRdPopWindow').addEventListener('click', () => {
+        window.open(rdCurrentUrl, '_blank', 'noopener,noreferrer');
+      });
+
+      document.getElementById('btnRdReload').addEventListener('click', async () => {
+        await ensureInstaboxDesktopReady();
+        const iframe = document.getElementById('rdIframe') || document.getElementById('remoteDesktopIframe');
+        if (iframe) {
+          iframe.src = `${rdCurrentUrl}&_t=${Date.now()}`;
+        }
+        showToast('已重连 Instabox 远程桌面隧道');
+      });
+
+      document.getElementById('btnRdClose').addEventListener('click', () => {
+        remoteDesktopDialog.close();
+      });
+
+      // ============================================================================
+      // 11. DockTerm Chat Mode Controller (PaneChat + ConversationList + AskCard + Composer)
+      // ============================================================================
+      const DOCKTERM_SLASH_COMMANDS = [
+        { name: '/clear', desc: '清空当前 Claude 对话上下文' },
+        { name: '/compact', desc: '压缩当前对话上下文以节省 Token' },
+        { name: '/resume', desc: '选择并恢复历史 Claude 会话 (自动切回终端选择器)' },
+        { name: '/model', desc: '切换 Claude 模型 (自动切回终端选择器)' },
+        { name: '/status', desc: '查看当前 Claude 会话与账户状态' },
+        { name: '/diff', desc: '查看当前工作区未提交的 Git 变更' },
+        { name: '/cost', desc: '查看当前会话 Token 消耗与费用统计' },
+        { name: '/doctor', desc: '诊断 Claude Code 环境与连接健康度' },
+        { name: '/init', desc: '为当前项目生成或更新 CLAUDE.md' },
+        { name: '/memory', desc: '编辑 CLAUDE.md 长期记忆指令' },
+        { name: '/review', desc: '对当前代码变更执行代码审查' },
+        { name: '/permissions', desc: '查看或修改工具执行权限规则' },
+        { name: '/help', desc: '显示 Claude Code 内置命令帮助' },
+      ];
+      const DOCKTERM_PICKER_SLASH_RE = /^\/(resume|model|permissions|theme|config|mcp|agents|hooks|vim|login|logout)\b/i;
+
+      const docktermChatStage = document.getElementById('docktermChatStage');
+      const docktermScroll = document.getElementById('docktermScroll');
+      const docktermMessagesEl = document.getElementById('docktermMessages');
+      const docktermLiveMount = document.getElementById('docktermLiveMount');
+      const docktermAskMount = document.getElementById('docktermAskMount');
+      const docktermJumpBtn = document.getElementById('docktermJumpBtn');
+      const docktermComposerInput = document.getElementById('docktermComposerInput');
+      const docktermSlashMenu = document.getElementById('docktermSlashMenu');
+      const btnToggleDocktermChat = document.getElementById('btnToggleDocktermChat');
+      const btnToggleDocktermLabel = document.getElementById('btnToggleDocktermLabel');
+      const btnCmdBarToggleChat = document.getElementById('btnCmdBarToggleChat');
+      const cmdBarToggleChatLabel = document.getElementById('cmdBarToggleChatLabel');
+
+      let docktermPinnedBottom = true;
+      let docktermPollInFlight = false;
+      let docktermLastRenderSig = '';
+      let docktermSlashIndex = 0;
+      let docktermSlashItems = [];
+      const docktermDrafts = new Map();
+      const docktermPromptHistory = new Map();
+      const docktermHistoryCursor = new Map();
+
+      function docktermMoveKeys(delta) {
+        if (delta === 0) return '';
+        return (delta > 0 ? '\x1b[B' : '\x1b[A').repeat(Math.abs(delta));
+      }
+
+      function docktermPickKeys(ask, i) {
+        if (!ask || ask.numbered !== false) return String(i + 1);
+        return `${docktermMoveKeys(i - (ask.cursorRow || 0))}\r`;
+      }
+
+      function docktermSubmitKeys(ask, desiredChecked) {
+        if (!ask) return '\r';
+        let pos = ask.cursorRow || 0;
+        let out = '';
+        for (let i = 0; i < ask.options.length; i++) {
+          if (!ask.checkable[i]) continue;
+          if (Boolean(desiredChecked[i]) !== Boolean(ask.checked[i])) {
+            out += `${docktermMoveKeys(i - pos)} `;
+            pos = i;
+          }
+        }
+        if (ask.submitIndex !== null && ask.submitIndex !== undefined) {
+          out += `${docktermMoveKeys(ask.submitIndex - pos)}\r`;
+        } else {
+          out += '\r';
+        }
+        return out;
+      }
+
+      function docktermTextKeys(ask, i, text) {
+        const clean = String(text || '').replace(/[\r\n]+/g, ' ').trim();
+        if (!clean) return '';
+        if (!ask || ask.numbered !== false) return `${i + 1}${clean}\r`;
+        return `${docktermMoveKeys(i - (ask.cursorRow || 0))}${clean}\r`;
+      }
+
+      async function sendDocktermRawInput(tabObj, rawText, submitEnter = false) {
+        if (!tabObj) return;
+        const hasNewline = rawText.includes('\n');
+        const payload = hasNewline ? `\x1b[200~${rawText}\x1b[201~` : rawText;
+
+        if (terminalEngine === 'native' && hasNativeHost) {
+          if (payload) postNativeMessage({ action: 'sendInput', tabId: tabObj.tabId, text: payload });
+          if (submitEnter) {
+            setTimeout(() => {
+              postNativeMessage({ action: 'sendInput', tabId: tabObj.tabId, text: '\r' });
+            }, 75);
+          }
+          return;
+        }
+
+        if (tabObj.ws && tabObj.ws.readyState === WebSocket.OPEN) {
+          if (payload) tabObj.ws.send(JSON.stringify({ type: 'input', data: payload }));
+          if (submitEnter) {
+            setTimeout(() => {
+              if (tabObj.ws && tabObj.ws.readyState === WebSocket.OPEN) {
+                tabObj.ws.send(JSON.stringify({ type: 'input', data: '\r' }));
+              }
+            }, 75);
+          }
+          return;
+        }
+
+        await fetch('/api/chat-input', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            tabId: tabObj.tabId,
+            nodeId: tabObj.nodeId,
+            sshHost: tabObj.sshHost,
+            text: payload,
+            submitEnter,
+          }),
+        }).catch(() => {});
+      }
+
+      function renderDocktermInlineMd(escapedText) {
+        // 1. Inline code `...`
+        let out = escapedText.replace(/`([^`\n]+)`/g, (_, code) => {
+          const rawCode = code.replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>');
+          if (/^(?:\/[\w.-]+)+\.[a-zA-Z0-9]{1,8}(?::\d+)?$/.test(rawCode) || /^[\w./-]+\.(?:py|js|ts|tsx|jsx|md|json|yaml|yml|sh|html|css|swift|rs|go|c|cpp|h)$/.test(rawCode)) {
+            const cleanPath = rawCode.replace(/:\d+$/, '');
+            return `<a href="#" class="md-file-link" data-file-path="${escapeHtml(cleanPath)}" title="点击在右侧预览栏打开 ${escapeHtml(cleanPath)}">${code}</a>`;
+          }
+          return `<code class="md-inline-code">${code}</code>`;
+        });
+        // 2. Bold **...**
+        out = out.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
+        // 3. Italic *...*
+        out = out.replace(/(^|[\s(])\*([^*\n]+)\*(?=[\s.,!?:;)]|$)/g, '$1<em>$2</em>');
+        return out;
+      }
+
+      function renderDocktermMarkdown(mdText) {
+        const src = String(mdText || '').replace(/\r\n/g, '\n');
+        const codeBlocks = [];
+        const withPlaceholders = src.replace(/```([a-zA-Z0-9_-]*)\n([\s\S]*?)```/g, (_, lang, code) => {
+          const idx = codeBlocks.length;
+          codeBlocks.push({ lang: lang || '', code: code.replace(/\n$/, '') });
+          return `\x00CODEBLOCK_${idx}\x00`;
+        });
+
+        const blocks = withPlaceholders.split(/\n{2,}/);
+        const htmlParts = [];
+
+        for (const blk of blocks) {
+          const trimmed = blk.trim();
+          if (!trimmed) continue;
+          const cbMatch = trimmed.match(/^\x00CODEBLOCK_(\d+)\x00$/);
+          if (cbMatch) {
+            const cb = codeBlocks[Number(cbMatch[1])];
+            htmlParts.push(`<pre class="md-code-block"><code>${escapeHtml(cb.code)}</code></pre>`);
+            continue;
+          }
+
+          const lines = trimmed.split('\n');
+          // Heading check
+          if (lines.length === 1 && /^#{1,4}\s+/.test(lines[0])) {
+            const lvl = (lines[0].match(/^#+/) || ['#'])[0].length;
+            const text = renderDocktermInlineMd(escapeHtml(lines[0].replace(/^#{1,4}\s+/, '')));
+            htmlParts.push(`<h${lvl}>${text}</h${lvl}>`);
+            continue;
+          }
+
+          // Table check
+          if (lines.length >= 2 && lines[0].includes('|') && /^\s*\|?[\s:-]+\|[\s|:-]*$/.test(lines[1])) {
+            const parseCells = (row) => row.trim().replace(/^\||\|$/g, '').split('|').map((c) => renderDocktermInlineMd(escapeHtml(c.trim())));
+            const headers = parseCells(lines[0]);
+            const bodyRows = lines.slice(2).filter((r) => r.includes('|')).map(parseCells);
+            htmlParts.push(
+              `<table><thead><tr>${headers.map((h) => `<th>${h}</th>`).join('')}</tr></thead>` +
+              `<tbody>${bodyRows.map((r) => `<tr>${r.map((c) => `<td>${c}</td>`).join('')}</tr>`).join('')}</tbody></table>`
+            );
+            continue;
+          }
+
+          // Unordered list check
+          if (lines.every((l) => /^\s*[-*•]\s+/.test(l))) {
+            const items = lines.map((l) => `<li>${renderDocktermInlineMd(escapeHtml(l.replace(/^\s*[-*•]\s+/, '')))}</li>`).join('');
+            htmlParts.push(`<ul>${items}</ul>`);
+            continue;
+          }
+
+          // Ordered list check
+          if (lines.every((l) => /^\s*\d+\.\s+/.test(l))) {
+            const items = lines.map((l) => `<li>${renderDocktermInlineMd(escapeHtml(l.replace(/^\s*\d+\.\s+/, '')))}</li>`).join('');
+            htmlParts.push(`<ol>${items}</ol>`);
+            continue;
+          }
+
+          // Mixed paragraph (restore any inline code block placeholders)
+          const paraHtml = lines
+            .map((line) => {
+              const inlineCb = line.trim().match(/^\x00CODEBLOCK_(\d+)\x00$/);
+              if (inlineCb) {
+                const cb = codeBlocks[Number(inlineCb[1])];
+                return `<pre class="md-code-block"><code>${escapeHtml(cb.code)}</code></pre>`;
+              }
+              return renderDocktermInlineMd(escapeHtml(line));
+            })
+            .join('<br>');
+          htmlParts.push(`<p>${paraHtml}</p>`);
+        }
+
+        return `<div class="reading__md">${htmlParts.join('')}</div>`;
+      }
+
+      function scrollToDocktermBottom() {
+        docktermScroll.scrollTop = docktermScroll.scrollHeight;
+        docktermPinnedBottom = true;
+        docktermJumpBtn.style.display = 'none';
+      }
+
+      docktermScroll.addEventListener('scroll', () => {
+        const gap = docktermScroll.scrollHeight - docktermScroll.scrollTop - docktermScroll.clientHeight;
+        docktermPinnedBottom = gap < 48;
+        docktermJumpBtn.style.display = docktermPinnedBottom ? 'none' : 'block';
+      }, { passive: true });
+
+      docktermJumpBtn.addEventListener('click', scrollToDocktermBottom);
+
+      // Clickable file links inside DockTerm Markdown -> open in Right Preview Pane
+      docktermMessagesEl.addEventListener('click', (e) => {
+        const link = e.target.closest('.md-file-link');
+        if (!link) return;
+        e.preventDefault();
+        const fp = link.getAttribute('data-file-path');
+        if (fp) {
+          previewFileInRightPane(fp, currentFilesCwd, false);
+        }
+      });
+
+      function renderDocktermConversationView(tabObj, data) {
+        const status = data.status || 'idle';
+        const claudeRunning = Boolean(data.claudeRunning);
+        const messages = Array.isArray(data.messages) ? data.messages : [];
+        const ask = data.ask || null;
+        const tail = data.tail || '';
+
+        // Update Top Subbar Status Badge & Meta
+        const badgeEl = document.getElementById('docktermStatusBadge');
+        const statusTextEl = document.getElementById('docktermStatusText');
+        const metaEl = document.getElementById('docktermSessionMeta');
+        const startBtn = document.getElementById('btnDocktermStartClaude');
+        const startBtnLabel = document.getElementById('btnDocktermStartClaudeLabel');
+        const interruptBtn = document.getElementById('btnDocktermInterrupt');
+
+        if (status === 'working') {
+          badgeEl.className = 'dockterm-status-badge working';
+          statusTextEl.textContent = 'Claude 思考执行中…';
+          interruptBtn.style.display = 'inline-flex';
+        } else if (status === 'asking') {
+          badgeEl.className = 'dockterm-status-badge asking';
+          statusTextEl.textContent = '等待权限确认';
+          interruptBtn.style.display = 'inline-flex';
+        } else if (claudeRunning || messages.length > 0) {
+          badgeEl.className = 'dockterm-status-badge online';
+          statusTextEl.textContent = claudeRunning ? 'Claude 就绪' : '历史会话记录';
+          interruptBtn.style.display = 'none';
+        } else {
+          badgeEl.className = 'dockterm-status-badge';
+          statusTextEl.textContent = 'Shell 待命';
+          interruptBtn.style.display = 'none';
+        }
+
+        metaEl.textContent = `[${tabObj.nodeBadge || 'KR-1'} · ${tabObj.sshHost}] ${tabObj.cwd}${data.resolvedSessionId ? ` · #${String(data.resolvedSessionId).slice(0, 8)}` : ''}`;
+        startBtnLabel.textContent = messages.length > 0 ? '恢复 Claude (-r)' : '启动 Claude';
+        startBtn.style.display = claudeRunning ? 'none' : 'inline-flex';
+
+        // Check signature so we don't thrash DOM if nothing changed
+        const sig = JSON.stringify({
+          tabId: tabObj.tabId,
+          len: messages.length,
+          lastId: messages.length ? messages[messages.length - 1].id : '',
+          lastTextLen: messages.length && messages[messages.length - 1].text ? messages[messages.length - 1].text.length : 0,
+          lastToolOk: messages.length && messages[messages.length - 1].tool ? messages[messages.length - 1].tool.ok : null,
+          status,
+          claudeRunning,
+          askTitle: ask ? ask.title : '',
+          askCursor: ask ? ask.cursorRow : -1,
+          tail,
+        });
+        if (sig === docktermLastRenderSig) return;
+        docktermLastRenderSig = sig;
+
+        // 1. Render Messages List
+        if (messages.length === 0) {
+          docktermMessagesEl.innerHTML = `
+            <div class="reading__empty">
+              <div style="font-weight:600; color:var(--text-primary); font-size:13.5px;">
+                ${claudeRunning ? 'Claude 已在此 SSH 会话中就绪' : '当前 SSH 会话尚未启动 Claude 对话'}
+              </div>
+              <div>
+                ${claudeRunning
+                  ? '在下方输入框直接发送消息，DockTerm 视图会将远端 `.jsonl` 对话实时渲染为气泡、Markdown 与精简工具行。'
+                  : '点击下方按钮在远端 tmux 会话中启动 Claude Code，或按 ⌘R 切回原始 SSH 终端。'}
+              </div>
+              ${!claudeRunning ? `<button type="button" class="reading__empty-cta" id="btnEmptyLaunchClaude">立即在此会话启动 Claude Code</button>` : ''}
+              ${tail ? `<pre class="reading__live-tail" style="width:100%; text-align:left; margin-top:6px;">${escapeHtml(tail)}</pre>` : ''}
+            </div>
+          `;
+          const emptyBtn = document.getElementById('btnEmptyLaunchClaude');
+          if (emptyBtn) {
+            emptyBtn.addEventListener('click', () => launchClaudeInActiveTab());
+          }
+        } else {
+          const msgHtml = [];
+          for (const m of messages) {
+            if (m.role === 'user') {
+              msgHtml.push(`<div class="reading__user"><div class="reading__user-bubble">${escapeHtml(m.text || '')}</div></div>`);
+            } else if (m.role === 'assistant') {
+              msgHtml.push(`<div class="reading__assistant">${renderDocktermMarkdown(m.text || '')}</div>`);
+            } else if (m.role === 'tool' && m.tool) {
+              const stClass = m.tool.ok === false ? ' reading__tool--err' : m.tool.ok === true ? ' reading__tool--ok' : '';
+              const icon = m.tool.ok === false ? '✕' : m.tool.ok === true ? '✓' : '●';
+              msgHtml.push(`
+                <div class="reading__tool${stClass}">
+                  <span class="reading__tool-icon">${icon}</span>
+                  <span class="reading__tool-name">${escapeHtml(m.tool.name)}</span>
+                  ${m.tool.summary ? `<span class="reading__tool-summary">${escapeHtml(m.tool.summary)}</span>` : ''}
+                </div>
+              `);
+            }
+          }
+          docktermMessagesEl.innerHTML = msgHtml.join('');
+        }
+
+        // 2. Render Live Working Indicator + Terminal Tail
+        if (status === 'working') {
+          docktermLiveMount.innerHTML = `
+            <div class="reading__live">
+              <div class="reading__live-head">
+                <span class="reading__live-dot"></span>
+                <span>Claude is working…</span>
+                <button type="button" class="reading__live-stop" id="btnLiveInterrupt">中断 (Esc)</button>
+              </div>
+              ${tail ? `<pre class="reading__live-tail">${escapeHtml(tail)}</pre>` : ''}
+            </div>
+          `;
+          const btnStop = document.getElementById('btnLiveInterrupt');
+          if (btnStop) {
+            btnStop.addEventListener('click', () => {
+              sendDocktermRawInput(tabObj, '\x1b', false);
+              showToast('已发送 Esc 中断信号');
+            });
+          }
+        } else {
+          docktermLiveMount.innerHTML = '';
+        }
+
+        // 3. Render Interactive Permission Prompt Card (AskCard)
+        if (status === 'asking' && ask) {
+          const optsHtml = ask.options.map((opt, idx) => {
+            const desc = ask.descriptions && ask.descriptions[idx] ? `<span class="askcard__desc">${escapeHtml(ask.descriptions[idx])}</span>` : '';
+            const isAllow = idx === 0 && ask.binary;
+            const isDeny = idx === ask.options.length - 1 && ask.binary;
+            const modClass = isAllow ? ' askcard__btn--allow' : isDeny ? ' askcard__btn--deny' : '';
+            return `
+              <button type="button" class="askcard__btn${modClass}" data-ask-idx="${idx}">
+                <span class="askcard__key">${idx + 1}</span>
+                <span style="flex:1; min-width:0;">
+                  <span style="display:block; font-weight:500;">${escapeHtml(opt)}</span>
+                  ${desc}
+                </span>
+              </button>
+            `;
+          }).join('');
+
+          docktermAskMount.innerHTML = `
+            <div class="askcard">
+              <div class="askcard__head">
+                <span class="askcard__dot"></span>
+                <span>需要确认 (Permission / Input Required)</span>
+                <button type="button" class="askcard__term" id="btnAskSwitchTerm">在终端中回答</button>
+              </div>
+              <pre class="askcard__title">${escapeHtml(ask.title)}</pre>
+              <div class="askcard__actions">
+                ${optsHtml}
+                <button type="button" class="askcard__btn askcard__btn--cancel" id="btnAskCancel">
+                  <span class="askcard__key">Esc</span>
+                  <span>取消 (Cancel)</span>
+                </button>
+              </div>
+            </div>
+          `;
+
+          docktermAskMount.querySelectorAll('[data-ask-idx]').forEach((btn) => {
+            btn.addEventListener('click', () => {
+              const idx = Number(btn.getAttribute('data-ask-idx'));
+              const keys = docktermPickKeys(ask, idx);
+              sendDocktermRawInput(tabObj, keys, false);
+              setTimeout(() => pollActiveDocktermChat(true), 220);
+            });
+          });
+          const btnAskTerm = document.getElementById('btnAskSwitchTerm');
+          if (btnAskTerm) {
+            btnAskTerm.addEventListener('click', () => toggleDocktermChatMode(tabObj.tabId, 'terminal'));
+          }
+          const btnAskCancel = document.getElementById('btnAskCancel');
+          if (btnAskCancel) {
+            btnAskCancel.addEventListener('click', () => {
+              sendDocktermRawInput(tabObj, '\x1b', false);
+              setTimeout(() => pollActiveDocktermChat(true), 220);
+            });
+          }
+        } else {
+          docktermAskMount.innerHTML = '';
+        }
+
+        if (docktermPinnedBottom) {
+          requestAnimationFrame(scrollToDocktermBottom);
+        }
+      }
+
+      async function pollActiveDocktermChat(force = false) {
+        if (!activeTabId || !tabs.has(activeTabId)) return;
+        const tabObj = tabs.get(activeTabId);
+        if (tabObj.viewMode !== 'chat') return;
+        if (docktermPollInFlight && !force) return;
+        docktermPollInFlight = true;
+        try {
+          const qs = new URLSearchParams({
+            tabId: tabObj.tabId,
+            sessionId: tabObj.sessionId || tabObj.tabId,
+            cwd: tabObj.cwd || '/root/work',
+            nodeId: tabObj.nodeId || 'korea-claude',
+            sshHost: tabObj.sshHost || 'korea-claude',
+          });
+          const res = await fetch(`/api/chat-view?${qs.toString()}`);
+          const data = await res.json();
+          if (data && data.ok && activeTabId === tabObj.tabId && tabObj.viewMode === 'chat') {
+            renderDocktermConversationView(tabObj, data);
+          }
+        } catch {} finally {
+          docktermPollInFlight = false;
+        }
+      }
+
+      function syncDocktermViewUI() {
+        const activeTab = activeTabId && tabs.has(activeTabId) ? tabs.get(activeTabId) : null;
+        const inChat = Boolean(activeTab && activeTab.viewMode === 'chat');
+
+        if (docktermChatStage) {
+          docktermChatStage.style.display = inChat ? 'flex' : 'none';
+        }
+        if (btnToggleDocktermChat && btnToggleDocktermLabel) {
+          btnToggleDocktermChat.classList.toggle('active', inChat);
+          btnToggleDocktermLabel.textContent = inChat ? '切回 SSH 终端' : 'DockTerm 对话视图';
+        }
+        if (btnCmdBarToggleChat && cmdBarToggleChatLabel) {
+          cmdBarToggleChatLabel.textContent = inChat ? '切回 SSH 终端 (⌘E)' : '切换 DockTerm 样式 (⌘E)';
+        }
+
+        syncNativeTerminalGeometry();
+
+        if (inChat && activeTab) {
+          docktermComposerInput.value = docktermDrafts.get(activeTab.tabId) || '';
+          autoGrowDocktermComposer();
+          docktermPinnedBottom = true;
+          docktermLastRenderSig = '';
+          pollActiveDocktermChat(true);
+          setTimeout(() => docktermComposerInput.focus(), 30);
+        } else if (activeTab && terminalEngine === 'web') {
+          setTimeout(() => {
+            try {
+              activeTab.fitAddon.fit();
+              activeTab.term.focus();
+            } catch {}
+          }, 30);
+        }
+      }
+
+      function toggleDocktermChatMode(targetTabId = activeTabId, explicitMode = null) {
+        if (!targetTabId || !tabs.has(targetTabId)) {
+          showToast('请先打开或选择一个 SSH 会话标签页');
+          return;
+        }
+        const tabObj = tabs.get(targetTabId);
+        const nextMode = explicitMode || (tabObj.viewMode === 'chat' ? 'terminal' : 'chat');
+        tabObj.viewMode = nextMode;
+        syncDocktermViewUI();
+        renderTabBar();
+        showToast(nextMode === 'chat' ? '已切换为 DockTerm 对话格式视图 (按 ⌘R 可切回终端)' : '已切回原始 SSH 终端视图');
+      }
+
+      function launchClaudeInActiveTab() {
+        if (!activeTabId || !tabs.has(activeTabId)) return;
+        const t = tabs.get(activeTabId);
+        const cmd = t.resume ? `claude -r ${t.sessionId} || claude` : 'claude';
+        sendDocktermRawInput(t, cmd, true);
+        showToast(`正在远端会话启动: ${cmd}`);
+        setTimeout(() => pollActiveDocktermChat(true), 800);
+      }
+
+      function autoGrowDocktermComposer() {
+        docktermComposerInput.style.height = 'auto';
+        const nextH = Math.min(200, Math.max(38, docktermComposerInput.scrollHeight));
+        docktermComposerInput.style.height = `${nextH}px`;
+      }
+
+      function updateDocktermSlashMenu() {
+        const val = docktermComposerInput.value;
+        const m = val.match(/^(\/[a-zA-Z0-9_-]*)$/);
+        if (!m) {
+          docktermSlashMenu.classList.remove('open');
+          docktermSlashItems = [];
+          return;
+        }
+        const q = m[1].toLowerCase();
+        docktermSlashItems = DOCKTERM_SLASH_COMMANDS.filter((c) => c.name.toLowerCase().startsWith(q));
+        if (docktermSlashItems.length === 0) {
+          docktermSlashMenu.classList.remove('open');
+          return;
+        }
+        docktermSlashIndex = Math.min(docktermSlashIndex, docktermSlashItems.length - 1);
+        docktermSlashMenu.innerHTML = docktermSlashItems.map((item, idx) => `
+          <div class="composer__menu-item${idx === docktermSlashIndex ? ' active' : ''}" data-slash-idx="${idx}">
+            <span class="composer__menu-cmd">${escapeHtml(item.name)}</span>
+            <span>${escapeHtml(item.desc)}</span>
+          </div>
+        `).join('');
+        docktermSlashMenu.classList.add('open');
+
+        docktermSlashMenu.querySelectorAll('[data-slash-idx]').forEach((el) => {
+          el.addEventListener('mousedown', (ev) => {
+            ev.preventDefault();
+            const i = Number(el.getAttribute('data-slash-idx'));
+            const chosen = docktermSlashItems[i];
+            if (chosen) {
+              docktermComposerInput.value = `${chosen.name} `;
+              docktermDrafts.set(activeTabId, docktermComposerInput.value);
+              docktermSlashMenu.classList.remove('open');
+              docktermComposerInput.focus();
+            }
+          });
+        });
+      }
+
+      async function submitDocktermComposerPrompt() {
+        if (!activeTabId || !tabs.has(activeTabId)) return;
+        const tabObj = tabs.get(activeTabId);
+        const text = docktermComposerInput.value.trim();
+        if (!text) return;
+
+        // Save to per-tab prompt history
+        const hist = docktermPromptHistory.get(tabObj.tabId) || [];
+        if (hist[hist.length - 1] !== text) hist.push(text);
+        docktermPromptHistory.set(tabObj.tabId, hist);
+        docktermHistoryCursor.delete(tabObj.tabId);
+
+        docktermComposerInput.value = '';
+        docktermDrafts.set(tabObj.tabId, '');
+        docktermSlashMenu.classList.remove('open');
+        autoGrowDocktermComposer();
+
+        await sendDocktermRawInput(tabObj, text, true);
+
+        // If slash command opens an interactive TUI picker (e.g. /resume, /model), switch back to terminal view
+        if (DOCKTERM_PICKER_SLASH_RE.test(text)) {
+          toggleDocktermChatMode(tabObj.tabId, 'terminal');
+          return;
+        }
+
+        docktermPinnedBottom = true;
+        setTimeout(() => pollActiveDocktermChat(true), 350);
+        setTimeout(() => pollActiveDocktermChat(true), 1100);
+      }
+
+      docktermComposerInput.addEventListener('input', () => {
+        if (activeTabId) {
+          docktermDrafts.set(activeTabId, docktermComposerInput.value);
+        }
+        autoGrowDocktermComposer();
+        updateDocktermSlashMenu();
+      });
+
+      docktermComposerInput.addEventListener('keydown', (e) => {
+        if (e.isComposing || e.keyCode === 229) return;
+
+        if (docktermSlashMenu.classList.contains('open') && docktermSlashItems.length > 0) {
+          if (e.key === 'ArrowDown') {
+            e.preventDefault();
+            docktermSlashIndex = (docktermSlashIndex + 1) % docktermSlashItems.length;
+            updateDocktermSlashMenu();
+            return;
+          }
+          if (e.key === 'ArrowUp') {
+            e.preventDefault();
+            docktermSlashIndex = (docktermSlashIndex - 1 + docktermSlashItems.length) % docktermSlashItems.length;
+            updateDocktermSlashMenu();
+            return;
+          }
+          if (e.key === 'Tab') {
+            e.preventDefault();
+            const chosen = docktermSlashItems[docktermSlashIndex];
+            if (chosen) {
+              docktermComposerInput.value = `${chosen.name} `;
+              docktermDrafts.set(activeTabId, docktermComposerInput.value);
+              docktermSlashMenu.classList.remove('open');
+            }
+            return;
+          }
+          if (e.key === 'Escape') {
+            e.preventDefault();
+            docktermSlashMenu.classList.remove('open');
+            return;
+          }
+        }
+
+        if (e.key === 'Enter' && !e.shiftKey && !e.altKey) {
+          e.preventDefault();
+          submitDocktermComposerPrompt();
+          return;
+        }
+
+        if (e.key === 'Escape') {
+          e.preventDefault();
+          if (activeTabId && tabs.has(activeTabId)) {
+            sendDocktermRawInput(tabs.get(activeTabId), '\x1b', false);
+            showToast('已向 Claude 发送 Esc 中断信号');
+          }
+          return;
+        }
+
+        // Prompt history recall with Up/Down when on single line
+        if ((e.key === 'ArrowUp' || e.key === 'ArrowDown') && activeTabId && !docktermComposerInput.value.includes('\n')) {
+          const hist = docktermPromptHistory.get(activeTabId) || [];
+          if (hist.length > 0) {
+            let cur = docktermHistoryCursor.has(activeTabId) ? docktermHistoryCursor.get(activeTabId) : hist.length;
+            if (e.key === 'ArrowUp' && cur > 0) {
+              e.preventDefault();
+              cur--;
+              docktermHistoryCursor.set(activeTabId, cur);
+              docktermComposerInput.value = hist[cur] || '';
+              autoGrowDocktermComposer();
+            } else if (e.key === 'ArrowDown' && cur < hist.length) {
+              e.preventDefault();
+              cur++;
+              docktermHistoryCursor.set(activeTabId, cur);
+              docktermComposerInput.value = cur < hist.length ? hist[cur] : '';
+              autoGrowDocktermComposer();
+            }
+          }
+        }
+      });
+
+      btnToggleDocktermChat.addEventListener('click', () => toggleDocktermChatMode());
+      btnCmdBarToggleChat.addEventListener('click', () => toggleDocktermChatMode());
+      document.getElementById('btnDocktermBackToTerm').addEventListener('click', () => toggleDocktermChatMode(activeTabId, 'terminal'));
+      document.getElementById('btnDocktermStartClaude').addEventListener('click', () => launchClaudeInActiveTab());
+      document.getElementById('btnDocktermRefreshNow').addEventListener('click', () => {
+        docktermLastRenderSig = '';
+        pollActiveDocktermChat(true);
+      });
+      document.getElementById('btnDocktermSend').addEventListener('click', () => submitDocktermComposerPrompt());
+      document.getElementById('btnDocktermInterrupt').addEventListener('click', () => {
+        if (activeTabId && tabs.has(activeTabId)) {
+          sendDocktermRawInput(tabs.get(activeTabId), '\x1b', false);
+          showToast('已发送 Esc 中断信号');
+        }
+      });
+
+      // Global Shortcut: Cmd+E (or Ctrl+Shift+E) toggles DockTerm Chat Mode on active SSH tab
+      window.toggleDocktermChatMode = toggleDocktermChatMode;
+      window.addEventListener('keydown', (e) => {
+        if ((e.metaKey && !e.shiftKey && !e.altKey && e.key.toLowerCase() === 'e') ||
+            (e.ctrlKey && e.shiftKey && e.key.toLowerCase() === 'e')) {
+          if (activeTabId && tabs.has(activeTabId)) {
+            e.preventDefault();
+            toggleDocktermChatMode(activeTabId);
+          }
+        }
+      });
+
+      setInterval(() => {
+        pollActiveDocktermChat(false);
+      }, 1100);
 
       // Initial Boot
       loadProjectTree();
-      loadSessionFiles('/root/work', 'node-1');
+      loadSessionFiles('/root/work', 'korea-claude');
       pollStatusBar();
       setInterval(pollStatusBar, 4000);
       setInterval(loadProjectTree, 12000);
