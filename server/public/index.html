@@ -2496,6 +2496,99 @@
     .composer__send:hover:not(:disabled) { background: #ffffff; }
     .composer__send:disabled { opacity: 0.35; cursor: not-allowed; }
 
+    /* Attachments (pasted / dropped images and files) */
+    .composer__box.is-drop { border-color: var(--border-accent); background: var(--bg-elevated); }
+    .composer__attach {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+      padding-bottom: 2px;
+    }
+    .attach-chip {
+      position: relative;
+      display: inline-flex;
+      align-items: center;
+      gap: 7px;
+      height: 48px;
+      max-width: 240px;
+      padding: 0 26px 0 6px;
+      border-radius: var(--radius-sm);
+      border: 1px solid var(--border-hairline);
+      background: var(--bg-input);
+      font-size: 11px;
+      color: var(--text-secondary);
+      min-width: 0;
+    }
+    .attach-chip--image { width: 48px; padding: 0; justify-content: center; overflow: hidden; }
+    .attach-chip--image img { width: 100%; height: 100%; object-fit: cover; display: block; }
+    .attach-chip__ext {
+      flex-shrink: 0;
+      width: 34px;
+      height: 34px;
+      border-radius: var(--radius-xs);
+      background: var(--bg-active);
+      color: var(--text-primary);
+      font-family: var(--font-mono);
+      font-size: 9.5px;
+      font-weight: 600;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      text-transform: uppercase;
+      overflow: hidden;
+    }
+    .attach-chip__meta { display: flex; flex-direction: column; min-width: 0; line-height: 1.35; }
+    .attach-chip__name { color: var(--text-primary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .attach-chip__size { font-family: var(--font-mono); font-size: 10px; color: var(--text-muted); }
+    .attach-chip__x {
+      position: absolute;
+      top: 3px;
+      right: 3px;
+      width: 18px;
+      height: 18px;
+      border-radius: 50%;
+      border: none;
+      background: rgba(0, 0, 0, 0.6);
+      color: #fff;
+      font-size: 12px;
+      line-height: 18px;
+      text-align: center;
+      cursor: pointer;
+      padding: 0;
+    }
+    .attach-chip__x:hover { background: rgba(0, 0, 0, 0.85); }
+    .attach-chip.is-uploading::after {
+      content: '';
+      position: absolute;
+      inset: 0;
+      border-radius: inherit;
+      background: rgba(13, 13, 13, 0.45) linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.12), transparent) no-repeat;
+      background-size: 60% 100%;
+      animation: attachShimmer 1.1s infinite linear;
+      pointer-events: none;
+    }
+    @keyframes attachShimmer { from { background-position: -60% 0; } to { background-position: 160% 0; } }
+    .attach-chip.is-error { border-color: var(--danger); cursor: pointer; }
+    .attach-chip.is-error .attach-chip__size { color: var(--danger); }
+    /* attachments shown on sent messages */
+    .reading__files { display: flex; flex-wrap: wrap; gap: 6px; justify-content: flex-end; margin: 0 0 6px; max-width: 85%; }
+    .reading__file {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 4px 9px;
+      border-radius: var(--radius-sm);
+      border: 1px solid var(--border-hairline);
+      background: var(--bg-surface);
+      font-size: 11px;
+      color: var(--text-secondary);
+      text-decoration: none;
+      cursor: pointer;
+    }
+    .reading__file:hover { border-color: var(--border-accent); color: var(--text-primary); }
+    .reading__file b { font-family: var(--font-mono); font-size: 9.5px; color: var(--text-primary); text-transform: uppercase; }
+    .reading__thumb img.is-local { max-height: 200px; }
+
     /* Usage meters inside the composer (5h session + weekly) */
     .composer__usage {
       display: inline-flex;
@@ -2725,12 +2818,13 @@
             <div class="composer">
               <div class="composer__inner">
                 <div class="composer__menu scroller" id="docktermSlashMenu"></div>
-                <div class="composer__box">
+                <div class="composer__box" id="docktermComposerBox">
+                  <div class="composer__attach" id="docktermAttachments" hidden></div>
                   <textarea
                     id="docktermComposerInput"
                     class="composer__input"
                     rows="1"
-                    placeholder="给 Claude 发消息… 输入 / 查看命令，可从右侧拖入文件"
+                    placeholder="给 Claude 发消息… 输入 / 查看命令，可粘贴或拖入图片、文件"
                   ></textarea>
                   <div class="composer__foot">
                     <span class="composer__usage" id="docktermUsage" hidden></span>
@@ -4748,6 +4842,10 @@
       terminalStage.addEventListener('dragover', (e) => {
         e.preventDefault();
         terminalStage.classList.add('drag-over');
+        const at = activeTabId && tabs.has(activeTabId) ? tabs.get(activeTabId) : null;
+        const label = document.querySelector('#termDropOverlay span');
+        const external = Array.from(e.dataTransfer.types || []).includes('Files') && !Array.from(e.dataTransfer.types || []).includes('application/x-takt-path');
+        if (label) label.textContent = at && at.viewMode === 'chat' && external ? '松开即可作为附件添加到消息' : '松开即可把路径插入当前会话';
       });
       terminalStage.addEventListener('dragleave', () => {
         terminalStage.classList.remove('drag-over');
@@ -4760,6 +4858,19 @@
         const plain = e.dataTransfer.getData('text/plain');
         const pathToInject = taktPath ? shellEscapePath(taktPath) : plain;
         syncNativeTerminalGeometry();
+        const chatTab = activeTabId && tabs.has(activeTabId) ? tabs.get(activeTabId) : null;
+        const dropped = Array.from(e.dataTransfer.files || []);
+        if (!taktPath && dropped.length && chatTab && chatTab.viewMode === 'chat') {
+          // Files from Finder -> attachments (folders are skipped)
+          const dirs = new Set();
+          for (const it of Array.from(e.dataTransfer.items || [])) {
+            const en = it.webkitGetAsEntry ? it.webkitGetAsEntry() : null;
+            if (en && en.isDirectory) dirs.add(en.name);
+          }
+          if (dirs.size) showToast('文件夹不能作为附件，已跳过');
+          addDocktermAttachments(dropped.filter((f) => !dirs.has(f.name)));
+          return;
+        }
         if (pathToInject) {
           const activeTab = activeTabId && tabs.has(activeTabId) ? tabs.get(activeTabId) : null;
           if (activeTab && activeTab.viewMode === 'chat') {
@@ -4909,16 +5020,26 @@
         return String(str).replace(/\x1B\[[0-?]*[ -/]*[@-~]/g, '');
       }
 
+      const TERM_IMG_EXT_RE = /\.(?:png|jpe?g|gif|webp|svg)(?![\w])/i;
+      // directory names may contain dots (.takt/uploads, .cache …); a sentence-ending "." is not part of it
+      const TERM_IMG_PATH_RE = /(?:~|\.{1,2})?\/?(?:[\w\-.\u4e00-\u9fa5]+\/)*[\w\-\u4e00-\u9fa5][\w\-.\u4e00-\u9fa5]*?\.(?:png|jpe?g|gif|webp|svg)(?![\w]|\.\w)/gi;
+
       function detectAndRenderInlineMediaFromOutput(tabObj, rawChunk) {
+        // The conversation view shows images itself; terminal cards would cover its composer
+        if (tabObj.viewMode === 'chat') return;
         const clean = stripAnsi(rawChunk);
-        const imgRegex = /(?:\/root\/work\/[^\s"'<>()`]+|(?:\.\/)?[a-zA-Z0-9_\-\u4e00-\u9fa5/]+)\.(?:png|jpg|jpeg|gif|webp|svg)/gi;
-        let m;
-        while ((m = imgRegex.exec(clean)) !== null) {
-          const imgPath = m[0];
-          if (tabObj.seenImages.has(imgPath)) continue;
-          tabObj.seenImages.add(imgPath);
-          showInlineTerminalImageCard(imgPath, tabObj.cwd);
-          previewFileInRightPane(imgPath, tabObj.cwd, false);
+        if (!TERM_IMG_EXT_RE.test(clean)) return;
+        for (const line of clean.split(/[\r\n]+/)) {
+          if (line.length > 2000 || !TERM_IMG_EXT_RE.test(line)) continue; // bounded work per chunk
+          TERM_IMG_PATH_RE.lastIndex = 0;
+          let m;
+          while ((m = TERM_IMG_PATH_RE.exec(line)) !== null) {
+            const imgPath = m[0];
+            if (tabObj.seenImages.has(imgPath)) continue;
+            tabObj.seenImages.add(imgPath);
+            showInlineTerminalImageCard(imgPath, tabObj.cwd);
+            previewFileInRightPane(imgPath, tabObj.cwd, false);
+          }
         }
       }
 
@@ -5848,6 +5969,11 @@
       const dtDrafts = new Map();
       const dtHistory = new Map();
       const dtHistCursor = new Map();
+      const DT_PLACEHOLDER = dtInput.placeholder;
+      const DT_UPLOAD_LINE_RE = /^(?:\/|~\/)\S*\/\.takt\/uploads\/\S+$/;
+      const dtAttachEl = document.getElementById('docktermAttachments');
+      const dtAttachments = new Map(); // tabId -> [{ id, name, size, isImage, url, file, status, remotePath, error, promise }]
+      let dtSubmitting = false;
 
       function activeChatTab() {
         const t = activeTabId && tabs.has(activeTabId) ? tabs.get(activeTabId) : null;
@@ -5926,7 +6052,9 @@
         const payload = usePaste ? `\x1b[200~${text}\x1b[201~` : text;
         const enterDelayMs = Math.min(1500, 90 + Math.ceil(text.length / 20));
 
-        if (terminalEngine === 'native' && hasNativeHost) {
+        // In the conversation view the native SwiftTerm view is hidden; feeding it would also make it
+        // the first responder and the composer would stop receiving keystrokes -> go through tmux instead
+        if (terminalEngine === 'native' && hasNativeHost && tabObj.viewMode !== 'chat') {
           if (payload) postNativeMessage({ action: 'sendInput', tabId: tabObj.tabId, text: payload });
           if (submitEnter) setTimeout(() => postNativeMessage({ action: 'sendInput', tabId: tabObj.tabId, text: '\r' }), enterDelayMs);
           return;
@@ -6222,12 +6350,17 @@
         el.dataset.seq = String(m.seq);
         if (m.role === 'user') {
           el.className = 'reading__user';
-          const text = m.text || '';
+          const split = dtSplitAttachmentLines(m.text || '');
+          const text = split.text;
           const long = text.length > 1400 || text.split('\n').length > 18;
           const bubble = text
             ? `<div class="reading__user-bubble${long ? ' is-clamped' : ''}" title="${escapeHtml(formatClock(m.ts))}">${dtLinkifyBarePaths(escapeHtml(text))}</div>${long ? '<button type="button" class="link-btn reading__expand">展开全部</button>' : ''}`
             : '';
-          el.innerHTML = `<div class="reading__user-wrap">${dtChatImageThumbs(m.images, '图片')}${bubble}</div>`;
+          const upImgs = split.files.filter((p) => DT_IMAGE_EXT_RE.test(p));
+          const upFiles = split.files.filter((p) => !DT_IMAGE_EXT_RE.test(p));
+          const uploads = (upImgs.length ? `<div class="reading__images">${upImgs.map((p) => dtThumbHtml({ path: p, name: dtUploadDisplayName(p) })).join('')}</div>` : '')
+            + (upFiles.length ? `<div class="reading__files">${upFiles.map((p) => `<a href="#" class="reading__file md-file-link" data-file-path="${escapeHtml(p)}" title="${escapeHtml(p)}"><b>${escapeHtml(dtExtLabel(p))}</b>${escapeHtml(dtUploadDisplayName(p))}</a>`).join('')}</div>` : '');
+          el.innerHTML = `<div class="reading__user-wrap">${dtChatImageThumbs(m.images, '图片')}${uploads}${bubble}</div>`;
         } else if (m.role === 'assistant') {
           el.className = 'reading__assistant';
           if (!m._html) m._html = renderDocktermMarkdown(m.text || '');
@@ -6322,19 +6455,29 @@
 
       function renderDocktermPending(t) {
         const c = t.chat;
-        dtPendingEl.innerHTML = c.pending.map((p) => `
+        dtPendingEl.innerHTML = c.pending.map((p) => {
+          const atts = p.atts || [];
+          const imgs = atts.filter((a) => a.isImage && a.url);
+          const files = atts.filter((a) => !(a.isImage && a.url));
+          return `
           <div class="reading__user reading__user--pending">
             <div class="reading__user-wrap">
-              <div class="reading__user-bubble">${escapeHtml(p.text)}</div>
-              <span class="reading__meta">发送中…</span>
+              ${imgs.length ? `<div class="reading__images">${imgs.map((a) => `<span class="reading__thumb"><img class="is-local" src="${escapeHtml(a.url)}" alt=""></span>`).join('')}</div>` : ''}
+              ${files.length ? `<div class="reading__files">${files.map((a) => `<span class="reading__file"><b>${escapeHtml(dtExtLabel(a.name))}</b>${escapeHtml(a.name)}</span>`).join('')}</div>` : ''}
+              ${(p.display ?? p.text) ? `<div class="reading__user-bubble">${escapeHtml(p.display ?? p.text)}</div>` : ''}
+              <span class="reading__meta">${p.queued ? '排队中 · Claude 完成当前步骤后处理' : '发送中…'}</span>
             </div>
-          </div>`).join('');
+          </div>`;
+        }).join('');
       }
 
       function renderDocktermChrome(t) {
         const c = t.chat;
         const busy = c.status === 'working' || c.status === 'asking';
         dtStage.classList.toggle('is-working', c.status === 'working');
+        dtInput.placeholder = c.status === 'working' ? 'Claude 正在执行… 可以继续输入，消息会排队发送'
+          : c.status === 'asking' ? 'Claude 在等你确认上面的操作'
+            : DT_PLACEHOLDER;
 
         // load-earlier / beginning marker
         dtOlderBtn.hidden = !(c.hasOlder && c.messages.length > 0);
@@ -6575,7 +6718,7 @@
             if (i >= 0) c.pending.splice(i, 1);
           }
           const now = Date.now();
-          c.pending = c.pending.filter((p) => now - p.at < 60000);
+          c.pending = c.pending.filter((p) => now - p.at < (p.queued ? 15 * 60000 : 60000));
         }
         // Once Claude has written this tab's own session, later launches must resume it
         if (c.jsonlPath && c.resolvedSessionId === t.sessionId) t.resume = true;
@@ -6699,6 +6842,7 @@
         if (inChat) {
           ensureChatState(t);
           dtInput.value = dtDrafts.get(t.tabId) || '';
+          renderDocktermAttachments(t);
           autoGrowDocktermComposer();
           updateDocktermSendState();
           dtPinned = true;
@@ -7047,7 +7191,11 @@
       }
 
       function updateDocktermSendState() {
-        dtSendBtn.disabled = !dtInput.value.trim();
+        const t = activeChatTab();
+        const atts = t ? dtAttachList(t) : [];
+        dtSendBtn.disabled = dtSubmitting || (!dtInput.value.trim() && !atts.length);
+        const label = dtSendBtn.querySelector('span');
+        if (label) label.textContent = dtSubmitting ? '上传中…' : '发送';
       }
 
       function insertIntoDocktermComposer(text) {
@@ -7103,32 +7251,200 @@
         chooseDocktermSlash(Number(item.dataset.slashIdx));
       });
 
+      // ---------------------------------------------------------------- attachments (paste / drop)
+      // Files go straight to the node (<cwd>/.takt/uploads) as soon as they are added; sending appends
+      // their paths to the prompt so Claude reads them (images included).
+      const DT_ATTACH_MAX = 10;
+      const DT_ATTACH_MAX_BYTES = 50 * 1024 * 1024;
+
+      function dtExtLabel(name) {
+        const m = String(name || '').match(/\.([a-z0-9]{1,6})$/i);
+        return m ? m[1] : 'file';
+      }
+      function dtUploadDisplayName(p) {
+        return String(p).split('/').pop().replace(/^\d{8}-\d{6}-[0-9a-f]{4}-/, '');
+      }
+      function dtSplitAttachmentLines(text) {
+        const files = [];
+        const kept = [];
+        for (const line of String(text || '').split('\n')) {
+          if (DT_UPLOAD_LINE_RE.test(line.trim())) files.push(line.trim());
+          else kept.push(line);
+        }
+        return { text: files.length ? kept.join('\n').replace(/\s+$/, '') : text, files };
+      }
+      function dtAttachList(t) {
+        if (!dtAttachments.has(t.tabId)) dtAttachments.set(t.tabId, []);
+        return dtAttachments.get(t.tabId);
+      }
+      function dtFormatSize(n) {
+        return n < 1024 ? `${n} B` : n < 1048576 ? `${(n / 1024).toFixed(0)} KB` : `${(n / 1048576).toFixed(1)} MB`;
+      }
+
+      function renderDocktermAttachments(t) {
+        const list = t ? dtAttachList(t) : [];
+        dtAttachEl.hidden = list.length === 0;
+        dtAttachEl.innerHTML = list.map((a) => {
+          const state = a.status === 'uploading' ? ' is-uploading' : a.status === 'error' ? ' is-error' : '';
+          const tip = `${a.name} · ${dtFormatSize(a.size)}${a.status === 'uploading' ? ' · 上传中…' : a.status === 'error' ? ` · 上传失败：${a.error}（点击重试）` : ` · 已上传到 ${a.remotePath}`}`;
+          const x = '<button type="button" class="attach-chip__x" data-attach-remove aria-label="移除">×</button>';
+          if (a.isImage) {
+            return `<div class="attach-chip attach-chip--image${state}" data-attach-id="${a.id}" title="${escapeHtml(tip)}"><img src="${escapeHtml(a.url)}" alt="">${x}</div>`;
+          }
+          return `<div class="attach-chip${state}" data-attach-id="${a.id}" title="${escapeHtml(tip)}"><span class="attach-chip__ext">${escapeHtml(dtExtLabel(a.name))}</span><span class="attach-chip__meta"><span class="attach-chip__name">${escapeHtml(a.name)}</span><span class="attach-chip__size">${a.status === 'error' ? '上传失败 · 点击重试' : dtFormatSize(a.size)}</span></span>${x}</div>`;
+        }).join('');
+      }
+
+      async function uploadDocktermAttachment(t, a) {
+        a.status = 'uploading';
+        a.error = '';
+        try {
+          const q = new URLSearchParams({ nodeId: t.nodeId || '', cwd: t.cwd || '', name: a.name });
+          const res = await fetch(`/api/chat-upload?${q}`, { method: 'POST', headers: { 'Content-Type': 'application/octet-stream' }, body: a.file });
+          const data = await res.json().catch(() => ({}));
+          if (!data.ok) throw new Error(data.error || `HTTP ${res.status}`);
+          a.status = 'done';
+          a.remotePath = data.remotePath;
+        } catch (err) {
+          a.status = 'error';
+          a.error = (err && err.message) || '上传失败';
+        }
+        if (activeChatTab() === t) {
+          renderDocktermAttachments(t);
+          updateDocktermSendState();
+        }
+      }
+
+      function addDocktermAttachments(files) {
+        const t = activeChatTab();
+        if (!t || !files || !files.length) return;
+        const list = dtAttachList(t);
+        for (const f of files) {
+          if (list.length >= DT_ATTACH_MAX) {
+            showToast(`一条消息最多附加 ${DT_ATTACH_MAX} 个文件`);
+            break;
+          }
+          if (f.size > DT_ATTACH_MAX_BYTES) {
+            showToast(`${f.name} 超过 50 MB，未添加`);
+            continue;
+          }
+          if (!f.size) {
+            showToast(`${f.name || '该项'} 是空文件或文件夹，未添加`);
+            continue;
+          }
+          const isImage = /^image\/(png|jpe?g|gif|webp|bmp|svg\+xml)$/i.test(f.type);
+          const ext = (f.type.split('/')[1] || 'png').replace('jpeg', 'jpg').replace('svg+xml', 'svg');
+          const generic = !f.name || /^image\.\w+$/i.test(f.name);
+          const a = {
+            id: `a${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`,
+            name: generic && isImage ? `pasted-image.${ext}` : f.name,
+            size: f.size,
+            isImage,
+            url: isImage ? URL.createObjectURL(f) : '',
+            file: f,
+            status: 'uploading',
+            remotePath: '',
+            error: '',
+          };
+          a.promise = uploadDocktermAttachment(t, a);
+          list.push(a);
+        }
+        renderDocktermAttachments(t);
+        updateDocktermSendState();
+        dtInput.focus();
+      }
+
+      dtAttachEl.addEventListener('click', (e) => {
+        const t = activeChatTab();
+        const chip = e.target.closest('[data-attach-id]');
+        if (!t || !chip) return;
+        const list = dtAttachList(t);
+        const i = list.findIndex((a) => a.id === chip.dataset.attachId);
+        if (i < 0) return;
+        if (e.target.closest('[data-attach-remove]')) {
+          const [a] = list.splice(i, 1);
+          if (a.url) URL.revokeObjectURL(a.url);
+        } else if (list[i].status === 'error') {
+          list[i].promise = uploadDocktermAttachment(t, list[i]);
+        }
+        renderDocktermAttachments(t);
+        updateDocktermSendState();
+      });
+
+      // Paste: images / files from the clipboard become attachments. Rich text that merely carries a
+      // rendered picture (Excel, Word …) still pastes as text.
+      dtInput.addEventListener('paste', (e) => {
+        const cd = e.clipboardData;
+        const files = cd ? Array.from(cd.files || []) : [];
+        if (!files.length) return;
+        const text = (cd.getData('text/plain') || '').trim();
+        const names = new Set(files.map((f) => f.name));
+        const textIsNames = !text || /^(https?|file):\/\//i.test(text) || text.split(/\r?\n/).every((l) => !l.trim() || names.has(l.trim()) || names.has(l.trim().split('/').pop()));
+        if (!textIsNames && files.every((f) => /^image\//.test(f.type))) return;
+        e.preventDefault();
+        addDocktermAttachments(files);
+      });
+
       async function submitDocktermComposerPrompt() {
         const t = activeChatTab();
-        if (!t) return;
+        if (!t || dtSubmitting) return;
         const c = ensureChatState(t);
-        const text = dtInput.value.replace(/\r\n?/g, '\n').replace(/\s+$/, '');
-        if (!text.trim()) return;
+        const typed = dtInput.value.replace(/\r\n?/g, '\n').replace(/\s+$/, '');
+        const isCommand = typed.startsWith('/');
+        const atts = isCommand ? [] : dtAttachList(t).slice();
+        if (!typed.trim() && !atts.length) return;
+        if (c.status === 'asking' && !isCommand) {
+          // keystrokes would land in Claude's permission dialog
+          showToast('Claude 在等你确认上面的操作，先在确认卡片里选择');
+          return;
+        }
+        if (atts.some((a) => a.status === 'uploading')) {
+          dtSubmitting = true;
+          updateDocktermSendState();
+          await Promise.all(atts.map((a) => a.promise));
+          dtSubmitting = false;
+          updateDocktermSendState();
+          if (activeChatTab() !== t) return;
+        }
+        const failed = atts.filter((a) => a.status !== 'done');
+        if (failed.length) {
+          showToast(`${failed.length} 个附件上传失败：点击它重试，或移除后再发送`);
+          renderDocktermAttachments(t);
+          return;
+        }
+        const paths = atts.map((a) => a.remotePath);
+        const text = paths.length ? `${typed}${typed ? '\n\n' : ''}${paths.join('\n')}` : typed;
         if (c.loaded && !c.claudeRunning && !c.stale) {
           // Without Claude the text would be executed by the shell
           if (!confirm('这个标签页里似乎没有运行 Claude，消息会直接输入到 shell。\n\n仍然发送吗？（建议先点「启动 Claude」）')) return;
         }
 
-        const hist = dtHistory.get(t.tabId) || [];
-        if (hist[hist.length - 1] !== text) hist.push(text);
-        if (hist.length > 100) hist.shift();
-        dtHistory.set(t.tabId, hist);
+        if (typed.trim()) {
+          const hist = dtHistory.get(t.tabId) || [];
+          if (hist[hist.length - 1] !== typed) hist.push(typed);
+          if (hist.length > 100) hist.shift();
+          dtHistory.set(t.tabId, hist);
+        }
         dtHistCursor.delete(t.tabId);
 
         dtInput.value = '';
         dtDrafts.set(t.tabId, '');
+        if (atts.length) dtAttachments.set(t.tabId, dtAttachList(t).filter((a) => !atts.includes(a)));
+        renderDocktermAttachments(t);
         dtSlashMenu.classList.remove('open');
         autoGrowDocktermComposer();
         updateDocktermSendState();
 
         const isPicker = DOCKTERM_PICKER_SLASH_RE.test(text);
-        if (!text.startsWith('/')) {
-          c.pending.push({ id: `p${Date.now()}`, text, at: Date.now() });
+        if (!isCommand) {
+          c.pending.push({
+            id: `p${Date.now()}`,
+            text,
+            display: typed,
+            atts: atts.map((a) => ({ name: a.name, isImage: a.isImage, url: a.url })),
+            queued: c.status === 'working',
+            at: Date.now(),
+          });
           renderDocktermPending(t);
           renderDocktermChrome(t);
         }

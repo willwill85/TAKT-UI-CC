@@ -31,6 +31,12 @@
 - Usage (5-hour + weekly, like `/usage`) as two small rings inside the composer (yellow ≥ 75, red ≥ 90): fetched by the node from Anthropic's usage endpoint with its own Claude login when the conversation view opens and every 10 minutes — nothing is typed into the terminal and the token never leaves the node.
 - Model + effort switch under the composer: shows what the conversation is actually using (from the latest reply), the model list (with supported effort levels) is fetched once per node; switching runs `/model` / `/effort` in that session, refused while Claude is busy.
 
+**DockTerm: attachments, typing while Claude works, sidebar**
+- Paste (⌘V) or drop images and files into the conversation: they appear as chips above the input (image thumbnails, file type + size, × to remove, click a failed one to retry) and upload immediately over SSH to `<session cwd>/.takt/uploads/` (git-ignored via a `*` .gitignore). Sending appends their paths so Claude reads them; sent messages show the attachments instead of the raw paths. Rich text that only carries a rendered picture (Excel, Word) still pastes as text.
+- Typing while Claude works: the macOS app no longer moves keyboard focus to the hidden native terminal when the conversation view sends input (conversation input now goes through tmux on the node; the Swift side only focuses a visible terminal). Messages sent while Claude works are marked "排队中"; sending is held back while a permission prompt is open.
+- Terminal-output image cards no longer pop up over the conversation view, and paths with dotted folders (`.takt/uploads`, `.cache`) are recognised.
+- Sidebar hides sessions that never got a real title (opened but never used: "会话 1a2b3c4d", "<project> · 终端" …); they appear with their first prompt as title once used. Renamed sessions always show; Claude Code's own `ai-title` is used when a session has no text prompt.
+
 **Security**
 - Restored the documented Host/Origin guard (HTTP + WebSocket) that went missing in `efd9650`: web pages can no longer drive the workbench API or type into terminals.
 - HTML/SVG previews are served with a CSP sandbox so a page from a node can't call the workbench API.

@@ -534,6 +534,7 @@ for p in glob.glob(claude_glob):
         proj_dir_name = os.path.basename(os.path.dirname(p))
         cwd = decode_project_dir(proj_dir_name)
         title = ""
+        ai_title = ""
         first_user = ""
         last_user = ""
         user_turns = 0
@@ -553,6 +554,8 @@ for p in glob.glob(claude_glob):
                 title = str(obj["customTitle"]).strip()
             elif t == "summary" and obj.get("summary") and not title:
                 title = str(obj["summary"]).strip()
+            elif t == "ai-title" and obj.get("aiTitle"):
+                ai_title = str(obj["aiTitle"]).strip()
             elif t == "user":
                 msg = obj.get("message") or {}
                 content = msg.get("content")
@@ -570,7 +573,7 @@ for p in glob.glob(claude_glob):
                     if not first_user:
                         first_user = clean_txt[:80]
                     last_user = clean_txt[:80]
-        display_title = title or first_user or f"会话 {sid[:8]}"
+        display_title = title or first_user or ai_title or f"会话 {sid[:8]}"
         cwd = normalize_to_top_project(cwd)
         if cwd not in folders:
             folders[cwd] = {
@@ -775,6 +778,13 @@ function upsertProjectInSqlite(node, remotePath, name, pinnedVisible = 0) {
   return { key, cleanPath, localPath, displayName };
 }
 
+// Titles the workbench makes up before a session has a real one
+// ("会话 1a2b3c4d" from the scan, "<project> · 终端" for new tabs, "对话 …" / "终端 (…)" for pty tabs)
+function isPlaceholderSessionTitle(title) {
+  const t = String(title || '').trim();
+  return !t || /^(会话|对话) [0-9a-f]{8}$/i.test(t) || / · 终端$/.test(t) || /^终端 \(.*\)$/.test(t);
+}
+
 function registerSessionInSqlite({ id, nodeId, cwd, title }) {
   if (!id) return;
   const node = getNodeById(nodeId);
@@ -947,6 +957,9 @@ function readTreeFromSqlite() {
   for (const s of sessionRows) {
     const node = nodeMap.get(s.node_id);
     if (!node) continue;
+    // Never-used sessions only carry a placeholder title: keep them out of the sidebar
+    // (they show up as soon as the first prompt gives them a real title)
+    if (!s.custom_title && isPlaceholderSessionTitle(s.title)) continue;
     const remoteRoot = (node.remoteWorkDir || '/root/work').replace(/\/+$/, '') || '/root/work';
     const fKey = `${node.id}::${s.project_path}`;
     if (!foldersByKey.has(fKey)) {
@@ -2980,6 +2993,76 @@ function macOpenArgs(target, reveal) {
   return { mode: 'reveal', args: ['-R', target] };
 }
 
+// Attachments for a prompt: <session cwd>/.takt/uploads/<stamp>-<name> on the node. The folder
+// carries a "*" .gitignore so uploads never show up in the project's git status.
+const CHAT_UPLOAD_MAX_BYTES = 50 * 1024 * 1024;
+
+function chatUploadName(raw) {
+  const base = path.posix.basename(String(raw || '').replace(/\\/g, '/')).replace(/[\x00-\x1f]/g, '').trim();
+  const safe = base.replace(/[^\w.\-\u4e00-\u9fa5]+/g, '_').replace(/^[.\-]+/, '').slice(-80) || 'file';
+  const d = new Date();
+  const pad = (n) => String(n).padStart(2, '0');
+  const stamp = `${d.getFullYear()}${pad(d.getMonth() + 1)}${pad(d.getDate())}-${pad(d.getHours())}${pad(d.getMinutes())}${pad(d.getSeconds())}`;
+  return `${stamp}-${crypto.randomBytes(2).toString('hex')}-${safe}`;
+}
+
+function uploadChatAttachment(node, cwd, rawName, stream, size) {
+  const dir = path.posix.join(cwd.replace(/\/+$/, '') || '/', '.takt', 'uploads');
+  const name = chatUploadName(rawName);
+  const remotePath = path.posix.join(dir, name);
+  const qd = shSingleQuote(dir);
+  const qf = shSingleQuote(remotePath);
+  const qp = shSingleQuote(`${remotePath}.part`);
+  const cmd = `mkdir -p ${qd} && { [ -e ${qd}/.gitignore ] || printf '*\\n' > ${qd}/.gitignore; } && cat > ${qp} && mv -f ${qp} ${qf} && echo takt-upload-ok`;
+  return new Promise((resolve) => {
+    let settled = false;
+    let received = 0;
+    let out = '';
+    let err = '';
+    let timer = null;
+    const finish = (r) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      resolve(r);
+    };
+    const child = spawn('ssh', [...DOCKTERM_SSH_OPTS, node.sshHost, cmd], {
+      env: {
+        ...process.env,
+        PATH: `/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin:${process.env.PATH || ''}`,
+      },
+      stdio: ['pipe', 'pipe', 'pipe'],
+    });
+    timer = setTimeout(() => {
+      try { child.kill('SIGKILL'); } catch {}
+      finish({ ok: false, error: '上传超时' });
+    }, 30000 + Math.ceil(size / (1024 * 1024)) * 4000);
+    stream.on('data', (chunk) => {
+      received += chunk.length;
+      if (received > CHAT_UPLOAD_MAX_BYTES) {
+        try { child.kill('SIGKILL'); } catch {}
+        finish({ ok: false, error: '文件太大' });
+      }
+    });
+    stream.on('error', () => {
+      try { child.kill('SIGKILL'); } catch {}
+      finish({ ok: false, error: '上传中断' });
+    });
+    child.stdin.on('error', () => {});
+    stream.pipe(child.stdin);
+    child.stdout.on('data', (d) => { out += d; });
+    child.stderr.on('data', (d) => { err += d; });
+    child.on('error', (e) => finish({ ok: false, error: e.message }));
+    child.on('close', (code) => {
+      if (code === 0 && out.includes('takt-upload-ok') && received === size) {
+        finish({ ok: true, remotePath, name, size: received });
+      } else {
+        finish({ ok: false, error: (err.trim().split('\n').pop() || `上传失败（${code}）`).slice(0, 200) });
+      }
+    });
+  });
+}
+
 // Claude usage (/usage) and model list (/model) per node — fetched on the node with its own
 // OAuth credentials; nothing is typed into the terminal.
 const claudeMetaCache = new Map(); // host -> { usage: {at, data}, models: {at, data} }
@@ -3671,6 +3754,26 @@ const server = http.createServer(async (req, res) => {
       return;
     }
 
+    // API: file pasted / dropped into the DockTerm composer -> written straight to the node
+    if (req.method === 'POST' && u.pathname === '/api/chat-upload') {
+      const node = getNodeById(u.searchParams.get('nodeId') || '');
+      const cwd = String(u.searchParams.get('cwd') || '').trim();
+      const size = Number(req.headers['content-length'] || 0);
+      if (!node || !node.sshHost || !cwd.startsWith('/')) {
+        req.resume();
+        sendJson(res, 400, { ok: false, error: '缺少节点或工作目录' });
+        return;
+      }
+      if (!size || size > CHAT_UPLOAD_MAX_BYTES) {
+        req.resume();
+        sendJson(res, 413, { ok: false, error: size ? `文件超过 ${formatByteSize(CHAT_UPLOAD_MAX_BYTES)}` : '空文件' });
+        return;
+      }
+      const r = await uploadChatAttachment(node, cwd, u.searchParams.get('name') || 'file', req, size);
+      sendJson(res, r.ok ? 200 : 500, r);
+      return;
+    }
+
     // API: Claude usage (5h / weekly) + model list + configured model/effort for a node
     if (req.method === 'GET' && u.pathname === '/api/claude-meta') {
       const data = await fetchClaudeMeta({
@@ -3834,7 +3937,7 @@ const server = http.createServer(async (req, res) => {
       const body64 = Buffer.from(isPaste ? text.slice(PASTE_START.length, -PASTE_END.length) : text, 'utf8').toString('base64');
       const py = `
 import base64, subprocess, time
-sess = ${JSON.stringify(tmuxSess)}
+sess = "=" + ${JSON.stringify(tmuxSess)} + ":"
 raw = base64.b64decode(${JSON.stringify(body64)}).decode("utf-8", errors="ignore")
 if raw:
     if ${isPaste ? 'True' : 'False'}:
@@ -3847,16 +3950,11 @@ if ${submitEnter ? 'True' : 'False'}:
     subprocess.run(["tmux", "send-keys", "-t", sess, "Enter"], timeout=2)
 `.trim();
       const pyB64 = Buffer.from(py, 'utf8').toString('base64');
-      const muxSocket = `/tmp/takt-chat-mux-%r@%h:%p`;
       const r = await runCmd('ssh', [
-        '-o', 'ConnectTimeout=4',
-        '-o', 'ControlMaster=auto',
-        '-o', `ControlPath=${muxSocket}`,
-        '-o', 'ControlPersist=120s',
-        '-o', 'ClearAllForwardings=yes',
+        ...DOCKTERM_SSH_OPTS,
         targetHost,
         `python3 -c "import base64;exec(base64.b64decode('${pyB64}'))"`,
-      ], 4500);
+      ], 4500 + enterDelayMs);
       sendJson(res, 200, { ok: r.exitCode === 0, via: 'tmux' });
       return;
     }

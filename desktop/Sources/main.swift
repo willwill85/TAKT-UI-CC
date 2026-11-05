@@ -141,7 +141,9 @@ class AppDelegate: NSObject, NSApplicationDelegate, WKUIDelegate, WKNavigationDe
             if let tv = nativeTabs[tabId], !text.isEmpty {
                 let bytes = Array(text.utf8)
                 tv.send(source: tv, data: bytes[...])
-                if engineMode == "native" {
+                // Only take keyboard focus when the terminal is actually on screen: in the
+                // conversation view it is hidden and the web composer must keep receiving keys.
+                if engineMode == "native" && !nativeTerminalContainer.isHidden && !tv.isHidden {
                     window.makeFirstResponder(tv)
                 }
             }
