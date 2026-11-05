@@ -1113,6 +1113,7 @@ function closePtyTab(tabId, explicitNodeId) {
   const node = getNodeById(explicitNodeId || (tab && tab.nodeId));
   const targetHost = (tab && tab.sshHost) || (node && node.sshHost) || 'korea-claude';
   const tmuxSess = sanitizeTmuxSessionId(tabId);
+  docktermTabs.delete(`${targetHost}::${tmuxSess}`);
   if (targetHost) {
     runCmd('ssh', [
       '-o', 'ConnectTimeout=3',
@@ -1453,7 +1454,17 @@ async function getCombinedSystemStatus() {
 }
 
 // ============================================================================
-// 4B. DockTerm Chat Mode Parser & Remote Session / Tmux Screen Inspector
+// 4B. DockTerm Chat Mode — incremental transcript reader + tmux screen inspector
+//
+// Each poll runs one small Python script on the node (over a ControlMaster socket) that
+//   1. captures the *visible* tmux pane (status / permission prompt detection),
+//   2. finds the Claude process running in that pane (its cwd + session id flags),
+//   3. resolves the transcript `.jsonl` that process is writing, and
+//   4. returns only the bytes appended since the last poll, pre-compacted to the
+//      fields the chat view needs (tool results, images and file bodies are dropped).
+// The server keeps the parsed rows per transcript and hands the browser deltas
+// (`epoch` + `ver`), so a long conversation is transferred once, not every second.
+// Older history is paged in on demand via /api/chat-history.
 // ============================================================================
 const DOCKTERM_NOISE_TAGS = [
   'command-name',
@@ -1463,11 +1474,19 @@ const DOCKTERM_NOISE_TAGS = [
   'local-command-stderr',
   'local-command-caveat',
   'system-reminder',
+  'bash-stdout',
+  'bash-stderr',
 ];
 const DOCKTERM_NOISE_RE = new RegExp(`<(${DOCKTERM_NOISE_TAGS.join('|')})>[\\s\\S]*?<\\/\\1>`, 'g');
 
+const DOCKTERM_INITIAL_BYTES = 2 * 1024 * 1024; // first load: last ~2 MB of the transcript
+const DOCKTERM_HISTORY_BYTES = 2 * 1024 * 1024; // each "load earlier" page
+const DOCKTERM_POLL_MAX_BYTES = 8 * 1024 * 1024; // cap per incremental poll
+const DOCKTERM_MAX_TEXT = 40000; // per text block, applied on the node before transfer
+
 function stripDocktermNoise(s) {
   return String(s || '')
+    .replace(/<bash-input>([\s\S]*?)<\/bash-input>/g, (_, cmd) => `! ${cmd.trim()}`)
     .replace(DOCKTERM_NOISE_RE, '')
     .replace(/\[Request interrupted by user[^\]]*\]/g, '')
     .trim();
@@ -1495,78 +1514,85 @@ function summarizeDocktermTool(name, input) {
     case 'NotebookEdit':
       return docktermBasename(inp.file_path ?? inp.notebook_path);
     case 'Bash':
-      return docktermTrim(inp.command, 68) || docktermTrim(inp.description, 68);
+      return docktermTrim(inp.command, 120) || docktermTrim(inp.description, 120);
     case 'Grep':
     case 'Glob':
-      return docktermTrim(inp.pattern, 56);
+      return docktermTrim(inp.pattern, 80);
     case 'Task':
     case 'Agent':
-      return docktermTrim(inp.description ?? inp.prompt, 68);
+      return docktermTrim(inp.description ?? inp.prompt, 100);
     case 'WebFetch': {
       const u = typeof inp.url === 'string' ? inp.url : '';
-      try { return new URL(u).hostname; } catch { return docktermTrim(u, 56); }
+      try { return new URL(u).hostname; } catch { return docktermTrim(u, 80); }
     }
     case 'WebSearch':
-      return docktermTrim(inp.query, 56);
+      return docktermTrim(inp.query, 80);
     case 'TodoWrite': {
-      const n = Array.isArray(inp.todos) ? inp.todos.length : 0;
+      const n = Array.isArray(inp.todos) ? inp.todos.length : Number(inp.todos || 0);
       return n ? `${n} item${n === 1 ? '' : 's'}` : '';
     }
     default:
       return docktermTrim(
         inp.file_path ?? inp.path ?? inp.command ?? inp.pattern ?? inp.query ?? inp.description ?? inp.url,
-        56
+        80
       );
   }
 }
 
-function parseDocktermJsonlTranscript(rawText, maxMessages = 320) {
+/**
+ * Turn compacted transcript records into chat rows.
+ * `ctx` carries state across chunks: toolById (tool_use rows awaiting a result),
+ * orphanResults (results whose tool_use lives in a chunk not loaded yet), lastUserText (dedupe).
+ */
+function parseTranscriptRecords(records, ctx, idPrefix) {
   const out = [];
-  const toolById = new Map();
-  let lastUserText = null;
-  const lines = String(rawText || '').split('\n');
+  const setToolResult = (toolUseId, ok) => {
+    const hit = ctx.toolById.get(toolUseId);
+    if (!hit) {
+      ctx.orphanResults.set(toolUseId, ok);
+      return;
+    }
+    if (hit.tool.ok !== ok) {
+      hit.tool.ok = ok;
+      if (ctx.onToolUpdate) ctx.onToolUpdate(hit);
+    }
+  };
 
-  for (let i = 0; i < lines.length; i++) {
-    const line = lines[i].trim();
-    if (!line || line[0] !== '{') continue;
-    let obj;
-    try { obj = JSON.parse(line); } catch { continue; }
+  for (let i = 0; i < records.length; i++) {
+    const obj = records[i];
     if (!obj || typeof obj !== 'object') continue;
-    if (obj.isSidechain || obj.isMeta || obj.isCompactSummary || obj.isVisibleInTranscriptOnly) continue;
     const t = obj.type;
     if (t !== 'user' && t !== 'assistant') continue;
-    const msg = obj.message;
-    if (!msg || typeof msg !== 'object') continue;
-    const content = msg.content;
+    const content = obj.message && obj.message.content;
     const rawTs = typeof obj.timestamp === 'string' ? Date.parse(obj.timestamp) : NaN;
     const ts = Number.isFinite(rawTs) ? rawTs : 0;
-    const baseId = typeof obj.uuid === 'string' ? obj.uuid : `line-${i}`;
+    const baseId = typeof obj.uuid === 'string' && obj.uuid ? obj.uuid : `${idPrefix}:${i}`;
 
     if (t === 'user') {
+      const textParts = [];
       if (typeof content === 'string') {
         const clean = stripDocktermNoise(content);
-        if (clean && clean !== lastUserText) {
-          out.push({ id: baseId, role: 'user', ts, text: clean });
-          lastUserText = clean;
-        }
+        if (clean) textParts.push(clean);
       } else if (Array.isArray(content)) {
-        const textParts = [];
+        let images = 0;
         for (const b of content) {
           if (!b || typeof b !== 'object') continue;
           if (b.type === 'tool_result' && typeof b.tool_use_id === 'string') {
-            const hit = toolById.get(b.tool_use_id);
-            if (hit && hit.tool) hit.tool.ok = !b.is_error;
+            setToolResult(b.tool_use_id, !b.is_error);
           } else if (b.type === 'text' && typeof b.text === 'string') {
             const clean = stripDocktermNoise(b.text);
             if (clean) textParts.push(clean);
+          } else if (b.type === 'image') {
+            images += 1;
           }
         }
-        if (textParts.length > 0) {
-          const joined = textParts.join('\n\n');
-          if (joined !== lastUserText) {
-            out.push({ id: baseId, role: 'user', ts, text: joined });
-            lastUserText = joined;
-          }
+        if (images > 0) textParts.push(images === 1 ? '[图片]' : `[图片 ×${images}]`);
+      }
+      if (textParts.length > 0) {
+        const joined = textParts.join('\n\n');
+        if (joined !== ctx.lastUserText) {
+          out.push({ id: baseId, role: 'user', ts, text: joined });
+          ctx.lastUserText = joined;
         }
       }
       continue;
@@ -1579,7 +1605,7 @@ function parseDocktermJsonlTranscript(rawText, maxMessages = 320) {
         if (!textParts.length) return;
         out.push({ id: `${baseId}:${sub++}`, role: 'assistant', ts, text: textParts.join('\n\n') });
         textParts.length = 0;
-        lastUserText = null;
+        ctx.lastUserText = null;
       };
       for (const b of content) {
         if (!b || typeof b !== 'object') continue;
@@ -1588,19 +1614,19 @@ function parseDocktermJsonlTranscript(rawText, maxMessages = 320) {
           if (clean && clean !== 'No response requested.') textParts.push(clean);
         } else if (b.type === 'tool_use' && typeof b.name === 'string') {
           flushText();
-          const toolId = typeof b.id === 'string' ? b.id : `${baseId}:tool-${sub++}`;
+          const toolId = typeof b.id === 'string' && b.id ? b.id : `${baseId}:tool-${sub++}`;
           const row = {
             id: toolId,
             role: 'tool',
             ts,
-            tool: {
-              name: b.name,
-              summary: summarizeDocktermTool(b.name, b.input),
-              ok: null,
-            },
+            tool: { name: b.name, summary: summarizeDocktermTool(b.name, b.input), ok: null },
           };
+          if (ctx.orphanResults.has(toolId)) {
+            row.tool.ok = ctx.orphanResults.get(toolId);
+            ctx.orphanResults.delete(toolId);
+          }
           out.push(row);
-          if (typeof b.id === 'string') toolById.set(b.id, row);
+          ctx.toolById.set(toolId, row);
         }
       }
       flushText();
@@ -1608,26 +1634,90 @@ function parseDocktermJsonlTranscript(rawText, maxMessages = 320) {
       const clean = stripDocktermNoise(content);
       if (clean && clean !== 'No response requested.') {
         out.push({ id: baseId, role: 'assistant', ts, text: clean });
-        lastUserText = null;
+        ctx.lastUserText = null;
       }
     }
   }
-
-  return out.length > maxMessages ? out.slice(-maxMessages) : out;
+  return out;
 }
 
-const CLAUDE_WORKING_RE = /(?:^|\s)[·✢✳✶✻✽*]\s+\S[^\n]{0,60}…|\besc to interrupt\b/i;
-const CLAUDE_ASKING_RE = /\bEsc to cancel\b|(?:^|\n)\s*❯\s*\d+\./;
+function newTranscriptState(host, jsonlPath, startOffset) {
+  return {
+    host,
+    path: jsonlPath,
+    epoch: crypto.randomBytes(4).toString('hex'),
+    startOffset,
+    endOffset: startOffset,
+    messages: [],
+    byId: new Map(),
+    toolById: new Map(),
+    orphanResults: new Map(),
+    lastUserText: null,
+    ver: 0,
+    seqHead: 0,
+    seqTail: 0,
+    touchedAt: Date.now(),
+    historyInflight: null,
+  };
+}
+
+function appendTranscriptRecords(st, records, chunkStart) {
+  const ctx = {
+    toolById: st.toolById,
+    orphanResults: st.orphanResults,
+    lastUserText: st.lastUserText,
+    onToolUpdate: (row) => { if (row.ver) row.ver = ++st.ver; },
+  };
+  const rows = parseTranscriptRecords(records, ctx, `o${chunkStart}`);
+  st.lastUserText = ctx.lastUserText;
+  for (const r of rows) {
+    if (st.byId.has(r.id)) continue;
+    r.seq = ++st.seqTail;
+    r.ver = ++st.ver;
+    st.messages.push(r);
+    st.byId.set(r.id, r);
+  }
+}
+
+function prependTranscriptRecords(st, records, chunkStart) {
+  const ctx = { toolById: new Map(), orphanResults: st.orphanResults, lastUserText: null };
+  const rows = parseTranscriptRecords(records, ctx, `o${chunkStart}`).filter((r) => !st.byId.has(r.id));
+  const base = st.seqHead - rows.length;
+  rows.forEach((r, i) => {
+    r.seq = base + i;
+    r.ver = ++st.ver;
+    st.byId.set(r.id, r);
+  });
+  st.seqHead = base;
+  st.messages = rows.concat(st.messages);
+  return rows;
+}
+
+// ---------------------------------------------------------------------------
+// Screen classification (visible tmux pane only — scrollback would keep stale
+// "esc to interrupt" / prompt text around and pin the status forever)
+// ---------------------------------------------------------------------------
+const CLAUDE_SPINNER_LINE_RE = /^\s*[·✢✳✶✻✽∗*]\s+\S[^\n]{0,80}…/;
 const CLAUDE_NUMBERED_OPT_RE = /^\s*(❯)?\s*(\d+)\.\s*(?:\[(x| )\]\s*)?(.+?)\s*$/;
 const CLAUDE_UNNUMBERED_OPT_RE = /^\s*(❯)\s+(?:\[(x| )\]\s*)?(.+?)\s*$/;
 const CLAUDE_STEP_CHIP_RE = /[☐✔☒]\s+[^\s☐✔☒]+/g;
+const CLAUDE_HINT_LINE_RE = /^(Enter to |↑\/↓|Tab\/Arrow|Esc to cancel)/i;
 
 function stripAnsiCodes(str) {
-  return String(str || '').replace(/\x1b\[[0-9;?]*[A-Za-z]|\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)/g, '');
+  return String(str || '').replace(/\x1b\[[0-9;?]*[A-Za-z]|\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)|\x1b[()][A-Z0-9]|\r/g, '');
 }
 
 function isClaudeRuleLine(t) {
   return t.length >= 6 && /^[─━═╌╍┈┉\-]{6,}$/.test(t);
+}
+
+function isClaudeBoxEdge(t) {
+  return /^[╭╰┌└][─━]/.test(t) || /[─━][╮╯┐┘]$/.test(t);
+}
+
+// Remove the "│ ... │" frame Claude Code draws around dialogs and the input box.
+function unframeLine(line) {
+  return String(line || '').replace(/^\s*│ ?/, '').replace(/\s*│\s*$/, '');
 }
 
 function isBinaryAllowDeny(options) {
@@ -1638,9 +1728,9 @@ function isBinaryAllowDeny(options) {
   return options.slice(1, -1).every((o) => /^yes\b|^allow\b/i.test(o));
 }
 
-function parseClaudeAsk(rawScreen) {
-  const text = stripAnsiCodes(rawScreen);
-  const rawLines = text.split('\n');
+function parseClaudeAsk(screenText) {
+  const framedLines = screenText.split('\n');
+  const rawLines = framedLines.map(unframeLine);
   let footerIdx = -1;
   for (let i = rawLines.length - 1; i >= 0; i--) {
     if (/esc to cancel/i.test(rawLines[i])) {
@@ -1649,13 +1739,44 @@ function parseClaudeAsk(rawScreen) {
     }
   }
   const endIdx = footerIdx >= 0 ? footerIdx : rawLines.length;
+
+  // Locate the dialog: the last "❯" cursor line, then walk up to the dialog's own frame
+  // (outer "╭" box edge at the same indent, or a long solid rule) so that nested boxes
+  // such as an Edit diff stay part of the prompt body.
+  let cursorLine = -1;
+  for (let i = endIdx - 1; i >= 0; i--) {
+    if (/^\s*❯/.test(rawLines[i])) {
+      cursorLine = i;
+      break;
+    }
+  }
+  let blockStart = 0;
+  const anchor = cursorLine >= 0 ? cursorLine : endIdx - 1;
+  const frame = anchor >= 0 ? (framedLines[anchor] || '').match(/^(\s*)│/) : null;
+  for (let i = anchor - 1; i >= 0; i--) {
+    const r = framedLines[i] || '';
+    if (frame) {
+      const ind = frame[1].length;
+      if (r[ind] === '╭' && !r.slice(0, ind).trim()) {
+        blockStart = i + 1;
+        break;
+      }
+    } else if (/^\s*[─━]{20,}\s*$/.test(r)) {
+      blockStart = i + 1;
+      break;
+    }
+  }
+
   const parsed = [];
   let cursorPos = 0;
-
-  for (let i = 0; i < endIdx; i++) {
+  for (let i = blockStart; i < endIdx; i++) {
     const nm = rawLines[i].match(CLAUDE_NUMBERED_OPT_RE);
     if (nm) {
       const n = Number(nm[2]);
+      if (n === 1 && parsed.length > 0 && parsed[0].numbered) {
+        parsed.length = 0; // a fresh list started — keep the latest one
+        cursorPos = 0;
+      }
       if (n === parsed.length + 1) {
         if (nm[1]) cursorPos = parsed.length;
         parsed.push({
@@ -1670,26 +1791,16 @@ function parseClaudeAsk(rawScreen) {
     const um = rawLines[i].match(CLAUDE_UNNUMBERED_OPT_RE);
     if (um && parsed.length === 0) {
       cursorPos = 0;
-      parsed.push({
-        row: i,
-        label: um[3],
-        numbered: false,
-        check: um[2] === 'x' ? true : um[2] === ' ' ? false : null,
-      });
-      for (let j = i + 1; j < endIdx && parsed.length < 9; j++) {
+      parsed.push({ row: i, label: um[3], numbered: false, check: um[2] === 'x' ? true : um[2] === ' ' ? false : null });
+      for (let j = i + 1; j < endIdx && parsed.length < 12; j++) {
         const raw = rawLines[j];
         const t = raw.trim();
-        if (!t || isClaudeRuleLine(t)) break;
-        if (/^(Enter to |↑\/↓|Tab\/Arrow)/i.test(t)) break;
+        if (!t || isClaudeRuleLine(t) || isClaudeBoxEdge(t)) break;
+        if (CLAUDE_HINT_LINE_RE.test(t)) break;
         const indent = (raw.match(/^\s*/) || [''])[0].length;
         if (indent < 2 || indent > 5) break;
         const cm = t.match(/^\[(x| )\]\s*(.+)$/);
-        parsed.push({
-          row: j,
-          label: cm ? cm[2] : t,
-          numbered: false,
-          check: cm ? cm[1] === 'x' : null,
-        });
+        parsed.push({ row: j, label: cm ? cm[2] : t, numbered: false, check: cm ? cm[1] === 'x' : null });
       }
       break;
     }
@@ -1732,8 +1843,8 @@ function parseClaudeAsk(rawScreen) {
     const parts = [];
     for (let r = start; r < stop; r++) {
       const t = rawLines[r].trim();
-      if (!t || isClaudeRuleLine(t)) break;
-      if (/^(Enter to |↑\/↓|Tab\/Arrow)/i.test(t)) break;
+      if (!t || isClaudeRuleLine(t) || isClaudeBoxEdge(t)) break;
+      if (CLAUDE_HINT_LINE_RE.test(t)) break;
       parts.push(t);
     }
     return parts.join(' ');
@@ -1746,27 +1857,36 @@ function parseClaudeAsk(rawScreen) {
     checked = [false, false];
   }
 
+  // Prompt body: everything above the options up to the dialog frame / rule line.
   const firstOptRow = parsed.length > 0 ? parsed[0].row : endIdx;
   let steps = [];
   const above = [];
-  for (let i = firstOptRow - 1; i >= 0 && above.length < 8; i--) {
-    const t = rawLines[i].trim();
-    if (!t) {
-      if (above.length > 0) break;
-      continue;
-    }
-    if (isClaudeRuleLine(t)) break;
-    if (/^[·✢✳✶✻✽●⏺]\s/.test(t)) break;
-    const chips = t.match(CLAUDE_STEP_CHIP_RE);
-    if (chips && chips.length >= 1 && (t.includes('←') || t.includes('→') || chips.length >= 2)) {
+  for (let i = firstOptRow - 1; i >= blockStart && above.length < 60; i--) {
+    const t = rawLines[i].trimEnd();
+    const tt = t.trim();
+    if (!blockStart && (isClaudeRuleLine(tt) || isClaudeBoxEdge(tt))) break;
+    if (/^[·✢✳✶✻✽●⏺]\s/.test(tt)) break;
+    const chips = tt.match(CLAUDE_STEP_CHIP_RE);
+    if (chips && chips.length >= 1 && (tt.includes('←') || tt.includes('→') || chips.length >= 2)) {
       steps = chips.map((c) => ({ done: c[0] === '✔' || c[0] === '☒', label: c.slice(1).trim() }));
       break;
     }
     above.unshift(t);
   }
-  const title = above.join('\n') || 'Claude is waiting for your input';
+  // Dedent and collapse blank runs
+  const nonEmpty = above.filter((l) => l.trim());
+  const minIndent = nonEmpty.length ? Math.min(...nonEmpty.map((l) => (l.match(/^\s*/) || [''])[0].length)) : 0;
+  const bodyLines = [];
+  for (const l of above) {
+    const v = l.slice(minIndent);
+    if (!v.trim() && (!bodyLines.length || !bodyLines[bodyLines.length - 1].trim())) continue;
+    bodyLines.push(v);
+  }
+  while (bodyLines.length && !bodyLines[bodyLines.length - 1].trim()) bodyLines.pop();
+  const title = bodyLines.join('\n') || 'Claude 正在等待你的输入';
   const footer = footerIdx >= 0 ? rawLines.slice(Math.max(0, footerIdx - 1), footerIdx + 1).join(' ') : '';
   const multiSelect = checkable.some(Boolean) || /space to select/i.test(footer);
+  const freeTextIndex = options.findIndex((o) => /^(type something|other\b|chat about this)/i.test(o));
 
   return {
     title,
@@ -1778,6 +1898,7 @@ function parseClaudeAsk(rawScreen) {
     checkable,
     checked,
     submitIndex,
+    freeTextIndex,
     cursorRow: cursorPos,
     numbered,
   };
@@ -1785,215 +1906,551 @@ function parseClaudeAsk(rawScreen) {
 
 function classifyClaudeScreen(rawScreen) {
   const clean = stripAnsiCodes(rawScreen);
-  const tailSlice = clean.slice(-2200);
-  let status = 'idle';
-  if (CLAUDE_ASKING_RE.test(tailSlice)) status = 'asking';
-  else if (CLAUDE_WORKING_RE.test(tailSlice)) status = 'working';
+  const lines = clean.split('\n').map((l) => l.trimEnd());
+  while (lines.length && !lines[lines.length - 1].trim()) lines.pop();
+  const lastLines = lines.filter((l) => l.trim()).slice(-14);
+  const lastText = lastLines.join('\n');
 
-  const ask = status === 'asking' ? parseClaudeAsk(tailSlice) : null;
-  const tailLines = clean
-    .split('\n')
-    .map((l) => l.trimEnd())
-    .filter((l) => l.trim().length > 0 && !isClaudeRuleLine(l.trim()))
+  let status = 'idle';
+  const asking = /\bEsc to cancel\b/i.test(lastText) || lastLines.some((l) => /^\s*❯\s*\d+\.\s+\S/.test(unframeLine(l)));
+  if (asking) status = 'asking';
+  else if (/\besc to interrupt\b/i.test(lastText) || lastLines.some((l) => CLAUDE_SPINNER_LINE_RE.test(l))) status = 'working';
+
+  const ask = status === 'asking' ? parseClaudeAsk(lines.join('\n')) : null;
+
+  // Live tail: last meaningful lines above Claude's input box / footer hints
+  const tailLines = lines
+    .map(unframeLine)
+    .filter((l) => {
+      const t = l.trim();
+      if (!t || isClaudeRuleLine(t) || isClaudeBoxEdge(t)) return false;
+      if (/^[>›❯](\s|$)/.test(t)) return false; // Claude's input line (may hold an unsent draft)
+      if (/\? for shortcuts|shift\+tab|⏵⏵|bypass permissions|auto-accept edits|plan mode on/i.test(t)) return false;
+      return true;
+    })
     .slice(-8);
 
-  return {
-    status,
-    ask,
-    tail: tailLines.join('\n'),
-  };
+  return { status, ask, tail: tailLines.join('\n') };
 }
 
-function buildRemoteChatInspectPy({ sessionId, cwd, tmuxSess }) {
-  const payload = JSON.stringify({
-    sessionId: String(sessionId || ''),
-    cwd: String(cwd || '/root/work'),
-    tmuxSess: String(tmuxSess || 'takt_main'),
-  });
-  return `
-import os, sys, json, glob, subprocess
+// ---------------------------------------------------------------------------
+// Remote inspector (Python 3, stdlib only). Config arrives base64-encoded.
+// ---------------------------------------------------------------------------
+const DOCKTERM_REMOTE_PY = String.raw`
+import os, sys, json, glob, re, time, base64, subprocess
 
-cfg = json.loads(${JSON.stringify(payload)})
-sid = cfg.get("sessionId", "").strip()
-cwd = cfg.get("cwd", "/root/work").strip().rstrip("/") or "/root/work"
-tmux_sess = cfg.get("tmuxSess", "takt_main").strip()
+cfg = json.loads(base64.b64decode(CFG_B64).decode("utf-8"))
+mode = cfg.get("mode", "poll")
 home = os.path.expanduser("~")
 proj_root = os.path.join(home, ".claude", "projects")
+proj_root_real = os.path.realpath(proj_root)
+MAX_TEXT = int(cfg.get("maxText", 40000))
+KEEP_KEYS = ("file_path", "notebook_path", "path", "command", "description", "pattern", "prompt", "url", "query")
+UUID_RE = re.compile(r"(?:--resume|--session-id|-r)[ =]([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})")
+CLAUDE_RE = re.compile(r"(^|/)claude(\s|$)|claude-code/cli|@anthropic-ai/claude")
 
-# 1. Capture tmux pane screen and check if claude is running inside this tmux session
-pane_text = ""
-claude_running = False
-try:
-    r = subprocess.run(["tmux", "capture-pane", "-p", "-J", "-t", tmux_sess, "-S", "-60"], capture_output=True, text=True, timeout=2)
-    if r.returncode == 0:
-        pane_text = r.stdout
-    p_info = subprocess.run(["tmux", "list-panes", "-t", tmux_sess, "-F", "#{pane_current_command} #{pane_pid}"], capture_output=True, text=True, timeout=2)
-    if p_info.returncode == 0:
-        for line in p_info.stdout.strip().splitlines():
-            parts = line.split()
-            if not parts:
+def out(obj):
+    sys.stdout.write(json.dumps(obj))
+    sys.stdout.flush()
+
+def clip(s):
+    return s if len(s) <= MAX_TEXT else s[:MAX_TEXT] + "\n…"
+
+def compact(obj):
+    t = obj.get("type")
+    if t not in ("user", "assistant"):
+        return None
+    if obj.get("isSidechain") or obj.get("isMeta") or obj.get("isCompactSummary") or obj.get("isVisibleInTranscriptOnly"):
+        return None
+    msg = obj.get("message")
+    if not isinstance(msg, dict):
+        return None
+    c = msg.get("content")
+    if isinstance(c, str):
+        cc = clip(c)
+    elif isinstance(c, list):
+        cc = []
+        for b in c:
+            if not isinstance(b, dict):
                 continue
-            cmd = parts[0].lower()
-            if "claude" in cmd or "node" in cmd:
-                claude_running = True
-            if len(parts) > 1 and parts[1].isdigit():
-                ps = subprocess.run(["ps", "--ppid", parts[1], "-o", "comm=,args="], capture_output=True, text=True, timeout=1)
-                if "claude" in ps.stdout.lower():
-                    claude_running = True
-except Exception:
-    pass
+            bt = b.get("type")
+            if bt == "text" and isinstance(b.get("text"), str):
+                cc.append({"type": "text", "text": clip(b["text"])})
+            elif bt == "tool_use":
+                inp = b.get("input") if isinstance(b.get("input"), dict) else {}
+                small = {}
+                for k in KEEP_KEYS:
+                    v = inp.get(k)
+                    if isinstance(v, str):
+                        small[k] = v[:400]
+                if isinstance(inp.get("todos"), list):
+                    small["todos"] = len(inp["todos"])
+                cc.append({"type": "tool_use", "id": b.get("id"), "name": b.get("name"), "input": small})
+            elif bt == "tool_result":
+                cc.append({"type": "tool_result", "tool_use_id": b.get("tool_use_id"), "is_error": bool(b.get("is_error"))})
+            elif bt == "image":
+                cc.append({"type": "image"})
+    else:
+        return None
+    return {"type": t, "uuid": obj.get("uuid"), "timestamp": obj.get("timestamp"), "message": {"content": cc}}
 
-# Also infer claude_running if the screen clearly shows Claude Code UI markers
-if not claude_running and ("Claude Code" in pane_text or "esc to interrupt" in pane_text.lower() or "Esc to cancel" in pane_text or "for shortcuts" in pane_text):
-    claude_running = True
+def records_from(data):
+    recs = []
+    for line in data.split(b"\n"):
+        line = line.strip()
+        if not line or line[:1] != b"{":
+            continue
+        try:
+            obj = json.loads(line.decode("utf-8", "ignore"))
+        except Exception:
+            continue
+        if isinstance(obj, dict):
+            r = compact(obj)
+            if r:
+                recs.append(r)
+    return recs
 
-# 2. Locate the best matching .jsonl transcript file
-def has_turns(fp):
+def next_line_start(f, pos):
+    if pos <= 0:
+        return 0
+    f.seek(pos - 1)
+    base = pos - 1
+    while True:
+        block = f.read(65536)
+        if not block:
+            return None
+        i = block.find(b"\n")
+        if i >= 0:
+            return base + i + 1
+        base += len(block)
+
+def prev_line_start(f, pos):
+    p = pos - 1
+    while p > 0:
+        step = min(65536, p)
+        f.seek(p - step)
+        block = f.read(step)
+        i = block.rfind(b"\n")
+        if i >= 0:
+            return p - step + i + 1
+        p -= step
+    return 0
+
+def read_lines(f, start, stop):
+    f.seek(start)
+    data = f.read(max(0, stop - start))
+    i = data.rfind(b"\n")
+    if i < 0:
+        return b"", start
+    return data[:i + 1], start + i + 1
+
+def safe_jsonl(p):
+    if not p:
+        return ""
+    real = os.path.realpath(p)
+    if not real.startswith(proj_root_real + os.sep) or not real.endswith(".jsonl") or not os.path.isfile(real):
+        return ""
+    return real
+
+# ---------------------------------------------------------------- history page
+if mode == "history":
+    fp = safe_jsonl(cfg.get("path", ""))
+    before = int(cfg.get("before", 0))
+    chunk = int(cfg.get("chunkBytes", 2097152))
+    if not fp or before <= 0:
+        out({"error": "no-transcript"})
+        sys.exit(0)
+    with open(fp, "rb") as f:
+        start = 0 if before - chunk <= 0 else next_line_start(f, before - chunk)
+        if start is None or start >= before:
+            start = prev_line_start(f, before)
+        data, _ = read_lines(f, start, before)
+    out({"jsonlPath": fp, "chunkStart": start, "chunkEnd": before, "records": records_from(data)})
+    sys.exit(0)
+
+# ---------------------------------------------------------------- poll
+tmux_sess = cfg.get("tmuxSess", "")
+tab_cwd = (cfg.get("cwd") or "").rstrip("/") or home
+sid = (cfg.get("sessionId") or "").strip()
+known_path = safe_jsonl(cfg.get("knownPath", ""))
+known_end = int(cfg.get("knownEnd", 0))
+claimed_paths = set(os.path.realpath(p) for p in (cfg.get("claimedPaths") or []) if p)
+
+def run(args, timeout=2):
     try:
-        sz = os.path.getsize(fp)
-        if sz < 120:
-            return False
-        with open(fp, "rb") as f:
-            if sz > 131072:
-                f.seek(sz - 131072)
-            chunk = f.read(131072).decode("utf-8", errors="ignore")
-        return ('"type":"assistant"' in chunk or '"type": "assistant"' in chunk)
+        r = subprocess.run(args, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, universal_newlines=True, timeout=timeout)
+        return r.stdout if r.returncode == 0 else ""
     except Exception:
-        return False
+        return ""
 
-jsonl_path = ""
-resolved_sid = sid
-if os.path.isdir(proj_root):
-    if sid:
-        matches = [p for p in glob.glob(os.path.join(proj_root, "*", f"{sid}.jsonl")) if has_turns(p)]
-        if matches:
-            matches.sort(key=lambda p: os.path.getmtime(p), reverse=True)
-            jsonl_path = matches[0]
-    if not jsonl_path:
-        # Match by cwd slug (e.g. /root/work/foo -> -root-work-foo)
-        slug = cwd.replace("/", "-").replace("_", "-")
-        candidate_dirs = []
-        for d in glob.glob(os.path.join(proj_root, "*")):
-            if not os.path.isdir(d):
-                continue
-            b = os.path.basename(d)
-            if b == cwd.replace("/", "-") or b == slug:
-                candidate_dirs.append(d)
-        if not candidate_dirs:
-            # Also try home-expanded cwd if /root/work mapped to /home/ubuntu/work
-            alt_cwd = os.path.join(home, cwd[6:]) if cwd.startswith("/root/") else cwd
-            alt_slug = alt_cwd.replace("/", "-")
-            for d in glob.glob(os.path.join(proj_root, "*")):
-                if os.path.isdir(d) and (os.path.basename(d) == alt_slug or os.path.basename(d) == alt_slug.replace("_", "-")):
-                    candidate_dirs.append(d)
-        best_files = []
-        for d in glob.glob(os.path.join(proj_root, "*")):
-            if os.path.isdir(d) and (os.path.basename(d) == slug or os.path.basename(d).startswith(cwd.replace("/", "-"))):
-                for fp in glob.glob(os.path.join(d, "*.jsonl")):
-                    if has_turns(fp):
-                        sz = os.path.getsize(fp)
-                        is_exact = (os.path.basename(d) == cwd.replace("/", "-") or os.path.basename(d) == slug)
-                        best_files.append((1 if (is_exact and sz > 1800) else 0, 1 if sz > 1800 else 0, os.path.getmtime(fp), fp))
-        if best_files:
-            best_files.sort(reverse=True)
-            jsonl_path = best_files[0][3]
-            resolved_sid = os.path.splitext(os.path.basename(jsonl_path))[0]
-
-jsonl_tail = ""
-if jsonl_path and os.path.isfile(jsonl_path):
+pane_text = ""
+pane_cwd = ""
+pane_pid = 0
+# "=name:" = exact session match (plain -t also accepts prefixes / fnmatch patterns)
+target = "=" + tmux_sess + ":"
+info = run(["tmux", "display-message", "-p", "-t", target, "#{pane_pid}\t#{pane_current_path}"]).strip()
+if info:
+    parts = info.split("\t")
     try:
-        sz = os.path.getsize(jsonl_path)
-        max_bytes = 524288
-        with open(jsonl_path, "rb") as f:
-            if sz > max_bytes:
-                f.seek(sz - max_bytes)
-                raw = f.read().decode("utf-8", errors="ignore")
-                nl = raw.find("\\n")
-                jsonl_tail = raw[nl + 1:] if nl >= 0 else raw
-            else:
-                jsonl_tail = f.read().decode("utf-8", errors="ignore")
+        pane_pid = int(parts[0])
+    except Exception:
+        pane_pid = 0
+    pane_cwd = parts[1] if len(parts) > 1 else ""
+if pane_pid:
+    pane_text = run(["tmux", "capture-pane", "-p", "-J", "-t", target])
+
+# Process table -> the claude process inside this pane (+ ids claimed by other claude processes)
+procs = {}
+children = {}
+for line in run(["ps", "-eo", "pid=,ppid=,etimes=,args="]).splitlines():
+    p = line.strip().split(None, 3)
+    if len(p) < 3:
+        continue
+    try:
+        pid, ppid, et = int(p[0]), int(p[1]), int(p[2])
+    except Exception:
+        continue
+    procs[pid] = (ppid, et, p[3] if len(p) > 3 else "")
+    children.setdefault(ppid, []).append(pid)
+
+claude_pid = 0
+if pane_pid:
+    queue = [pane_pid]
+    seen = set()
+    while queue and not claude_pid:
+        cur = queue.pop(0)
+        if cur in seen:
+            continue
+        seen.add(cur)
+        pr = procs.get(cur)
+        if pr and CLAUDE_RE.search(pr[2]):
+            claude_pid = cur
+            break
+        queue.extend(children.get(cur, []))
+
+claimed_by_others = set()
+for pid, pr in procs.items():
+    if pid != claude_pid and CLAUDE_RE.search(pr[2]):
+        m = UUID_RE.search(pr[2])
+        if m:
+            claimed_by_others.add(m.group(1))
+
+claude_running = bool(claude_pid)
+claude_start = 0
+claude_cwd = ""
+hint_ids = []
+if claude_pid:
+    ppid, et, args = procs[claude_pid]
+    claude_start = time.time() - et
+    try:
+        claude_cwd = os.readlink("/proc/%d/cwd" % claude_pid)
+    except Exception:
+        claude_cwd = ""
+    m = UUID_RE.search(args)
+    if m:
+        hint_ids.append(m.group(1))
+elif pane_text and ("esc to interrupt" in pane_text.lower() or "? for shortcuts" in pane_text):
+    claude_running = True
+if sid and sid not in hint_ids:
+    hint_ids.append(sid)
+
+# Transcript resolution: Claude stores <cwd with every non-alphanumeric char -> '-'>/<session>.jsonl
+def slug(p):
+    return re.sub(r"[^a-zA-Z0-9]", "-", p)
+
+cwd_opts = []
+for c in (claude_cwd, pane_cwd, tab_cwd):
+    if c and c not in cwd_opts:
+        cwd_opts.append(c)
+if tab_cwd.startswith("/root/") and home != "/root":
+    cwd_opts.append(os.path.join(home, tab_cwd[6:]))
+dirs = []
+for c in cwd_opts:
+    d = os.path.join(proj_root, slug(c.rstrip("/") or "/"))
+    if os.path.isdir(d) and d not in dirs:
+        dirs.append(d)
+
+def mtime(p):
+    try:
+        return os.path.getmtime(p)
+    except Exception:
+        return 0
+
+def first_ts(p):
+    # timestamp of the first record = when that transcript was started
+    try:
+        with open(p, "rb") as f:
+            head = f.read(65536)
+        for line in head.split(b"\n"):
+            try:
+                ts = json.loads(line.decode("utf-8", "ignore")).get("timestamp")
+            except Exception:
+                continue
+            if isinstance(ts, str) and len(ts) >= 19:
+                import calendar
+                return calendar.timegm(time.strptime(ts[:19], "%Y-%m-%dT%H:%M:%S"))
     except Exception:
         pass
+    return mtime(p)
 
-print(json.dumps({
-    "resolvedSessionId": resolved_sid,
-    "jsonlPath": jsonl_path,
+def follow_clear(current, pool):
+    # /clear starts a new transcript in the same process: switch only to a newer file that
+    # began after the current one went quiet (files of other tabs are excluded from the pool)
+    best = current
+    for p in sorted(pool, key=mtime, reverse=True):
+        if p == current or mtime(p) <= mtime(current):
+            continue
+        if first_ts(p) >= mtime(current) - 5:
+            best = p
+            break
+    return best
+
+hinted = ""
+for hid in hint_ids:
+    for d in dirs:
+        p = os.path.join(d, hid + ".jsonl")
+        if os.path.isfile(p):
+            hinted = p
+            break
+    if not hinted:
+        g = glob.glob(os.path.join(proj_root, "*", hid + ".jsonl"))
+        if g:
+            hinted = max(g, key=mtime)
+    if hinted:
+        break
+
+chosen = ""
+if claude_pid:
+    window = claude_start - 5
+    pool = []
+    for d in dirs:
+        for p in glob.glob(os.path.join(d, "*.jsonl")):
+            if mtime(p) < window:
+                continue
+            if os.path.splitext(os.path.basename(p))[0] in claimed_by_others or os.path.realpath(p) in claimed_paths:
+                continue
+            pool.append(p)
+    if hinted and mtime(hinted) >= window:
+        chosen = follow_clear(hinted, pool)          # launched with --session-id / -r and writing it
+    elif known_path and known_path in pool:
+        chosen = follow_clear(known_path, pool)      # stick to what this tab showed before
+    elif pool:
+        chosen = max(pool, key=mtime)                # plain "claude": newest unclaimed transcript
+    elif hinted:
+        chosen = hinted                              # just resumed, nothing written yet
+elif hinted:
+    chosen = hinted
+elif known_path:
+    chosen = known_path
+chosen = safe_jsonl(chosen)
+
+res = {
     "claudeRunning": claude_running,
     "paneText": pane_text,
-    "jsonlTail": jsonl_tail,
-}))
+    "paneCwd": claude_cwd or pane_cwd,
+    "tmuxAlive": bool(pane_pid),
+    "jsonlPath": chosen,
+    "resolvedSessionId": os.path.splitext(os.path.basename(chosen))[0] if chosen else "",
+}
+if chosen:
+    size = os.path.getsize(chosen)
+    with open(chosen, "rb") as f:
+        if chosen == known_path and size >= known_end > 0:
+            stop = min(size, known_end + int(cfg.get("maxBytes", 8388608)))
+            data, end = read_lines(f, known_end, stop)
+            if not data and size - known_end > int(cfg.get("maxBytes", 8388608)):
+                nxt = next_line_start(f, known_end + 1)
+                end = nxt if nxt is not None else known_end
+            res.update({"reset": False, "chunkStart": known_end, "chunkEnd": end, "records": records_from(data)})
+        else:
+            initial = int(cfg.get("initialBytes", 2097152))
+            start = 0 if size <= initial else next_line_start(f, size - initial)
+            if start is None:
+                start = prev_line_start(f, size)
+            data, end = read_lines(f, start, size)
+            res.update({"reset": True, "chunkStart": start, "chunkEnd": end, "records": records_from(data)})
+    res["size"] = size
+out(res)
 `.trim();
+
+function buildDocktermRemotePy(cfg) {
+  const cfgB64 = Buffer.from(JSON.stringify({ maxText: DOCKTERM_MAX_TEXT, ...cfg }), 'utf8').toString('base64');
+  return DOCKTERM_REMOTE_PY.replace('CFG_B64', JSON.stringify(cfgB64));
 }
 
-const chatViewCache = new Map();
-
-async function fetchDocktermChatView({ tabId, sessionId, cwd, nodeId, sshHost }) {
-  const node = getNodeById(nodeId || sshHost);
-  const targetHost = sshHost || (node && node.sshHost) || 'korea-claude';
-  const tmuxSess = sanitizeTmuxSessionId(tabId || sessionId || 'default');
-  const cacheKey = `${targetHost}::${tmuxSess}::${sessionId}`;
-
-  const py = buildRemoteChatInspectPy({ sessionId, cwd, tmuxSess });
-  const b64 = Buffer.from(py, 'utf8').toString('base64');
-  const muxSocket = `/tmp/takt-chat-mux-%r@%h:%p`;
-
+async function runDocktermRemotePy(host, cfg, timeoutMs) {
+  const b64 = Buffer.from(buildDocktermRemotePy(cfg), 'utf8').toString('base64');
   const r = await runCmd('ssh', [
     '-o', 'ConnectTimeout=4',
+    '-o', 'BatchMode=yes',
     '-o', 'ControlMaster=auto',
-    '-o', `ControlPath=${muxSocket}`,
+    '-o', 'ControlPath=/tmp/takt-chat-mux-%r@%h:%p',
     '-o', 'ControlPersist=120s',
     '-o', 'ClearAllForwardings=yes',
-    targetHost,
+    host,
     `python3 -c "import base64;exec(base64.b64decode('${b64}'))"`,
-  ], 5500);
+  ], timeoutMs);
+  if (r.exitCode !== 0 || !r.stdout.trim()) return null;
+  try {
+    return JSON.parse(r.stdout.trim().split('\n').pop());
+  } catch {
+    return null;
+  }
+}
 
-  if (r.exitCode === 0 && r.stdout.trim()) {
-    try {
-      const lastLine = r.stdout.trim().split('\n').pop();
-      const raw = JSON.parse(lastLine);
+const docktermTabs = new Map(); // `${host}::${tmuxSess}` -> per-tab resolution + last screen
+const docktermTranscripts = new Map(); // `${host}::${jsonlPath}` -> parsed transcript state
+let docktermLastSweep = Date.now();
+
+function sweepDocktermCaches() {
+  const now = Date.now();
+  if (now - docktermLastSweep < 5 * 60 * 1000) return;
+  docktermLastSweep = now;
+  for (const [k, st] of docktermTranscripts) {
+    if (now - st.touchedAt > 30 * 60 * 1000) docktermTranscripts.delete(k);
+  }
+  for (const [k, t] of docktermTabs) {
+    if (now - (t.touchedAt || 0) > 30 * 60 * 1000) docktermTabs.delete(k);
+  }
+}
+
+function resolveDocktermTarget({ tabId, sessionId, nodeId, sshHost }) {
+  const node = getNodeById(nodeId || sshHost);
+  const host = sshHost || (node && node.sshHost) || 'korea-claude';
+  const tmuxSess = sanitizeTmuxSessionId(tabId || sessionId || 'default');
+  const key = `${host}::${tmuxSess}`;
+  let tab = docktermTabs.get(key);
+  if (!tab) {
+    tab = { host, tmuxSess, path: '', screen: null, claudeRunning: false, resolvedSessionId: '', stale: false, inflight: null, touchedAt: Date.now() };
+    docktermTabs.set(key, tab);
+  }
+  tab.touchedAt = Date.now();
+  return tab;
+}
+
+async function refreshDocktermTab(tab, { tabId, sessionId, cwd }) {
+  const known = tab.path ? docktermTranscripts.get(`${tab.host}::${tab.path}`) : null;
+  const raw = await runDocktermRemotePy(tab.host, {
+    mode: 'poll',
+    tmuxSess: tab.tmuxSess,
+    sessionId,
+    cwd,
+    knownPath: known ? known.path : '',
+    knownEnd: known ? known.endOffset : 0,
+    claimedPaths: Array.from(docktermTabs.values())
+      .filter((o) => o !== tab && o.host === tab.host && o.path)
+      .map((o) => o.path),
+    initialBytes: DOCKTERM_INITIAL_BYTES,
+    maxBytes: DOCKTERM_POLL_MAX_BYTES,
+  }, 7000);
+
+  if (!raw) {
+    tab.stale = true;
+    if (!tab.screen) {
       const localTab = activePtyTabs.get(tabId);
-      const localScroll = localTab && localTab.scrollback.length > 0
-        ? localTab.scrollback.slice(-30).join('')
-        : '';
-      const screenToClassify = raw.paneText || localScroll || '';
-      const screenInfo = classifyClaudeScreen(screenToClassify);
-      const messages = parseDocktermJsonlTranscript(raw.jsonlTail || '');
-      const result = {
-        ok: true,
-        tabId,
-        resolvedSessionId: raw.resolvedSessionId || sessionId,
-        jsonlPath: raw.jsonlPath || '',
-        claudeRunning: Boolean(raw.claudeRunning),
-        status: screenInfo.status,
-        ask: screenInfo.ask,
-        tail: screenInfo.tail,
-        messages,
-        timestamp: Date.now(),
-      };
-      chatViewCache.set(cacheKey, result);
-      return result;
-    } catch {}
+      tab.screen = classifyClaudeScreen(localTab ? localTab.scrollback.slice(-40).join('') : '');
+    }
+    return;
   }
 
-  // Fallback to cached state or local PTY scrollback if SSH transiently timed out
-  if (chatViewCache.has(cacheKey)) {
-    return { ...chatViewCache.get(cacheKey), cached: true };
+  tab.stale = false;
+  tab.claudeRunning = Boolean(raw.claudeRunning);
+  tab.screen = classifyClaudeScreen(raw.paneText || '');
+  tab.resolvedSessionId = raw.resolvedSessionId || sessionId;
+
+  if (!raw.jsonlPath) {
+    tab.path = '';
+    return;
   }
-  const localTab = activePtyTabs.get(tabId);
-  const localScroll = localTab ? localTab.scrollback.slice(-40).join('') : '';
-  const screenInfo = classifyClaudeScreen(localScroll);
+  const key = `${tab.host}::${raw.jsonlPath}`;
+  let st = docktermTranscripts.get(key);
+  const contiguous = st && !raw.reset && raw.chunkStart <= st.endOffset;
+  if (!contiguous) {
+    st = newTranscriptState(tab.host, raw.jsonlPath, raw.chunkStart);
+    docktermTranscripts.set(key, st);
+  }
+  appendTranscriptRecords(st, Array.isArray(raw.records) ? raw.records : [], raw.chunkStart);
+  st.endOffset = Math.max(st.endOffset, Number(raw.chunkEnd) || st.endOffset);
+  st.touchedAt = Date.now();
+  tab.path = raw.jsonlPath;
+}
+
+async function fetchDocktermChatView({ tabId, sessionId, cwd, nodeId, sshHost, epoch: clientEpoch, ver: clientVer }) {
+  sweepDocktermCaches();
+  const tab = resolveDocktermTarget({ tabId, sessionId, nodeId, sshHost });
+  // Coalesce concurrent polls for the same tab into one SSH round-trip
+  if (!tab.inflight) {
+    tab.inflight = refreshDocktermTab(tab, { tabId, sessionId, cwd })
+      .catch(() => { tab.stale = true; })
+      .finally(() => { tab.inflight = null; });
+  }
+  await tab.inflight;
+
+  const st = tab.path ? docktermTranscripts.get(`${tab.host}::${tab.path}`) : null;
+  const screen = tab.screen || { status: 'idle', ask: null, tail: '' };
+  const epoch = st ? st.epoch : 'none';
+  const reset = clientEpoch !== epoch;
+  const since = Number(clientVer) || 0;
+  let messages = [];
+  if (st) {
+    st.touchedAt = Date.now();
+    messages = reset ? st.messages : st.messages.filter((m) => m.ver > since);
+  }
   return {
     ok: true,
     tabId,
-    resolvedSessionId: sessionId,
-    jsonlPath: '',
-    claudeRunning: false,
-    status: screenInfo.status,
-    ask: screenInfo.ask,
-    tail: screenInfo.tail,
-    messages: [],
+    epoch,
+    ver: st ? st.ver : 0,
+    reset,
+    messages,
+    total: st ? st.messages.length : 0,
+    hasOlder: Boolean(st && st.startOffset > 0),
+    resolvedSessionId: tab.resolvedSessionId || sessionId,
+    jsonlPath: tab.path,
+    claudeRunning: tab.claudeRunning,
+    status: screen.status,
+    ask: screen.ask,
+    tail: screen.tail,
+    stale: tab.stale,
     timestamp: Date.now(),
   };
+}
+
+async function fetchDocktermHistory({ tabId, sessionId, nodeId, sshHost, epoch: clientEpoch }) {
+  const tab = resolveDocktermTarget({ tabId, sessionId, nodeId, sshHost });
+  const st = tab.path ? docktermTranscripts.get(`${tab.host}::${tab.path}`) : null;
+  if (!st) return { ok: false, error: '当前没有可加载的对话记录' };
+  if (clientEpoch && clientEpoch !== st.epoch) return { ok: false, error: 'epoch-mismatch' };
+  if (st.startOffset <= 0) return { ok: true, epoch: st.epoch, ver: st.ver, messages: [], hasOlder: false };
+
+  if (!st.historyInflight) {
+    st.historyInflight = (async () => {
+      const added = [];
+      // Keep paging until something displayable shows up (tool-result-only chunks are common)
+      for (let page = 0; page < 3 && st.startOffset > 0 && added.length < 12; page++) {
+        const raw = await runDocktermRemotePy(st.host, {
+          mode: 'history',
+          path: st.path,
+          before: st.startOffset,
+          chunkBytes: DOCKTERM_HISTORY_BYTES,
+        }, 15000);
+        if (!raw || raw.error) {
+          if (!added.length) throw new Error(raw && raw.error ? raw.error : '加载更早的消息失败');
+          break;
+        }
+        added.unshift(...prependTranscriptRecords(st, Array.isArray(raw.records) ? raw.records : [], raw.chunkStart));
+        st.startOffset = Math.min(st.startOffset, Number(raw.chunkStart) || 0);
+      }
+      return added;
+    })().finally(() => { st.historyInflight = null; });
+  }
+  try {
+    const added = await st.historyInflight;
+    st.touchedAt = Date.now();
+    return { ok: true, epoch: st.epoch, ver: st.ver, messages: added, hasOlder: st.startOffset > 0 };
+  } catch (err) {
+    return { ok: false, error: err.message };
+  }
 }
 
 // ============================================================================
@@ -2632,7 +3089,21 @@ const server = http.createServer(async (req, res) => {
       const cwd = String(u.searchParams.get('cwd') || '/root/work').trim();
       const nodeId = String(u.searchParams.get('nodeId') || '').trim();
       const sshHost = String(u.searchParams.get('sshHost') || '').trim();
-      const data = await fetchDocktermChatView({ tabId, sessionId, cwd, nodeId, sshHost });
+      const epoch = String(u.searchParams.get('epoch') || '').trim();
+      const ver = Number(u.searchParams.get('ver') || 0);
+      const data = await fetchDocktermChatView({ tabId, sessionId, cwd, nodeId, sshHost, epoch, ver });
+      sendJson(res, 200, data);
+      return;
+    }
+
+    // API: DockTerm Chat Mode — page in older transcript history ("加载更早的消息")
+    if (req.method === 'GET' && u.pathname === '/api/chat-history') {
+      const tabId = String(u.searchParams.get('tabId') || '').trim();
+      const sessionId = String(u.searchParams.get('sessionId') || tabId).trim();
+      const nodeId = String(u.searchParams.get('nodeId') || '').trim();
+      const sshHost = String(u.searchParams.get('sshHost') || '').trim();
+      const epoch = String(u.searchParams.get('epoch') || '').trim();
+      const data = await fetchDocktermHistory({ tabId, sessionId, nodeId, sshHost, epoch });
       sendJson(res, 200, data);
       return;
     }
@@ -2643,6 +3114,9 @@ const server = http.createServer(async (req, res) => {
       const tabId = String(body.tabId || '').trim();
       const text = typeof body.text === 'string' ? body.text : '';
       const submitEnter = Boolean(body.submitEnter);
+      // Enter must arrive after Claude Code has finished ingesting the text, otherwise it is
+      // swallowed as part of the paste and the message is never submitted.
+      const enterDelayMs = Math.max(60, Math.min(1500, Number(body.enterDelayMs) || (90 + Math.ceil(text.length / 20))));
       const node = getNodeById(body.nodeId || body.sshHost);
       const targetHost = String(body.sshHost || (node && node.sshHost) || 'korea-claude').trim();
       const tmuxSess = sanitizeTmuxSessionId(tabId || 'default');
@@ -2653,21 +3127,29 @@ const server = http.createServer(async (req, res) => {
         if (submitEnter) {
           setTimeout(() => {
             try { localTab.ptyProc.write('\r'); } catch {}
-          }, 75);
+          }, enterDelayMs);
         }
         sendJson(res, 200, { ok: true, via: 'pty' });
         return;
       }
 
-      const b64 = Buffer.from(text, 'utf8').toString('base64');
+      // Bracketed-paste payloads go through a tmux buffer (paste-buffer -p re-wraps them only if the app asked for it)
+      const PASTE_START = '\x1b[200~';
+      const PASTE_END = '\x1b[201~';
+      const isPaste = text.startsWith(PASTE_START) && text.endsWith(PASTE_END);
+      const body64 = Buffer.from(isPaste ? text.slice(PASTE_START.length, -PASTE_END.length) : text, 'utf8').toString('base64');
       const py = `
 import base64, subprocess, time
 sess = ${JSON.stringify(tmuxSess)}
-raw = base64.b64decode(${JSON.stringify(b64)}).decode("utf-8", errors="ignore")
+raw = base64.b64decode(${JSON.stringify(body64)}).decode("utf-8", errors="ignore")
 if raw:
-    subprocess.run(["tmux", "send-keys", "-t", sess, "-l", "--", raw], timeout=2)
+    if ${isPaste ? 'True' : 'False'}:
+        subprocess.run(["tmux", "set-buffer", "-b", "takt_dockterm", "--", raw], timeout=2)
+        subprocess.run(["tmux", "paste-buffer", "-p", "-d", "-b", "takt_dockterm", "-t", sess], timeout=2)
+    else:
+        subprocess.run(["tmux", "send-keys", "-t", sess, "-l", "--", raw], timeout=2)
 if ${submitEnter ? 'True' : 'False'}:
-    time.sleep(0.075)
+    time.sleep(${(enterDelayMs / 1000).toFixed(3)})
     subprocess.run(["tmux", "send-keys", "-t", sess, "Enter"], timeout=2)
 `.trim();
       const pyB64 = Buffer.from(py, 'utf8').toString('base64');
