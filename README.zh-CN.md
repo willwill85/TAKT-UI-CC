@@ -1,3 +1,11 @@
+> **Windows 11 版 1.2.0 · 2026-11-05**：现已提供 Electron 桌面端、Windows ConPTY 终端、独立 SSH 隧道和 21 个 Windows MCP 工具。
+>
+> 使用安装版 `dist/windows/TAKT-UI-CC-Setup-1.2.0-x64.exe` 或便携版 `dist/windows/TAKT-UI-CC-1.2.0-win-x64.exe`；源码双击 **`start-windows.cmd`**。安装包包含 Node.js，无需 WSL/Git Bash。
+>
+> **[Windows 11 完整使用指南](docs/WINDOWS11.md)** · [Windows 版本源码](https://github.com/willwill85/TAKT-UI-CC) · [项目日志](docs/LOGBOOK.md)。Tailscale 可独立安装组网，然后把 SSH 的 HostName 设置为服务器 Tailscale IP。下方保留原 macOS 架构与功能说明，Windows 安装和命令以 Windows 指南为准。
+
+![Windows 11 桌面实测](docs/images/windows11.png)
+
 <div align="center">
 
 # TAKT-UI-CC

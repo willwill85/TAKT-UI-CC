@@ -1,5 +1,14 @@
 # Changelog
 
+## Unreleased — Windows desktop and project sync
+
+- Add a Windows 11 x64 Electron desktop with NSIS/portable packages and a bundled Node/ConPTY runtime.
+- Add project-level Syncthing mappings, native directory selection and removal that preserves files on both peers.
+- Isolate Windows terminal workers; manage SSH reverse tunnels with owned children and reconnect/cleanup.
+- Add portable workspace mapping and Windows MCP tools; require MCP bearer authentication and strict Origin checks.
+- Add Windows/Linux CI, platform tests, real SSH forwarding tests and backend/desktop smoke checks.
+- This contribution omits the upstream host-specific remote-desktop feature; macOS desktop regression validation is pending.
+
 ## Unreleased — layout cleanup + DockTerm rework
 
 **Layout**

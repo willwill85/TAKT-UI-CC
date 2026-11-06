@@ -1,5 +1,7 @@
 # MCP tools
 
+**Windows 11:** 21 tools are exposed; `xcode_list_devices` and `xcode_build_and_deploy_iphone` are excluded. `mac_` names remain compatible but execute on Windows: host commands use PowerShell, serial ports use COM names, and screenshots use System.Drawing. Optional application paths and Windows flashing setup are documented in [WINDOWS11.md](WINDOWS11.md). The macOS-specific dependency paths in the table below apply to macOS only.
+
 The local MCP server (`mcp-server/server.js`) exposes **23 tools** to Claude Code running on your servers. Server name in Claude: `mac-industrial` (tools appear as `mcp__mac-industrial__<tool>`).
 
 Every tool is **optional and degrades gracefully**: if the application isn't installed, the call returns an error message and nothing else is affected. Paths under a node's remote work dir (e.g. `/home/dev/work/part.step`) are translated to that node's local mirror automatically, and outputs written into the mirror sync back to the server.

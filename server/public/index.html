@@ -57,7 +57,7 @@
       --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.45);
       --shadow-md: 0 8px 24px rgba(0, 0, 0, 0.65);
 
-      --font-sans: "Inter", -apple-system, BlinkMacSystemFont, "SF Pro Text", "PingFang SC", "Hiragino Sans GB", sans-serif;
+      --font-sans: "Segoe UI", "Microsoft YaHei UI", "Inter", -apple-system, BlinkMacSystemFont, "SF Pro Text", "PingFang SC", "Hiragino Sans GB", sans-serif;
       --font-mono: "JetBrains Mono", "SF Mono", "Menlo", "Monaco", monospace;
 
       /* Font scaling: every font-size is calc(Npx * var(--fs)). Chat area multiplies by --fs-chat. */
@@ -340,6 +340,25 @@
       align-items: center;
       gap: 4px;
       flex-shrink: 0;
+    }
+    .panel-left > .panel-header {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      height: auto;
+      padding: 8px;
+      gap: 8px 4px;
+    }
+    .project-primary-actions {
+      grid-column: 1 / -1;
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+      gap: 6px;
+      min-width: 0;
+    }
+    .project-primary-actions .btn {
+      min-width: 0;
+      padding: 0 4px;
+      white-space: nowrap;
     }
 
     .btn {
@@ -2809,7 +2828,7 @@
     /* Generic popover menu items reuse .tag-menu; "more" menu needs icons aligned */
     .tag-menu-item .icon { color: var(--text-muted); }
     .tag-menu-item:hover .icon { color: var(--text-primary); }
-  
+
     /* ---- Appearance settings dialog ---- */
     #settingsDialog { width: 560px; }
     #settingsDialog .dialog-box { padding: 0; gap: 0; max-height: min(82vh, 760px); }
@@ -2845,7 +2864,7 @@
 (function () {
   var KEY = 'takt_appearance';
   var DEFAULTS = { theme: 'graphite', accent: '', uiSize: 13, chatSize: 100, termSize: 13, termLH: 1.4,
-    sans: 'inter', mono: 'jetbrains', cursor: 'block', blink: true, radius: 8, width: 820, motion: false };
+    sans: 'inter', mono: /Win/.test(navigator.platform) ? 'cascadia' : 'jetbrains', cursor: 'block', blink: true, radius: 8, width: 820, motion: false };
   var THEMES = [
     { id: 'graphite', name: '石墨', bg: '#0d0d0d', side: '#141414', bar: '#ececef', dark: true },
     { id: 'midnight', name: '午夜', bg: '#0b1020', side: '#0f1528', bar: '#8ab4ff', dark: true },
@@ -3011,6 +3030,10 @@
               <svg class="icon" viewBox="0 0 24 24"><path d="M21 12a9 9 0 0 0-9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/><path d="M3 12a9 9 0 0 0 9 9 9.75 9.75 0 0 0 6.74-2.74L21 16"/><path d="M16 16h5v5"/></svg>
             </button>
           </div>
+        </div>
+        <div class="project-primary-actions" style="padding:0 8px 8px;flex-shrink:0;">
+          <button class="btn" id="btnProjectSync">同步本地项目</button>
+          <button class="btn" id="btnLocalTerminal" title="打开本机终端，检查 SSH、密钥和本机工具">本机终端</button>
         </div>
         <div class="sidebar-filters" id="sidebarFilters">
           <div class="filter-row" id="nodeFilterBar" aria-label="按机器筛选"></div>
@@ -3209,9 +3232,6 @@
             <button class="btn btn-icon btn-ghost" id="btnOpenFinder" title="在 Finder 中显示">
               <svg class="icon" viewBox="0 0 24 24"><path d="M2 9V5a2 2 0 0 1 2-2h3.9a2 2 0 0 1 1.69.9l.81 1.2a2 2 0 0 0 1.67.9H20a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2v-1"/><path d="M2 13h10"/><path d="m9 16 3-3-3-3"/></svg>
             </button>
-            <button class="btn btn-icon btn-ghost" id="btnDockRemoteDesktop" title="在预览区内嵌远程桌面">
-              <svg class="icon" viewBox="0 0 24 24"><rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>
-            </button>
             <button class="btn btn-icon btn-ghost" id="btnRefreshFiles" title="刷新目录">
               <svg class="icon" viewBox="0 0 24 24"><path d="M21 12a9 9 0 0 0-9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/><path d="M3 12a9 9 0 0 0 9 9 9.75 9.75 0 0 0 6.74-2.74L21 16"/><path d="M16 16h5v5"/></svg>
             </button>
@@ -3230,7 +3250,7 @@
             </div>
 
             <div class="file-path-bar" id="rootDropBar" title="把文件拖到这里可移回项目根目录">
-              <span class="file-path-text" id="currentSessionCwdLabel">/Users/will/.takt-ai/work</span>
+              <span class="file-path-text" id="currentSessionCwdLabel">本地工作区</span>
               <span class="machine-badge" id="rightNodeBadge">KR-1 · work</span>
             </div>
 
@@ -3296,6 +3316,17 @@
     </footer>
   </div>
 
+  <dialog id="projectSyncDialog" class="ag-dialog"><form class="dialog-box" id="projectSyncForm">
+    <h3>同步本地项目</h3>
+    <select id="syncProjectNode" class="dialog-input"></select>
+    <div style="display:flex;gap:8px"><input id="syncLocalPath" class="dialog-input" placeholder="本地项目完整路径" required><button type="button" class="btn" id="syncPick">选择目录</button></div>
+    <input id="syncProjectName" class="dialog-input" placeholder="服务器 work 下的项目名称（新目录）" required>
+    <p>直接同步原目录。双向同步包含修改与删除。服务器目标必须是新目录。</p>
+    <label><input type="checkbox" id="syncPauseParent" required> 暂停该节点原有的整个 work 同步，保留原配置和文件；其他目录将暂时停止同步。</label>
+    <p id="syncProjectResult" style="white-space:pre-wrap"></p>
+    <div id="syncProjectMappings" style="font-size:12px;white-space:pre-wrap"></div>
+    <div class="dialog-footer"><button type="button" class="btn" onclick="document.getElementById('projectSyncDialog').close()">关闭</button><button class="btn btn-primary" id="syncProjectSubmit">开始同步</button></div>
+  </form></dialog>
   <!-- Modal Dialog: Create Project / Subfolder / Rename Session -->
   <dialog id="newProjectDialog" class="ag-dialog" closedby="any" aria-labelledby="newProjectDialogTitle">
     <form method="dialog" class="dialog-box" id="newProjectForm">
@@ -3315,7 +3346,7 @@
     </form>
   </dialog>
 
-  <!-- Modal Dialog: Multi-Linux Node Manager (work / work2 / Syncthing / Mac MCP Bridge) -->
+  <!-- Modal Dialog: Multi-Linux Node Manager (work / work2 / Syncthing / 本机 MCP Bridge) -->
   <!-- Modal Dialog: Appearance settings (theme / accent / fonts / layout) -->
   <dialog id="settingsDialog" class="ag-dialog" closedby="any" aria-labelledby="settingsDialogTitle">
     <form method="dialog" class="dialog-box" id="settingsForm">
@@ -3377,7 +3408,7 @@
       </div>
 
       <div style="font-size:11px; color:var(--text-secondary); line-height:1.45;">
-        每台 Linux 独立绑定本地一个目录（如 <code>work</code>、<code>work2</code>），保存后自动创建本地目录、注册 Syncthing 双向同步，并建立专用逆向隧道使该机器直接调用本机 Mac 的 21 个 MCP 工具。
+        每台 Linux 独立绑定本地一个目录（如 <code>work</code>、<code>work2</code>），保存后自动创建本地目录、注册 Syncthing 双向同步，并建立专用逆向隧道使该机器直接调用本机 的 MCP 工具。
       </div>
 
       <div class="node-manager-list scroller" id="nodeManagerList"></div>
@@ -3396,7 +3427,7 @@
             <input type="text" class="dialog-input" id="nodeInputBadge" placeholder="LX-2" maxlength="8" required />
           </div>
           <div>
-            <div style="font-size:10.5px; color:var(--text-muted); margin-bottom:3px;">Mac 本地文件夹</div>
+            <div style="font-size:10.5px; color:var(--text-muted); margin-bottom:3px;">本地文件夹</div>
             <input type="text" class="dialog-input" id="nodeInputAlias" placeholder="work2" pattern="[a-zA-Z0-9_-]+" required />
           </div>
         </div>
@@ -3415,7 +3446,7 @@
 
         <label style="display:flex; align-items:center; gap:6px; font-size:11.5px; color:var(--text-secondary); cursor:pointer;">
           <input type="checkbox" id="nodeInputEnabled" checked />
-          <span>启用此 Linux 节点的 SSH 扫描与 Mac MCP 逆向隧道 (:18765 / :49620)</span>
+          <span>启用此 Linux 节点的 SSH 扫描与 本机 MCP 逆向隧道 (:18765 / :49620)</span>
         </label>
       </div>
 
@@ -3427,47 +3458,6 @@
   </dialog>
 
   <!-- Modal Dialog: Instabox Remote Desktop Plugin (HTML5 noVNC + Native Screen Sharing + AI/Human Control) -->
-  <dialog id="remoteDesktopDialog" class="ag-dialog" closedby="any" aria-labelledby="remoteDesktopDialogTitle" style="width: min(94vw, 1480px); max-width: 94vw;">
-    <div class="dialog-box" style="padding: 10px 12px; gap: 8px; height: min(88vh, 920px); display: flex; flex-direction: column;">
-      <div style="display:flex; align-items:center; justify-content:space-between; gap:8px; flex-wrap:wrap;">
-        <div style="display:flex; align-items:center; gap:8px;">
-          <h3 id="remoteDesktopDialogTitle" style="margin:0; font-size:13px;">
-            <svg class="icon" viewBox="0 0 24 24"><rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>
-            <span>东京 AWS 远程桌面 (tokyo-claude · DISPLAY :1)</span>
-          </h3>
-          <span class="machine-badge" id="rdStatusBadge">连接中...</span>
-          <span class="machine-badge secondary" id="rdControlBadge">AI 托管模式</span>
-        </div>
-
-        <div style="display:flex; align-items:center; gap:6px; flex-wrap:wrap;">
-          <button type="button" class="btn" id="btnRdToggleControl" title="在 AI 自动操作 (open-computer-use) 与人工键鼠接管之间切换">
-            <span>人工接管键鼠</span>
-          </button>
-          <button type="button" class="btn" id="btnRdLaunchBrowser" title="在远端桌面 (:1) 启动 Chromium 浏览器">
-            <span>启动 Chromium</span>
-          </button>
-          <button type="button" class="btn" id="btnRdDockRight" title="将远程桌面固定到主界面右侧预览栏，实现左侧终端 + 右侧桌面同屏">
-            <span>固定到右侧分屏</span>
-          </button>
-          <button type="button" class="btn" id="btnRdNativeVnc" title="唤起 macOS 原生「屏幕共享.app」连接 (vnc://127.0.0.1:15901)">
-            <span>Mac 原生屏幕共享</span>
-          </button>
-          <button type="button" class="btn" id="btnRdPopWindow" title="在独立浏览器窗口打开 noVNC 桌面">
-            <svg class="icon icon-sm" viewBox="0 0 24 24"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
-            <span>独立窗口</span>
-          </button>
-          <button type="button" class="btn btn-icon" id="btnRdReload" title="重连并刷新远程桌面画面">
-            <svg class="icon icon-sm" viewBox="0 0 24 24"><path d="M21 12a9 9 0 0 0-9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/><path d="M3 12a9 9 0 0 0 9 9 9.75 9.75 0 0 0 6.74-2.74L21 16"/><path d="M16 16h5v5"/></svg>
-          </button>
-          <button type="button" class="btn" id="btnRdClose">关闭</button>
-        </div>
-      </div>
-
-      <div style="flex:1; min-height:0; border:1px solid var(--border-subtle); border-radius:6px; overflow:hidden; background:#09090b; position:relative;">
-        <iframe id="rdIframe" src="about:blank" style="width:100%; height:100%; border:0; display:block;" allow="clipboard-read; clipboard-write; fullscreen"></iframe>
-      </div>
-    </div>
-  </dialog>
 
   <div class="toast-msg" id="toastMsg"></div>
 
@@ -3550,12 +3540,12 @@
       let foldersData = [];
       let activeTabId = null;
       let currentFilesCwd = '/root/work';
-      let currentFilesNodeId = 'korea-claude';
+      let currentFilesNodeId = 'node-1';
       let currentFileTree = [];
       let selectedFilePath = '';
       let modalMode = 'project'; // 'project' | 'subfolder' | 'rename-session'
       let renamingSessionId = '';
-      let renamingSessionNodeId = 'korea-claude';
+      let renamingSessionNodeId = 'node-1';
       let isDraggingFile = false;
 
       // Persistent Collapsible States & Startup Non-Empty Project Filter
@@ -3589,19 +3579,19 @@
       }
 
       function getFolderKey(folder) {
-        return folder.key || `${folder.nodeId || 'korea-claude'}::${folder.path}`;
+        return folder.key || `${folder.nodeId || 'node-1'}::${folder.path}`;
       }
 
       function getNodeInfo(nodeId) {
         return (
           nodesData.find((n) => n.id === nodeId || n.sshHost === nodeId || n.localWorkAlias === nodeId) ||
           nodesData[0] || {
-            id: 'korea-claude',
-            name: '韩国首尔主节点',
-            badge: 'KR-1',
-            sshHost: 'korea-claude',
+            id: 'node-1',
+            name: 'Linux 节点 1',
+            badge: 'LX-1',
+            sshHost: '',
             remoteWorkDir: '/root/work',
-            localWorkDir: '/Users/will/.takt-ai/work',
+            localWorkDir: '',
             localWorkAlias: 'work',
             enabled: true,
           }
@@ -3640,7 +3630,6 @@
 
       const newProjectDialog = document.getElementById('newProjectDialog');
       const nodeManagerDialog = document.getElementById('nodeManagerDialog');
-      const remoteDesktopDialog = document.getElementById('remoteDesktopDialog');
 
       function popoverOverStage(rect) {
         const menu = document.getElementById('tagMenu');
@@ -3709,7 +3698,6 @@
       }
       bindLightDismissDialog(newProjectDialog);
       bindLightDismissDialog(nodeManagerDialog);
-      bindLightDismissDialog(remoteDesktopDialog);
       // showModal() fires no event: watch every dialog's [open] so the native terminal always steps aside
       const dialogOpenObserver = new MutationObserver(() => syncNativeTerminalGeometry());
       document.querySelectorAll('dialog').forEach((d) => dialogOpenObserver.observe(d, { attributes: true, attributeFilter: ['open'] }));
@@ -3908,7 +3896,7 @@
             if (Array.isArray(data.openTabs)) {
               for (const ot of data.openTabs) {
                 if (ot.cwd) {
-                  visibleProjectKeys.add(`${ot.nodeId || 'korea-claude'}::${ot.cwd}`);
+                  visibleProjectKeys.add(`${ot.nodeId || 'node-1'}::${ot.cwd}`);
                 }
                 if (!tabs.has(ot.tabId)) {
                   openOrSwitchTerminalTab({
@@ -3916,9 +3904,9 @@
                     sessionId: ot.sessionId,
                     title: ot.title,
                     cwd: ot.cwd,
-                    nodeId: ot.nodeId || 'korea-claude',
-                    nodeBadge: ot.nodeBadge || 'KR-1',
-                    sshHost: ot.sshHost || 'korea-claude',
+                    nodeId: ot.nodeId || 'node-1',
+                    nodeBadge: ot.nodeBadge || 'LX-1',
+                    sshHost: ot.sshHost || '',
                     localWorkAlias: ot.localWorkAlias || 'work',
                     resume: true,
                     mode: ot.mode || 'claude',
@@ -4137,6 +4125,21 @@
               await tagApi('PUT', '/api/project-tag', { projectKey: key, tagId: '' });
             }));
           }
+          const mapping = (getNodeInfo(folder.nodeId).projectMappings || []).find(m => m.remotePath === folder.path);
+          if (mapping) {
+            menu.appendChild(menuSep());
+            menu.appendChild(menuItem(`${SVG_ICONS.trash}<span>移除项目（保留文件）</span>`, async () => {
+              closeTagMenu();
+              if (!confirm(`移除「${folder.name}」并解除两端项目同步？\n本地和服务器文件都会保留，原 work 整目录同步保持暂停。`)) return;
+              try {
+                const r = await fetch('/api/project-sync', { method: 'DELETE', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ nodeId: folder.nodeId, remotePath: folder.path }) });
+                const d = await r.json(); if (!d.ok) throw Error(d.error || '移除失败');
+                visibleProjectKeys.delete(key);
+                if (currentFilesCwd === folder.path || currentFilesCwd.startsWith(folder.path + '/')) await loadSessionFiles(getNodeInfo(folder.nodeId).remoteWorkDir, folder.nodeId);
+                await loadProjectTree(); showToast('项目已移除，两端文件已保留');
+              } catch (error) { showToast(error.message); }
+            }, 'danger'));
+          }
         });
       }
 
@@ -4243,7 +4246,7 @@
                 <span class="machine-badge secondary">${escapeHtml(activeNode.badge)} · 待接入 SSH</span>
               </div>
               <div style="font-size:11px; color:var(--text-secondary); line-height:1.45;">
-                本地同步目录 <code>${escapeHtml(activeNode.localWorkDir)}</code> 已就绪。点击下方按钮填入第二台 Linux 的 SSH Host 即可自动打通 Mac MCP 逆向隧道与 Syncthing。
+                本地同步目录 <code>${escapeHtml(activeNode.localWorkDir)}</code> 已就绪。点击下方按钮填入第二台 Linux 的 SSH Host 即可自动打通 本机 MCP 逆向隧道与 Syncthing。
               </div>
               <button class="btn btn-primary" id="btnBannerBindSsh" style="align-self:flex-start; margin-top:2px;">配置此节点 SSH 与同步</button>
             `;
@@ -4269,7 +4272,7 @@
           const folderKey = getFolderKey(folder);
           const sessCount = (folder.sessions || []).length;
           const isCollapsed = collapsedProjects.has(folderKey);
-          const badgeText = `${folder.nodeBadge || 'KR-1'} · ${folder.localWorkAlias || 'work'}`;
+          const badgeText = `${folder.nodeBadge || 'LX-1'} · ${folder.localWorkAlias || 'work'}`;
           const mappingTitle = `${folder.nodeName || folder.nodeId} (${folder.sshHost || '未配SSH'}:${folder.path} <-> Mac ${folder.localPath || folder.localWorkDir})`;
 
           const showSections = selectedNodeFilter === 'all' && nodesData.length > 1;
@@ -4528,7 +4531,7 @@
         });
       }
 
-      function startNewConversationInProject(projectPath = '/root/work', projectName = 'work', nodeId = 'korea-claude') {
+      function startNewConversationInProject(projectPath = '/root/work', projectName = 'work', nodeId = 'node-1') {
         const node = getNodeInfo(nodeId);
         if (!node.sshHost) {
           openNodeManagerModal(node.id);
@@ -4572,7 +4575,7 @@
         sessionId,
         title,
         cwd,
-        nodeId = 'korea-claude',
+        nodeId = 'node-1',
         nodeBadge = '',
         sshHost = '',
         localWorkAlias = '',
@@ -4586,8 +4589,8 @@
 
         const node = getNodeInfo(nodeId);
         const resolvedNodeId = node.id;
-        const resolvedBadge = nodeBadge || node.badge || 'KR-1';
-        const resolvedSshHost = sshHost || node.sshHost || 'korea-claude';
+        const resolvedBadge = nodeBadge || node.badge || 'LX-1';
+        const resolvedSshHost = mode === 'local' ? '' : sshHost || node.sshHost || '';
         const resolvedAlias = localWorkAlias || node.localWorkAlias || 'work';
 
         const stage = document.getElementById('terminalStage');
@@ -4603,6 +4606,7 @@
         const term = new window.Terminal({
           ...window.TaktAppearance.termOptions(),
           allowProposedApi: true,
+          screenReaderMode: true,
           scrollback: 10000,
         });
 
@@ -4637,7 +4641,7 @@
           wsEverOpened: false,
           exited: false,
           seenImages: new Set(),
-          viewMode: savedViewModes[tabId] === 'chat' ? 'chat' : 'terminal',
+          viewMode: mode !== 'local' && savedViewModes[tabId] === 'chat' ? 'chat' : 'terminal',
           chat: null,
         };
 
@@ -4654,6 +4658,7 @@
       }
 
       function ensureWebTerminalConnected(tabObj) {
+        if (tabObj.exited) return;
         if (tabObj.ws && (tabObj.ws.readyState === WebSocket.OPEN || tabObj.ws.readyState === WebSocket.CONNECTING)) {
           return;
         }
@@ -4662,8 +4667,8 @@
           tabId: tabObj.tabId,
           sessionId: tabObj.sessionId,
           cwd: tabObj.cwd,
-          nodeId: tabObj.nodeId || 'korea-claude',
-          sshHost: tabObj.sshHost || 'korea-claude',
+          nodeId: tabObj.nodeId || 'node-1',
+          sshHost: tabObj.sshHost || '',
           title: tabObj.title,
           resume: tabObj.resume ? '1' : '0',
           mode: tabObj.mode,
@@ -4773,7 +4778,7 @@
                 tabId: t.tabId,
                 sessionId: t.sessionId,
                 cwd: t.cwd,
-                sshHost: t.sshHost || 'korea-claude',
+                sshHost: t.sshHost || '',
                 title: t.title,
                 resume: t.resume,
               });
@@ -4894,6 +4899,7 @@
 
       // Context bar under the tabs: location + status + the actions that make sense for the view
       function claudeLaunchCommand(t, { forShell = false } = {}) {
+        if (t.mode === 'local') return navigator.userAgent.includes('Windows') ? '$PSVersionTable.PSVersion' : 'pwd';
         const sid = String(t.sessionId || '');
         const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(sid);
         const known = t.chat && t.chat.resolvedSessionId && t.chat.jsonlPath ? t.chat.resolvedSessionId : '';
@@ -4911,7 +4917,7 @@
         if (!t) return;
         const view = t.viewMode === 'chat' ? 'chat' : 'terminal';
         const badge = document.getElementById('ctxBadge');
-        badge.textContent = t.nodeBadge || 'KR-1';
+        badge.textContent = t.nodeBadge || 'LX-1';
         badge.title = `${t.sshHost}`;
         const pathEl = document.getElementById('ctxPath');
         pathEl.textContent = t.cwd;
@@ -4933,9 +4939,11 @@
       // ============================================================================
       // 8. Right Panel: Collapsible & Drag-and-Drop File Tree + Previewer (Mac Local Path Priority)
       // ============================================================================
-      function toLocalMacPath(p, nodeId = currentFilesNodeId) {
+      function toLocalPath(p, nodeId = currentFilesNodeId) {
         const node = getNodeInfo(nodeId);
-        const localRoot = node.localWorkDir || '/Users/will/.takt-ai/work';
+        const project = (node.projectMappings || []).find(m => p === m.remotePath || String(p).startsWith(m.remotePath + '/'));
+        if (project) return project.localPath + String(p).slice(project.remotePath.length);
+        const localRoot = node.localWorkDir || '';
         const remoteRoot = (node.remoteWorkDir || '/root/work').replace(/\/+$/, '') || '/root/work';
         const clean = String(p || '').trim().replace(/\/+$/, '');
         if (!clean || clean === remoteRoot || clean === localRoot) {
@@ -4953,13 +4961,13 @@
       async function loadSessionFiles(cwd = currentFilesCwd, nodeId = currentFilesNodeId, opts = {}) {
         const silent = !!(opts && opts.silent);
         currentFilesCwd = cwd || '/root/work';
-        currentFilesNodeId = nodeId || currentFilesNodeId || 'korea-claude';
+        currentFilesNodeId = nodeId || currentFilesNodeId || 'node-1';
         const activeNode = getNodeInfo(currentFilesNodeId);
-        document.getElementById('currentSessionCwdLabel').textContent = toLocalMacPath(currentFilesCwd, currentFilesNodeId);
+        document.getElementById('currentSessionCwdLabel').textContent = toLocalPath(currentFilesCwd, currentFilesNodeId);
         const badgeEl = document.getElementById('rightNodeBadge');
         if (badgeEl && activeNode) {
           badgeEl.textContent = `${activeNode.badge} · ${activeNode.localWorkAlias}`;
-          badgeEl.className = activeNode.id === 'korea-claude' ? 'machine-badge' : 'machine-badge secondary';
+          badgeEl.className = activeNode.id === 'node-1' ? 'machine-badge' : 'machine-badge secondary';
         }
         try {
           const res = await fetch(`/api/files?cwd=${encodeURIComponent(currentFilesCwd)}&nodeId=${encodeURIComponent(currentFilesNodeId)}`);
@@ -5061,8 +5069,21 @@
       });
 
       function shellEscapePath(p) {
-        if (/^[a-zA-Z0-9_./-]+$/.test(p)) return p;
-        return `'${String(p).replace(/'/g, `'\\''`)}'`;
+        const tab = tabs.get(activeTabId);
+        let value = String(p);
+        if (tab?.mode === 'local' && navigator.userAgent.includes('Windows')) return "'" + value.replaceAll("'", "''") + "'";
+        for (const node of nodesData) {
+          const project = (node.projectMappings || []).find(m => { const root = m.localPath.replaceAll('\\', '/').toLowerCase(); const p = value.replaceAll('\\', '/').toLowerCase(); return p === root || p.startsWith(root + '/'); });
+          if (project) { value = project.remotePath + value.replaceAll('\\', '/').slice(project.localPath.length); break; }
+          const root = String(node.localWorkDir || '').replaceAll('\\', '/').replace(/\/+$/, '');
+          const clean = value.replaceAll('\\', '/');
+          if (root && (clean.toLowerCase() === root.toLowerCase() || clean.toLowerCase().startsWith(root.toLowerCase() + '/'))) {
+            value = (node.remoteWorkDir || '/root/work').replace(/\/+$/, '') + clean.slice(root.length);
+            break;
+          }
+        }
+        if (/^[a-zA-Z0-9_./-]+$/.test(value)) return value;
+        return "'" + value.replaceAll("'", "'\\''") + "'";
       }
 
       function renderFileTree() {
@@ -5201,7 +5222,7 @@
         document.getElementById('fileCountLabel').textContent = `${count} 项`;
 
         if (count === 0) {
-          container.innerHTML = '<div class="preview-empty">当前目录为空 (可从 Finder 拖拽文件至此上传)</div>';
+          container.innerHTML = '<div class="preview-empty">当前目录为空 (可从 文件管理器 拖拽文件至此上传)</div>';
         }
       }
 
@@ -5232,7 +5253,7 @@
           return;
         }
 
-        // External files dropped from macOS Finder
+        // External files dropped from macOS 文件管理器
         if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
           await uploadExternalFilesToDir(e.dataTransfer.files, targetDirPath);
         }
@@ -5403,7 +5424,7 @@
         const titleEl = document.getElementById('previewTitle');
         const actionsEl = document.getElementById('previewActions');
         const bodyEl = document.getElementById('previewBody');
-        const localDisplayPath = toLocalMacPath(filePath, nodeId);
+        const localDisplayPath = toLocalPath(filePath, nodeId);
 
         titleEl.textContent = name || (localDisplayPath ? localDisplayPath.split('/').pop() : '跳过预览');
         actionsEl.innerHTML = '';
@@ -5414,7 +5435,7 @@
             <div style="font-weight:600; color:var(--text-primary); font-size:12.5px; word-break:break-all;">${escapeHtml(name || localDisplayPath)}</div>
             <div style="font-size:11px; color:var(--text-secondary); line-height:1.5;">${escapeHtml(reason || '此文件不支持直接预览')}</div>
             <div style="font-size:10.5px; font-family:var(--font-mono); color:var(--text-muted);">
-              ${size != null ? `大小: ${formatBytes(size)} · ` : ''}Mac 本地路径: ${escapeHtml(localDisplayPath)}
+              ${size != null ? `大小: ${formatBytes(size)} · ` : ''}本机路径: ${escapeHtml(localDisplayPath)}
             </div>
             <div style="display:flex; gap:8px; margin-top:4px; flex-wrap:wrap; justify-content:center;">
               <button class="btn" id="btnCardOpenMac">用 Mac 应用打开</button>
@@ -5582,7 +5603,7 @@
             return;
           }
 
-          const localDisplayPath = data.fromRemote ? (data.remotePath || data.path || filePath) : toLocalMacPath(data.localPath || data.path || filePath, nodeId);
+          const localDisplayPath = data.fromRemote ? (data.remotePath || data.path || filePath) : toLocalPath(data.localPath || data.path || filePath, nodeId);
           titleEl.textContent = data.name || localDisplayPath;
           titleEl.title = data.fromRemote ? `${localDisplayPath}\n不在本机同步目录里 · 已从节点拷贝到本机缓存` : localDisplayPath;
 
@@ -5623,7 +5644,7 @@
 
           if (data.kind === 'html') {
             const sep = data.rawUrl.includes('?') ? '&' : '?';
-            bodyEl.innerHTML = `<iframe class="preview-iframe" src="${data.rawUrl}${sep}theme=dark"></iframe>`;
+            bodyEl.innerHTML = `<iframe class="preview-iframe" sandbox="allow-scripts allow-forms" src="${data.rawUrl}${sep}theme=dark"></iframe>`;
             return;
           }
 
@@ -5762,7 +5783,7 @@
         await fetch('/api/open-system-terminal', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ tabId: t.tabId, cwd: t.cwd, nodeId: t.nodeId || currentFilesNodeId }),
+          body: JSON.stringify({ tabId: t.tabId, cwd: t.cwd, nodeId: t.nodeId || currentFilesNodeId, mode: t.mode }),
         });
       }
 
@@ -5782,12 +5803,8 @@
         const anchor = e.currentTarget;
         openTagMenu(anchor, (menu) => {
           menu.appendChild(menuItem(
-            `${SVG_ICONS.externalLink}<span>在 Terminal.app 中打开当前会话</span>`,
+            `${SVG_ICONS.externalLink}<span>在 系统终端 中打开当前会话</span>`,
             () => { closeTagMenu(); popCurrentSessionInSystemTerminal(); },
-          ));
-          menu.appendChild(menuItem(
-            `<svg class="icon icon-sm" viewBox="0 0 24 24"><rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg><span>远程桌面</span>`,
-            () => { closeTagMenu(); openRemoteDesktopModal(); },
           ));
           menu.appendChild(menuSep());
           menu.appendChild(menuItem(
@@ -5869,6 +5886,34 @@
         setTimeout(() => inp.select(), 20);
       }
 
+      document.getElementById('btnProjectSync').addEventListener('click', async () => {
+        document.getElementById('syncProjectNode').innerHTML = nodesData.filter(n => n.sshHost).map(n => `<option value="${escapeHtml(n.id)}">${escapeHtml(n.name)}</option>`).join('');
+        document.getElementById('syncProjectMappings').textContent = nodesData.flatMap(n => (n.projectMappings || []).map(m => `${n.name}: ${m.localPath} ↔ ${m.remotePath}`)).join('\n');
+        document.getElementById('projectSyncDialog').showModal();
+        try {
+          const d = await (await fetch('/api/project-sync/status')).json();
+          document.getElementById('syncProjectMappings').textContent = d.projects.map(m => `${m.localPath} ↔ ${m.remotePath}\n状态：${m.error || m.state} · 待同步 ${m.needFiles ?? '--'} 个文件 · 错误 ${m.errors ?? '--'}`).join('\n\n');
+        } catch { document.getElementById('syncProjectResult').textContent = '暂时无法读取同步状态'; }
+      });
+      document.getElementById('syncPick').addEventListener('click', async () => {
+        const button = document.getElementById('syncPick'); const result = document.getElementById('syncProjectResult');
+        button.disabled = true; result.textContent = '请在 Windows 窗口选择目录…';
+        try {
+          const r = await fetch('/api/project-sync/pick', { method: 'POST' }); const d = await r.json();
+          if (!d.ok) throw Error(d.error || '目录选择失败');
+          if (d.path) { document.getElementById('syncLocalPath').value = d.path; if (!document.getElementById('syncProjectName').value) document.getElementById('syncProjectName').value = d.path.replaceAll('\\', '/').split('/').pop(); }
+          result.textContent = d.path ? '目录已选择，请确认项目名称' : '已取消选择';
+        } catch (err) { result.textContent = err.message; } finally { button.disabled = false; }
+      });
+      document.getElementById('projectSyncForm').addEventListener('submit', async e => {
+        e.preventDefault(); const button = document.getElementById('syncProjectSubmit'); const result = document.getElementById('syncProjectResult');
+        button.disabled = true; result.textContent = '正在配置并检查同步…';
+        try {
+          const r = await fetch('/api/project-sync', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ nodeId: document.getElementById('syncProjectNode').value, localPath: document.getElementById('syncLocalPath').value, name: document.getElementById('syncProjectName').value, acceptPause: document.getElementById('syncPauseParent').checked }) });
+          const d = await r.json(); if (!d.ok) throw Error(d.error || '配置失败');
+          result.textContent = `已配置：${d.mapping.localPath} ↔ ${d.mapping.remotePath}\n文件正在由 Syncthing 同步。`; await loadProjectTree();
+        } catch (err) { result.textContent = err.message; } finally { button.disabled = false; }
+      });
       document.getElementById('btnNewProject').addEventListener('click', () => {
         modalMode = 'project';
         const defaultNodeId = selectedNodeFilter !== 'all' ? selectedNodeFilter : currentFilesNodeId;
@@ -5994,7 +6039,7 @@
                 <span>${escapeHtml(n.name)}</span>
               </div>
               <div class="node-card-meta">
-                SSH: ${escapeHtml(n.sshHost || '未绑定 (仅 Mac 本地目录已就绪)')} · 本地: ~/.takt-ai/${escapeHtml(alias)} · Syncthing: ${escapeHtml(n.syncthingFolderId)}
+                SSH: ${escapeHtml(n.sshHost || '未绑定 (仅 本地目录已就绪)')} · 本地: ~/.takt-ai/${escapeHtml(alias)} · Syncthing: ${escapeHtml(n.syncthingFolderId)}
               </div>
             </div>
             <div style="display:flex; gap:6px; align-items:center;">
@@ -6165,199 +6210,6 @@
           txt.textContent = '隧道自愈';
           btn.disabled = false;
         }
-      });
-
-      // ============================================================================
-      // 11. Instabox Remote Desktop Plugin (noVNC / Xvnc :1 / Takeover & Dock — Tokyo Node)
-      // ============================================================================
-      let rdCurrentUrl = 'http://127.0.0.1:16080/vnc.html?autoconnect=true&resize=scale&reconnect=true&reconnect_delay=1000';
-      let rdCurrentVncUrl = 'vnc://:instabox@127.0.0.1:15901';
-      let rdControlMode = 'agent';
-
-      async function callRemoteDesktopApi(action, nodeId = 'linux-work4') {
-        try {
-          const res = await fetch('http://127.0.0.1:18765/remote-desktop', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ action, nodeId }),
-          });
-          return await res.json();
-        } catch (err) {
-          try {
-            const res2 = await fetch('/api/remote-desktop', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ action, nodeId }),
-            });
-            return await res2.json();
-          } catch (err2) {
-            return { ok: false, error: err2.message || err.message };
-          }
-        }
-      }
-
-      function updateRdControlBadge(mode) {
-        rdControlMode = (mode === 'human' || mode === 'user') ? 'user' : 'agent';
-        const badge = document.getElementById('rdControlBadge') || document.getElementById('rdControlModeBadge');
-        const btn = document.getElementById('btnRdToggleControl');
-        if (!badge || !btn) return;
-        if (rdControlMode === 'user') {
-          badge.textContent = '控制权: 人工接管 (User Control)';
-          badge.style.color = '#f4f4f5';
-          badge.style.background = 'rgba(255,255,255,0.08)';
-          badge.style.borderColor = 'rgba(255,255,255,0.22)';
-          btn.textContent = '交还给 Agent (Handback)';
-        } else {
-          badge.textContent = '控制权: Agent (Claude)';
-          badge.style.color = '#a1a1aa';
-          badge.style.background = 'rgba(255,255,255,0.04)';
-          badge.style.borderColor = 'rgba(255,255,255,0.12)';
-          btn.textContent = '接管鼠标键盘 (Takeover)';
-        }
-      }
-
-      async function ensureInstaboxDesktopReady() {
-        const statusBadge = document.getElementById('rdStatusBadge');
-        if (statusBadge) statusBadge.textContent = '连接 SSH 隧道中...';
-        const data = await callRemoteDesktopApi('start', 'linux-work4');
-        if (data && data.ok) {
-          if (data.webUrl || data.url) rdCurrentUrl = data.webUrl || data.url;
-          if (data.vncUrl) rdCurrentVncUrl = data.vncUrl;
-          updateRdControlBadge(data.controller || data.controlMode || 'agent');
-          if (statusBadge) {
-            statusBadge.textContent = `ONLINE · ${data.sshHost || 'tokyo-claude'} (127.0.0.1:${data.webPort || 16080})`;
-            statusBadge.style.color = '#f4f4f5';
-          }
-          return true;
-        } else {
-          if (statusBadge) {
-            statusBadge.textContent = '连接异常 (尝试直连 16080)';
-            statusBadge.style.color = '#a1a1aa';
-          }
-          return false;
-        }
-      }
-
-      async function openRemoteDesktopModal() {
-        remoteDesktopDialog.showModal();
-        syncNativeTerminalGeometry();
-        await ensureInstaboxDesktopReady();
-        const iframe = document.getElementById('rdIframe') || document.getElementById('remoteDesktopIframe');
-        if (iframe && (!iframe.src || iframe.src === 'about:blank' || iframe.src.endsWith('about:blank') || iframe.src.includes(':18765/novnc/'))) {
-          iframe.src = rdCurrentUrl;
-        }
-      }
-
-      async function dockRemoteDesktopToPreview() {
-        if (remoteDesktopDialog.open) {
-          remoteDesktopDialog.close();
-        }
-        syncNativeTerminalGeometry();
-        if (panelRight.classList.contains('collapsed')) {
-          panelRight.classList.remove('collapsed');
-          resizerRight.classList.remove('hidden');
-        }
-        if (previewPane && previewPane.classList.contains('collapsed')) {
-          previewPane.classList.remove('collapsed');
-        }
-        syncNativeTerminalGeometry();
-        showToast('正在将东京节点远程桌面嵌入右侧预览栏...');
-        await ensureInstaboxDesktopReady();
-        document.getElementById('previewTitle').textContent = '远程桌面 (VNC :1)';
-        const body = document.getElementById('previewBody');
-        body.innerHTML = `
-          <div style="position:absolute; inset:0; display:flex; flex-direction:column; width:100%; height:100%; background:#050608;">
-            <div style="display:flex; align-items:center; justify-content:space-between; padding:6px 10px; background:#0d1017; border-bottom:1px solid var(--border); gap:6px; flex-wrap:wrap;">
-              <div style="display:flex; align-items:center; gap:6px;">
-                <button class="btn" id="btnDockRdTakeover" style="height:22px; font-size:11px; padding:0 8px;">${rdControlMode === 'user' ? '交还 Agent' : '接管鼠键'}</button>
-                <button class="btn" id="btnDockRdBrowser" style="height:22px; font-size:11px; padding:0 8px;">启动 Chrome</button>
-              </div>
-              <div style="display:flex; align-items:center; gap:6px;">
-                <button class="btn" id="btnDockRdFullscreen" style="height:22px; font-size:11px; padding:0 8px;">弹窗全屏</button>
-                <button class="btn" id="btnDockRdNativeVnc" style="height:22px; font-size:11px; padding:0 8px;">macOS 屏幕共享</button>
-              </div>
-            </div>
-            <iframe src="${rdCurrentUrl}" style="flex:1; width:100%; height:100%; border:none; background:#050608;" allow="clipboard-read; clipboard-write; fullscreen"></iframe>
-          </div>
-        `;
-        const btnTakeover = document.getElementById('btnDockRdTakeover');
-        if (btnTakeover) {
-          btnTakeover.addEventListener('click', async () => {
-            const nextAction = rdControlMode === 'user' ? 'handback' : 'takeover';
-            const res = await callRemoteDesktopApi(nextAction, 'linux-work4');
-            if (res && res.ok) {
-              updateRdControlBadge(res.controller || res.controlMode);
-              btnTakeover.textContent = rdControlMode === 'user' ? '交还 Agent' : '接管鼠键';
-              showToast(rdControlMode === 'user' ? '已切换为人工接管模式' : '已将桌面控制权交还给 Claude Agent');
-            }
-          });
-        }
-        const btnBrowser = document.getElementById('btnDockRdBrowser');
-        if (btnBrowser) {
-          btnBrowser.addEventListener('click', async () => {
-            await callRemoteDesktopApi('open-browser', 'linux-work4');
-            showToast('已在东京远程桌面启动 Chrome 浏览器');
-          });
-        }
-        const btnFs = document.getElementById('btnDockRdFullscreen');
-        if (btnFs) {
-          btnFs.addEventListener('click', () => openRemoteDesktopModal());
-        }
-        const btnVnc = document.getElementById('btnDockRdNativeVnc');
-        if (btnVnc) {
-          btnVnc.addEventListener('click', async () => {
-            await callRemoteDesktopApi('open-native-vnc', 'linux-work4');
-            showToast(`已唤起 macOS 原生屏幕共享 (${rdCurrentVncUrl})`);
-          });
-        }
-      }
-
-      document.getElementById('btnDockRemoteDesktop').addEventListener('click', () => {
-        dockRemoteDesktopToPreview();
-      });
-
-      document.getElementById('btnRdToggleControl').addEventListener('click', async () => {
-        const nextAction = rdControlMode === 'user' ? 'handback' : 'takeover';
-        const res = await callRemoteDesktopApi(nextAction, 'linux-work4');
-        if (res && res.ok) {
-          updateRdControlBadge(res.controller || res.controlMode);
-          showToast(rdControlMode === 'user'
-            ? '已切换为【人工接管】模式：您可直接在桌面中登录账号或完成验证码'
-            : '已切换为【Agent 控制】模式：Claude 可继续自动化操作');
-        }
-      });
-
-      document.getElementById('btnRdLaunchBrowser').addEventListener('click', async () => {
-        const res = await callRemoteDesktopApi('open-browser', 'linux-work4');
-        if (res && res.ok) {
-          showToast('已在东京桌面 (:1) 启动 Chrome 浏览器');
-        }
-      });
-
-      document.getElementById('btnRdDockRight').addEventListener('click', () => {
-        dockRemoteDesktopToPreview();
-      });
-
-      document.getElementById('btnRdNativeVnc').addEventListener('click', async () => {
-        await callRemoteDesktopApi('open-native-vnc', 'linux-work4');
-        showToast(`已唤起 macOS 原生屏幕共享 (${rdCurrentVncUrl})`);
-      });
-
-      document.getElementById('btnRdPopWindow').addEventListener('click', () => {
-        window.open(rdCurrentUrl, '_blank', 'noopener,noreferrer');
-      });
-
-      document.getElementById('btnRdReload').addEventListener('click', async () => {
-        await ensureInstaboxDesktopReady();
-        const iframe = document.getElementById('rdIframe') || document.getElementById('remoteDesktopIframe');
-        if (iframe) {
-          iframe.src = `${rdCurrentUrl}&_t=${Date.now()}`;
-        }
-        showToast('已重连 Instabox 远程桌面隧道');
-      });
-
-      document.getElementById('btnRdClose').addEventListener('click', () => {
-        remoteDesktopDialog.close();
       });
 
       // ============================================================================
@@ -7324,7 +7176,7 @@
         btnViewTerminal.classList.toggle('active', !inChat);
         btnViewChat.classList.toggle('active', inChat);
         btnViewTerminal.disabled = !t;
-        btnViewChat.disabled = !t;
+        btnViewChat.disabled = !t || t.mode === 'local';
         syncNativeTerminalGeometry();
         renderContextBar();
 
@@ -7366,6 +7218,7 @@
         if (!explicitMode && now - dtLastToggleAt < 300) return;
         dtLastToggleAt = now;
         const t = tabs.get(targetTabId);
+        if (t.mode === 'local') return;
         const next = explicitMode || (t.viewMode === 'chat' ? 'terminal' : 'chat');
         t.viewMode = next;
         if (next === 'chat') savedViewModes[t.tabId] = 'chat';
@@ -8275,8 +8128,12 @@
       syncDocktermViewUI();
 
       // Initial Boot
+      document.getElementById('btnLocalTerminal').addEventListener('click', () => {
+        const node = getNodeInfo(currentFilesNodeId);
+        openOrSwitchTerminalTab({ tabId: `local-${Date.now()}`, title: '本机终端', cwd: node.remoteWorkDir || '/root/work', nodeId: node.id, mode: 'local', resume: false });
+      });
       loadProjectTree();
-      loadSessionFiles('/root/work', 'korea-claude');
+      loadSessionFiles('/root/work', 'node-1');
       pollStatusBar();
       setInterval(pollStatusBar, 4000);
       setInterval(loadProjectTree, 12000);

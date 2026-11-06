@@ -1,3 +1,11 @@
+> **Windows 11 edition 1.2.0 · 2026-11-05**: Electron desktop, Windows ConPTY terminals, owned OpenSSH reverse tunnels and 21 Windows MCP tools.
+>
+> Run the installer/portable EXE in `dist/windows`, or double-click **`start-windows.cmd`** from a source checkout. Packaged builds include Node.js and need neither WSL nor Git Bash.
+>
+> **[Windows 11 guide](docs/WINDOWS11.md)** · [Windows source](https://github.com/willwill85/TAKT-UI-CC) · [Project logbook](docs/LOGBOOK.md). Tailscale installation/login is independent; configure your SSH alias with the server's Tailscale address. The original macOS overview remains below; use the Windows guide for Windows setup and commands.
+
+![Verified Windows 11 desktop](docs/images/windows11.png)
+
 <div align="center">
 
 # TAKT-UI-CC

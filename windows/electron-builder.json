@@ -1,0 +1,18 @@
+{
+  "appId": "dev.takt.ui.cc.windows",
+  "productName": "TAKT-UI-CC",
+  "electronVersion": "45.0.0",
+  "electronDist": "../node_modules/electron/dist",
+  "directories": { "output": "../dist/windows" },
+  "files": ["main.cjs", "package.json"],
+  "extraResources": [
+    { "from": "../build/windows-runtime/backend", "to": "backend", "filter": ["**/*"] },
+    { "from": "../build/windows-runtime/backend/node_modules", "to": "backend/node_modules", "filter": ["**/*"] },
+    { "from": "../build/windows-runtime/runtime", "to": "runtime", "filter": ["**/*"] }
+  ],
+  "afterPack": "./windows/verify-package.js",
+  "npmRebuild": false,
+  "win": { "target": [{"target": "nsis", "arch": ["x64"]}, {"target": "portable", "arch": ["x64"]}], "signExecutable": false },
+  "nsis": { "oneClick": false, "perMachine": false, "allowToChangeInstallationDirectory": true, "createDesktopShortcut": true, "createStartMenuShortcut": true, "artifactName": "TAKT-UI-CC-Setup-${version}-x64.exe" },
+  "portable": { "artifactName": "TAKT-UI-CC-${version}-win-x64.exe" }
+}

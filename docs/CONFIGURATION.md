@@ -1,5 +1,7 @@
 # Configuration
 
+Windows users: see [Windows 11 guide](WINDOWS11.md). Data defaults to `%USERPROFILE%\.takt-ai`; overrides in its `env` file are parsed as literal KEY=value lines. `TAKT_SSH_BIN` overrides Windows OpenSSH, `TAKT_PYTHON` selects optional Python, and `TAKT_BLENDER_BIN`, `TAKT_FREECAD_CMD`, `TAKT_FREECAD_GUI`, `TAKT_EASYEDA_EXE`, `TAKT_CHROME_BIN`, `TAKT_JLINK_EXE`, `TAKT_DFU_UTIL`, `TAKT_IDF_EXPORT_PS1`, `TAKT_TAILSCALE_BIN` select optional Windows tools. Values may contain spaces without shell escaping. The `mac_` tool prefixes are retained for compatibility.
+
 All settings are optional — defaults work out of the box. Set variables in your shell, or (recommended) put `KEY=value` lines into **`$TAKT_HOME/env`** (default `~/.takt-ai/env`); `scripts/start.sh` and the desktop app load it.
 
 ## Environment variables
