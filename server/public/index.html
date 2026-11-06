@@ -462,6 +462,14 @@
       color: var(--text-muted);
     }
 
+    .node-pill-usage {
+      font-family: var(--font-mono);
+      font-size: calc(10px * var(--fs, 1));
+      color: var(--text-muted);
+    }
+    .node-pill-usage.is-warn { color: var(--warning); }
+    .node-pill-usage.is-crit { color: var(--danger); }
+
     .session-total {
       padding: 6px 14px 2px;
       font-size: calc(10.5px * var(--fs, 1));
@@ -3169,7 +3177,6 @@
                   </div>
                 </div>
                 <div class="composer__bar" id="docktermModelBar">
-                  <span class="composer__usage" id="docktermUsage" hidden></span>
                   <span class="composer__bar-note" id="docktermModelNote"></span>
                   <div class="dt-pick" id="docktermModelPick">
                     <button type="button" class="dt-pick__btn" id="docktermModelBtn" aria-haspopup="listbox" aria-expanded="false" aria-label="模型"><span class="dt-pick__label" id="docktermModelLabel">模型</span><svg class="dt-pick__chev" viewBox="0 0 24 24" aria-hidden="true"><polyline points="6 9 12 15 18 9"/></svg></button>
@@ -3893,10 +3900,11 @@
           const pill = mk(
             n.id,
             n.badge || n.name || n.id,
-            `<span class="node-pill-count">${countByNode[n.id] || 0}</span>`,
+            `<span class="node-pill-count">${countByNode[n.id] || 0}</span>${dtNodeUsageHtml(n.id)}`,
             nodeServerIcon(n.online),
           );
-          pill.title = `${n.name}${n.sshHost ? ` · ${n.sshHost}:${n.remoteWorkDir}` : ' · 未绑定 SSH'}\n${n.online ? '在线' : '离线'} · 右键编辑节点`;
+          pill.title = `${n.name}${n.sshHost ? ` · ${n.sshHost}:${n.remoteWorkDir}` : ' · 未绑定 SSH'}\n${n.online ? '在线' : '离线'} · 右键编辑节点`
+          { const ut = dtNodeUsageTitle(n.id); if (ut) pill.title += `\n${ut}`; }
           pill.addEventListener('click', () => setNodeFilter(selectedNodeFilter === n.id ? 'all' : n.id));
           pill.addEventListener('contextmenu', (e) => {
             e.preventDefault();
@@ -7413,7 +7421,6 @@
       const DT_USAGE_EVERY_MS = 10 * 60 * 1000;
       const DT_EFFORTS = ['low', 'medium', 'high', 'xhigh', 'max'];
       const DT_LINE_ORDER = ['fable', 'opus', 'sonnet', 'haiku'];
-      const dtUsageEl = document.getElementById('docktermUsage');
       const dtPicks = {
         model: { wrap: document.getElementById('docktermModelPick'), btn: document.getElementById('docktermModelBtn'), label: document.getElementById('docktermModelLabel'), menu: document.getElementById('docktermModelMenu'), title: '模型', cmd: '/model' },
         effort: { wrap: document.getElementById('docktermEffortPick'), btn: document.getElementById('docktermEffortBtn'), label: document.getElementById('docktermEffortLabel'), menu: document.getElementById('docktermEffortMenu'), title: 'Effort', cmd: '/effort' },
@@ -7475,6 +7482,7 @@
         if (!t || document.hidden) return;
         if (Date.now() - dtMetaFor(t).usageAt >= DT_USAGE_EVERY_MS) loadDocktermMeta(t, ['usage']);
       }, 30 * 1000);
+      setInterval(() => { if (!document.hidden) renderNodeFilterBar(); }, 60 * 1000);
 
       function dtResetText(iso) {
         const at = Date.parse(iso || '');
@@ -7491,23 +7499,35 @@
         return `${d.getMonth() + 1}月${d.getDate()}日 ${hm} 重置`;
       }
 
-      function renderDocktermUsage(t) {
-        const meta = t ? dtMetaFor(t) : null;
+      // Usage lives on the node pill (top-left), not under the composer. Shown only while the data is fresh.
+      const DT_USAGE_FRESH_MS = 25 * 60 * 1000;
+      function dtFreshUsage(nodeId) {
+        const meta = dtNodeMeta.get(nodeId || '');
         const u = meta && meta.usage;
-        if (!u || (!u.fiveHour && !u.week)) {
-          dtUsageEl.hidden = true;
-          return;
-        }
-        const meter = (label, x) => {
+        if (!u || (!u.fiveHour && !u.week)) return null;
+        if (u.source === 'cache' || meta.usageError) return null;
+        const at = Number(u.fetchedAt) || meta.usageAt || 0;
+        if (!at || Date.now() - at > DT_USAGE_FRESH_MS) return null;
+        return { meta, u };
+      }
+
+      function dtNodeUsageHtml(nodeId) {
+        const f = dtFreshUsage(nodeId);
+        if (!f) return '';
+        const { u } = f;
+        const part = (label, x) => {
           if (!x) return '';
           const pct = Math.max(0, Math.min(100, Math.round(Number(x.pct) || 0)));
           const cls = pct >= 90 ? ' is-crit' : pct >= 75 ? ' is-warn' : '';
-          const r = 9;
-          const len = 2 * Math.PI * r;
-          const arc = pct > 0 ? Math.max(1.5, (len * pct) / 100) : 0;
-          return `<span class="usage-meter${cls}"><span>${label}</span><span class="usage-ring"><svg viewBox="0 0 22 22" aria-hidden="true"><circle class="usage-ring__track" cx="11" cy="11" r="${r}"/>${arc ? `<circle class="usage-ring__value" cx="11" cy="11" r="${r}" stroke-dasharray="${arc.toFixed(2)} ${len.toFixed(2)}"/>` : ''}</svg><span class="usage-ring__num${pct >= 100 ? ' is-full' : ''}">${pct}</span></span></span>`;
+          return `<span class="node-pill-usage${cls}">${label} ${pct}%</span>`;
         };
-        dtUsageEl.innerHTML = meter('5h', u.fiveHour) + meter('周', u.week);
+        return part('5h', u.fiveHour) + part('周', u.week);
+      }
+
+      function dtNodeUsageTitle(nodeId) {
+        const f = dtFreshUsage(nodeId);
+        if (!f) return '';
+        const { meta, u } = f;
         const lines = [];
         const withReset = (text, iso) => {
           const r = dtResetText(iso);
@@ -7518,12 +7538,12 @@
         if (u.weekOpus) lines.push(`本周 Opus ${Math.round(u.weekOpus.pct)}%`);
         if (u.weekSonnet) lines.push(`本周 Sonnet ${Math.round(u.weekSonnet.pct)}%`);
         const when = u.fetchedAt ? new Date(u.fetchedAt).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit', hour12: false }) : '';
-        lines.push(u.source === 'cache'
-          ? `来自 Claude Code 的缓存（${when}）· 实时查询失败：${meta.usageError || '未知原因'}`
-          : `更新于 ${when} · 每 10 分钟刷新${meta.plan ? ` · ${meta.plan}` : ''}`);
-        dtUsageEl.title = lines.join('\n');
-        dtUsageEl.classList.toggle('is-stale', u.source === 'cache');
-        dtUsageEl.hidden = false;
+        lines.push(`更新于 ${when} · 每 10 分钟刷新${meta.plan ? ` · ${meta.plan}` : ''}`);
+        return lines.join('\n');
+      }
+
+      function renderDocktermUsage() {
+        renderNodeFilterBar();
       }
 
       function dtModelLabel(m) {
