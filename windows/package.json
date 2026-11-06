@@ -1,0 +1,9 @@
+{
+  "name": "takt-ui-cc-desktop",
+  "version": "1.2.1",
+  "buildDate": "2026-11-06",
+  "description": "TAKT-UI-CC Windows 11 SSH workbench",
+  "author": "TAKT-UI-CC contributors",
+  "license": "MIT",
+  "main": "main.cjs"
+}

@@ -1,0 +1,9 @@
+* text=auto
+*.sh text eol=lf
+*.js text eol=lf
+*.cjs text eol=lf
+*.json text eol=lf
+*.md text eol=lf
+*.cmd text eol=crlf
+# Preserve upstream notices verbatim, including their original indentation.
+windows/licenses/*-LICENSE.txt text eol=lf -whitespace

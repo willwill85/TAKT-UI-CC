@@ -1,6 +1,7 @@
 {
   "name": "takt-ui-cc",
-  "version": "1.0.0",
+  "version": "1.2.1",
+  "buildDate": "2026-11-06",
   "description": "TAKT-UI-CC: a multi-machine desktop workbench for Claude Code over SSH — project/session sidebar, persistent tmux terminals, local file preview, Syncthing sync and a reverse-tunnelled local MCP server.",
   "license": "MIT",
   "private": false,
@@ -11,11 +12,16 @@
   "scripts": {
     "start": "node server/server.js",
     "start:mcp": "node mcp-server/server.js --http",
-    "start:all": "bash scripts/start.sh",
-    "stop": "bash scripts/stop.sh",
-    "doctor": "bash scripts/doctor.sh",
+    "start:all": "node scripts/runtime.js start",
+    "stop": "node scripts/runtime.js stop",
+    "doctor": "node scripts/runtime.js doctor",
+    "desktop": "node scripts/desktop.js",
+    "build:windows": "node windows/prepare.js && electron-builder --projectDir windows --config electron-builder.json --win --publish never",
+    "test": "node --test tests/*.test.js",
+    "test:smoke": "node scripts/smoke-test.js",
+    "test:desktop": "node scripts/desktop-smoke.js",
     "lint": "eslint .",
-    "check": "node --check config.js && node --check server/server.js && node --check mcp-server/server.js && bash -n server/native-ssh-session.sh && bash -n scripts/*.sh",
+    "check": "node scripts/check.js",
     "postinstall": "node scripts/postinstall.js"
   },
   "dependencies": {
@@ -23,8 +29,11 @@
     "ws": "^8.18.0"
   },
   "devDependencies": {
+    "electron": "^45.0.0",
+    "electron-builder": "^26.18.0",
     "eslint": "^9.0.0",
-    "globals": "^15.0.0"
+    "globals": "^15.0.0",
+    "ssh2": "^1.17.0"
   },
   "allowScripts": {
     "node-pty@1.1.0": true

@@ -1,5 +1,7 @@
 # Security
 
+Windows edition: the same loopback/token trust model applies. New token files receive an explicit current-user-only NTFS ACL (POSIX mode 0600 alone is insufficient on Windows). Electron uses sandboxing, context isolation and no Node integration. Each Windows SSH tunnel is an owned foreground child; desktop exit terminates its backend process trees. Local service shutdown endpoints require the MCP token. `mac_host_exec` uses PowerShell on Windows. See [Windows guide](WINDOWS11.md).
+
 TAKT-UI-CC connects remote servers to *your* computer. That is powerful, so please understand the trust model.
 
 ## Threat model

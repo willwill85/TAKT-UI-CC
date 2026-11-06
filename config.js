@@ -9,12 +9,21 @@ const os = require('node:os');
 const path = require('node:path');
 
 const HOME = os.homedir();
+// Read simple KEY=value overrides on every platform, without executing shell code.
+try {
+  const envPath = path.join(process.env.TAKT_HOME || path.join(HOME, '.takt-ai'), 'env');
+  for (const line of require('node:fs').readFileSync(envPath, 'utf8').split(/\r?\n/)) {
+    const match = line.match(/^\s*(?:export\s+)?([A-Z_][A-Z0-9_]*)\s*=\s*(.*?)\s*$/);
+    if (match && process.env[match[1]] === undefined) process.env[match[1]] = match[2].replace(/^(['"])(.*)\1$/, '$2');
+  }
+} catch {}
 
 // Runtime data directory (nodes.json, SQLite DB, logs, per-node work folders live here).
 const TAKT_HOME = path.resolve(process.env.TAKT_HOME || path.join(HOME, '.takt-ai'));
 
 function syncthingConfigCandidates() {
   return [
+    ...(process.platform === 'win32' ? [path.join(process.env.LOCALAPPDATA || path.join(HOME, 'AppData/Local'), 'Syncthing/config.xml')] : []),
     path.join(HOME, 'Library/Application Support/Syncthing/config.xml'), // macOS
     path.join(HOME, '.local/state/syncthing/config.xml'), // Linux (new)
     path.join(HOME, '.config/syncthing/config.xml'), // Linux (old)
@@ -38,6 +47,8 @@ function getMcpToken() {
   const token = crypto.randomBytes(24).toString('hex');
   fs.mkdirSync(TAKT_HOME, { recursive: true });
   fs.writeFileSync(file, token + '\n', { mode: 0o600 });
+  try { require('./lib/platform').protectSecret(file); }
+  catch (err) { fs.unlinkSync(file); throw err; }
   return token;
 }
 
@@ -81,4 +92,5 @@ module.exports = {
   EASYEDA_BRIDGE_SCRIPT: process.env.TAKT_EASYEDA_BRIDGE || '',
   IDF_EXPORT_SH: process.env.TAKT_IDF_EXPORT || path.join(HOME, 'esp/esp-idf/export.sh'),
   ESP_PYTHON_ENV: process.env.TAKT_ESP_PYTHON_ENV || path.join(HOME, '.espressif/python_env/idf5.1_py3.9_env'),
+  IDF_EXPORT_PS1: process.env.TAKT_IDF_EXPORT_PS1 || '',
 };
