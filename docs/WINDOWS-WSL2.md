@@ -10,6 +10,46 @@ Syncthing and helper scripts run inside Linux; the UI opens in a Windows browser
 
 简体中文版：[docs/zh-CN/WINDOWS-WSL2.md](zh-CN/WINDOWS-WSL2.md)
 
+## One-command installation (recommended)
+
+If the other PC already has an initialized WSL2 Ubuntu distribution with the same name, a normal
+PowerShell window can complete the setup in one run. Copy the VPS private key to the new PC, then
+download and run the repository installer:
+
+```powershell
+$installer = Join-Path $env:TEMP 'install-takt.ps1'
+Invoke-WebRequest 'https://raw.githubusercontent.com/willwill85/TAKT-UI-CC/main/scripts/install-windows.ps1' -OutFile $installer
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File $installer `
+  -SshKey 'C:\Users\YOUR_WINDOWS_USER\Downloads\server-key.pem' `
+  -SshHost 'server.example.com' `
+  -SshUser 'ubuntu' `
+  -SshAlias 'takt-vps'
+```
+
+The installer sets up the Linux packages, Node.js 22, repository, WSL SSH key and config, TAKT
+services, VPS node, MCP tunnel, and health check. It also creates `Start-TAKT.cmd` on the Windows
+desktop. The private key is copied into WSL's `~/.ssh` with mode `0600` and is never written to the
+repository. The first SSH connection uses `StrictHostKeyChecking=accept-new`; verify the host-key
+fingerprint through the VPS console first when your security policy requires it.
+
+Useful options:
+
+- Add `-SkipRemoteBootstrap` when this VPS was already prepared.
+- Add `-RemoteWorkDir '/absolute/path'` when the work directory is not the SSH user's `~/work`.
+- Add `-Plan` to validate and print the plan without changing anything.
+- Use `-RepoUrl` and `-Branch` for a non-default checkout, including an unmerged PR branch.
+
+A completely fresh Windows installation still needs one operating-system initialization that cannot
+continue automatically across a reboot: run `wsl --install -d Ubuntu` in elevated PowerShell, reboot
+if requested, open Ubuntu once to create its Linux user, then run the installer above.
+
+> **Multiple-PC limit for one VPS:** only one TAKT client should actively own the default MCP setup
+> for the same SSH/Claude user. Before moving or switching PCs, run `bash scripts/stop.sh` in the old
+> PC's WSL checkout, then start the new PC. Concurrent clients contend for the remote MCP port, and
+> the most recently provisioned client updates remote `~/.claude.json`. No Windows username or local
+> path is disclosed to the VPS, but two clients cannot control the same remote Claude configuration
+> simultaneously.
+
 ## 1. Install WSL2
 
 In an elevated PowerShell window:
@@ -118,9 +158,13 @@ Run the health check at any time:
 npm run doctor
 ```
 
-## 6. Optional Windows launcher
+## 6. Windows launcher
 
-Create `Start-TAKT.cmd` anywhere convenient and adjust the checkout path if needed:
+The one-command installer above creates `Start-TAKT.cmd` on the Windows desktop automatically.
+Double-click it to start the WSL services and open the browser.
+
+For a manual installation, create `Start-TAKT.cmd` anywhere convenient and adjust the checkout path
+if needed:
 
 ```bat
 @echo off

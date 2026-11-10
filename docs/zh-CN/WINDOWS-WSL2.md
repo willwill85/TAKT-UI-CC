@@ -10,6 +10,43 @@ TAKT-UI-CC 可以通过 WSL2 在 Windows 上运行：工作台、SSH、`node-pty
 
 English: [docs/WINDOWS-WSL2.md](../WINDOWS-WSL2.md)
 
+## 一键安装（推荐）
+
+如果另一台电脑已经安装并初始化了同名 WSL2 Ubuntu，安装可以在普通 PowerShell 中一次完成。
+先把 VPS 私钥复制到新电脑，然后下载并运行仓库内的安装器：
+
+```powershell
+$installer = Join-Path $env:TEMP 'install-takt.ps1'
+Invoke-WebRequest 'https://raw.githubusercontent.com/willwill85/TAKT-UI-CC/main/scripts/install-windows.ps1' -OutFile $installer
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File $installer `
+  -SshKey 'C:\Users\YOUR_WINDOWS_USER\Downloads\server-key.pem' `
+  -SshHost 'server.example.com' `
+  -SshUser 'ubuntu' `
+  -SshAlias 'takt-vps'
+```
+
+脚本会在 WSL 内完成 Linux 依赖、Node.js 22、仓库、SSH 密钥和配置、TAKT 服务、VPS
+节点、MCP 隧道与健康检查，并在 Windows 桌面创建 `Start-TAKT.cmd`。私钥会复制到
+WSL 的 `~/.ssh` 并设为 `0600`；不会写入仓库。首次 SSH 连接使用
+`StrictHostKeyChecking=accept-new` 保存主机密钥，安全要求较高时请先通过 VPS 控制台核对指纹。
+
+常用选项：
+
+- 同一台 VPS 已经执行过远端准备时，加 `-SkipRemoteBootstrap`。
+- 远端工作目录不是该 SSH 用户的 `~/work` 时，加 `-RemoteWorkDir '/absolute/path'`。
+- 先检查参数但不做任何修改时，加 `-Plan`。
+- 仓库或分支不是默认值时，用 `-RepoUrl` 和 `-Branch` 指定；这也适合测试尚未合并的 PR。
+
+全新的 Windows 仍需要一次系统级初始化，这是 Windows 本身无法跨重启自动完成的步骤：用管理员
+PowerShell 运行 `wsl --install -d Ubuntu`，按要求重启，打开一次 Ubuntu 创建 Linux 用户，
+然后执行上面的一键安装命令。
+
+> **同一 VPS 的多电脑限制：** 同一个 SSH/Claude 用户只能由一台 TAKT 客户端主动接管默认
+> MCP 配置。迁移或切换电脑前，先在旧电脑的 WSL 仓库中运行 `bash scripts/stop.sh`，再启动
+> 新电脑。两台电脑同时运行会争用远端 MCP 端口，并且最后配置的电脑会更新远端
+> `~/.claude.json`。这不会向 VPS 暴露 Windows 用户名或本地路径，但两台客户端不能同时控制
+> 同一个远端 Claude 配置。
+
 ## 1. 安装 WSL2
 
 用管理员身份打开 PowerShell：
@@ -114,9 +151,12 @@ bash scripts/start.sh
 npm run doctor
 ```
 
-## 6. 可选：Windows 一键启动
+## 6. Windows 一键启动
 
-在任意方便的位置创建 `Start-TAKT.cmd`；如果仓库路径不同，请相应修改：
+上面的一键安装器会自动在 Windows 桌面创建 `Start-TAKT.cmd`。双击它即可启动 WSL 内的
+服务并打开浏览器。
+
+手动安装时，也可以在任意方便的位置创建 `Start-TAKT.cmd`；如果仓库路径不同，请相应修改：
 
 ```bat
 @echo off
