@@ -144,6 +144,11 @@ start "" "http://127.0.0.1:3080"
 - `usb_list_devices_and_ports` 同时列出 Windows PnP/COM 设备与已附加到 WSL 的设备；
   `usb_serial_monitor` 既接受 `/dev/ttyUSB0`，也接受 `COM3`。
 
+工作台中的本机操作也会自动映射到 Windows：打开/定位文件会使用 Windows 默认应用或文件
+管理器，“在本机系统终端中打开”会用 Windows Terminal 打开同一个远端 tmux 会话（未安装
+Windows Terminal 时回退到 `wsl.exe` 控制台）。状态栏会同时检查 WSL Tailscale CLI 和
+Windows Tailscale 网卡。
+
 需要在 WSL 中运行烧录工具时，先用
 [usbipd-win](https://learn.microsoft.com/windows/wsl/connect-usb) 把 USB 设备附加到 WSL。
 Xcode 和 Apple 设备工具仍只支持 macOS，在 WSL2 调用会返回明确的平台错误。

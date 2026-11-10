@@ -2161,7 +2161,7 @@
       text-decoration-color: currentColor;
     }
 
-    /* Images in the conversation — always loaded from the Mac (mirror, or a cached copy) */
+    /* Images in the conversation — always loaded from the local mirror or cache */
     .reading__images {
       display: flex;
       flex-wrap: wrap;
@@ -3165,8 +3165,8 @@
             <img id="docktermLightboxImg" alt="" />
             <div class="dt-lightbox__bar">
               <span class="dt-lightbox__name" id="docktermLightboxName"></span>
-              <button type="button" class="btn" id="btnLightboxOpen">用 Mac 应用打开</button>
-              <button type="button" class="btn" id="btnLightboxReveal">在 Finder 中显示</button>
+              <button type="button" class="btn" id="btnLightboxOpen">用本机应用打开</button>
+              <button type="button" class="btn" id="btnLightboxReveal">在文件管理器中显示</button>
               <button type="button" class="btn" id="btnLightboxClose">关闭 (Esc)</button>
             </div>
           </div>
@@ -3206,7 +3206,7 @@
             <button class="btn btn-icon btn-ghost" id="btnToggleAllDirs" title="折叠 / 展开全部子目录">
               <svg class="icon" viewBox="0 0 24 24"><path d="m7 15 5 5 5-5"/><path d="m7 9 5-5 5 5"/></svg>
             </button>
-            <button class="btn btn-icon btn-ghost" id="btnOpenFinder" title="在 Finder 中显示">
+            <button class="btn btn-icon btn-ghost" id="btnOpenFinder" title="在文件管理器中显示">
               <svg class="icon" viewBox="0 0 24 24"><path d="M2 9V5a2 2 0 0 1 2-2h3.9a2 2 0 0 1 1.69.9l.81 1.2a2 2 0 0 0 1.67.9H20a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2v-1"/><path d="M2 13h10"/><path d="m9 16 3-3-3-3"/></svg>
             </button>
             <button class="btn btn-icon btn-ghost" id="btnDockRemoteDesktop" title="在预览区内嵌远程桌面">
@@ -3221,7 +3221,7 @@
         <div class="right-split" id="rightSplit">
           <!-- Top: Collapsible & Drag-and-Drop File Tree -->
           <div class="file-browser-pane" id="fileBrowserPane">
-            <div class="section-subhead" id="toggleFileBrowserSection" aria-expanded="true" title="点击折叠 / 展开。文件可拖到其它目录移动、拖进终端插入路径；从 Finder 拖入即上传">
+            <div class="section-subhead" id="toggleFileBrowserSection" aria-expanded="true" title="点击折叠 / 展开。文件可拖到其它目录移动、拖进终端插入路径；从文件管理器拖入即上传">
               <div class="section-subhead-left">
                 <svg class="icon icon-sm chevron-icon" id="fileSectionChevron" viewBox="0 0 24 24"><polyline points="6 9 12 15 18 9"/></svg>
                 <span>目录</span>
@@ -3230,7 +3230,7 @@
             </div>
 
             <div class="file-path-bar" id="rootDropBar" title="把文件拖到这里可移回项目根目录">
-              <span class="file-path-text" id="currentSessionCwdLabel">/Users/will/.takt-ai/work</span>
+              <span class="file-path-text" id="currentSessionCwdLabel">~/.takt-ai/work</span>
               <span class="machine-badge" id="rightNodeBadge">KR-1 · work</span>
             </div>
 
@@ -3315,7 +3315,7 @@
     </form>
   </dialog>
 
-  <!-- Modal Dialog: Multi-Linux Node Manager (work / work2 / Syncthing / Mac MCP Bridge) -->
+  <!-- Modal Dialog: Multi-Linux Node Manager (work / work2 / Syncthing / local MCP bridge) -->
   <!-- Modal Dialog: Appearance settings (theme / accent / fonts / layout) -->
   <dialog id="settingsDialog" class="ag-dialog" closedby="any" aria-labelledby="settingsDialogTitle">
     <form method="dialog" class="dialog-box" id="settingsForm">
@@ -3377,7 +3377,7 @@
       </div>
 
       <div style="font-size:11px; color:var(--text-secondary); line-height:1.45;">
-        每台 Linux 独立绑定本地一个目录（如 <code>work</code>、<code>work2</code>），保存后自动创建本地目录、注册 Syncthing 双向同步，并建立专用逆向隧道使该机器直接调用本机 Mac 的 21 个 MCP 工具。
+        每台 Linux 独立绑定本地一个目录（如 <code>work</code>、<code>work2</code>），保存后自动创建本地目录、注册 Syncthing 双向同步，并建立专用逆向隧道使该机器请求本机的 23 个 MCP 工具。
       </div>
 
       <div class="node-manager-list scroller" id="nodeManagerList"></div>
@@ -3396,7 +3396,7 @@
             <input type="text" class="dialog-input" id="nodeInputBadge" placeholder="LX-2" maxlength="8" required />
           </div>
           <div>
-            <div style="font-size:10.5px; color:var(--text-muted); margin-bottom:3px;">Mac 本地文件夹</div>
+            <div style="font-size:10.5px; color:var(--text-muted); margin-bottom:3px;">本机文件夹</div>
             <input type="text" class="dialog-input" id="nodeInputAlias" placeholder="work2" pattern="[a-zA-Z0-9_-]+" required />
           </div>
         </div>
@@ -3415,7 +3415,7 @@
 
         <label style="display:flex; align-items:center; gap:6px; font-size:11.5px; color:var(--text-secondary); cursor:pointer;">
           <input type="checkbox" id="nodeInputEnabled" checked />
-          <span>启用此 Linux 节点的 SSH 扫描与 Mac MCP 逆向隧道 (:18765 / :49620)</span>
+          <span>启用此 Linux 节点的 SSH 扫描与本机 MCP 逆向隧道 (:18765 / :49620)</span>
         </label>
       </div>
 
@@ -3449,8 +3449,8 @@
           <button type="button" class="btn" id="btnRdDockRight" title="将远程桌面固定到主界面右侧预览栏，实现左侧终端 + 右侧桌面同屏">
             <span>固定到右侧分屏</span>
           </button>
-          <button type="button" class="btn" id="btnRdNativeVnc" title="唤起 macOS 原生「屏幕共享.app」连接 (vnc://127.0.0.1:15901)">
-            <span>Mac 原生屏幕共享</span>
+          <button type="button" class="btn" id="btnRdNativeVnc" title="唤起本机已安装的 VNC 客户端连接 (vnc://127.0.0.1:15901)">
+            <span>系统 VNC 客户端</span>
           </button>
           <button type="button" class="btn" id="btnRdPopWindow" title="在独立浏览器窗口打开 noVNC 桌面">
             <svg class="icon icon-sm" viewBox="0 0 24 24"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
@@ -4243,7 +4243,7 @@
                 <span class="machine-badge secondary">${escapeHtml(activeNode.badge)} · 待接入 SSH</span>
               </div>
               <div style="font-size:11px; color:var(--text-secondary); line-height:1.45;">
-                本地同步目录 <code>${escapeHtml(activeNode.localWorkDir)}</code> 已就绪。点击下方按钮填入第二台 Linux 的 SSH Host 即可自动打通 Mac MCP 逆向隧道与 Syncthing。
+                本地同步目录 <code>${escapeHtml(activeNode.localWorkDir)}</code> 已就绪。点击下方按钮填入第二台 Linux 的 SSH Host 即可自动打通本机 MCP 逆向隧道与 Syncthing。
               </div>
               <button class="btn btn-primary" id="btnBannerBindSsh" style="align-self:flex-start; margin-top:2px;">配置此节点 SSH 与同步</button>
             `;
@@ -4270,7 +4270,7 @@
           const sessCount = (folder.sessions || []).length;
           const isCollapsed = collapsedProjects.has(folderKey);
           const badgeText = `${folder.nodeBadge || 'KR-1'} · ${folder.localWorkAlias || 'work'}`;
-          const mappingTitle = `${folder.nodeName || folder.nodeId} (${folder.sshHost || '未配SSH'}:${folder.path} <-> Mac ${folder.localPath || folder.localWorkDir})`;
+          const mappingTitle = `${folder.nodeName || folder.nodeId} (${folder.sshHost || '未配SSH'}:${folder.path} <-> 本机 ${folder.localPath || folder.localWorkDir})`;
 
           const showSections = selectedNodeFilter === 'all' && nodesData.length > 1;
           if (showSections && folder.nodeId !== lastSectionNodeId) {
@@ -4931,7 +4931,7 @@
       }
 
       // ============================================================================
-      // 8. Right Panel: Collapsible & Drag-and-Drop File Tree + Previewer (Mac Local Path Priority)
+      // 8. Right panel: drag-and-drop file tree + previewer (local mirror priority)
       // ============================================================================
       function toLocalMacPath(p, nodeId = currentFilesNodeId) {
         const node = getNodeInfo(nodeId);
@@ -5203,7 +5203,7 @@
         document.getElementById('fileCountLabel').textContent = `${count} 项`;
 
         if (count === 0) {
-          container.innerHTML = '<div class="preview-empty">当前目录为空 (可从 Finder 拖拽文件至此上传)</div>';
+          container.innerHTML = '<div class="preview-empty">当前目录为空（可从文件管理器拖拽文件至此上传）</div>';
         }
       }
 
@@ -5234,7 +5234,7 @@
           return;
         }
 
-        // External files dropped from macOS Finder
+        // External files dropped from the host file manager
         if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
           await uploadExternalFilesToDir(e.dataTransfer.files, targetDirPath);
         }
@@ -5325,7 +5325,7 @@
         const chatTab = activeTabId && tabs.has(activeTabId) ? tabs.get(activeTabId) : null;
         const dropped = Array.from(e.dataTransfer.files || []);
         if (!taktPath && dropped.length && chatTab && chatTab.viewMode === 'chat') {
-          // Files from Finder -> attachments (folders are skipped)
+          // Files from the host file manager -> attachments (folders are skipped)
           const dirs = new Set();
           for (const it of Array.from(e.dataTransfer.items || [])) {
             const en = it.webkitGetAsEntry ? it.webkitGetAsEntry() : null;
@@ -5417,11 +5417,11 @@
             <div style="font-weight:600; color:var(--text-primary); font-size:12.5px; word-break:break-all;">${escapeHtml(name || localDisplayPath)}</div>
             <div style="font-size:11px; color:var(--text-secondary); line-height:1.5;">${escapeHtml(reason || '此文件不支持直接预览')}</div>
             <div style="font-size:10.5px; font-family:var(--font-mono); color:var(--text-muted);">
-              ${size != null ? `大小: ${formatBytes(size)} · ` : ''}Mac 本地路径: ${escapeHtml(localDisplayPath)}
+              ${size != null ? `大小: ${formatBytes(size)} · ` : ''}本机路径: ${escapeHtml(localDisplayPath)}
             </div>
             <div style="display:flex; gap:8px; margin-top:4px; flex-wrap:wrap; justify-content:center;">
-              <button class="btn" id="btnCardOpenMac">用 Mac 应用打开</button>
-              <button class="btn" id="btnCardOpenFinder">在 Finder 中定位</button>
+              <button class="btn" id="btnCardOpenMac">用本机应用打开</button>
+              <button class="btn" id="btnCardOpenFinder">在文件管理器中定位</button>
               <button class="btn btn-primary" id="btnCardInjectPath">&gt;_ 注入终端</button>
             </div>
           </div>
@@ -5593,8 +5593,8 @@
           macBtn.className = 'btn';
           macBtn.style.height = '20px';
           macBtn.style.fontSize = '10.5px';
-          macBtn.title = '用 Mac 上的默认应用打开（⌥点击：在 Finder 中显示）';
-          macBtn.innerHTML = `${SVG_ICONS.externalLink}<span>Mac 打开</span>`;
+          macBtn.title = '用本机默认应用打开（Alt/⌥ 点击：在文件管理器中显示）';
+          macBtn.innerHTML = `${SVG_ICONS.externalLink}<span>本机打开</span>`;
           macBtn.addEventListener('click', (ev) => {
             openDocktermFileOnMac({ cwd, nodeId }, { path: data.fromRemote ? (data.remotePath || filePath) : (data.localPath || filePath), reveal: ev.altKey, label: data.name || baseName });
           });
@@ -5785,7 +5785,7 @@
         const anchor = e.currentTarget;
         openTagMenu(anchor, (menu) => {
           menu.appendChild(menuItem(
-            `${SVG_ICONS.externalLink}<span>在 Terminal.app 中打开当前会话</span>`,
+            `${SVG_ICONS.externalLink}<span>在本机系统终端中打开当前会话</span>`,
             () => { closeTagMenu(); popCurrentSessionInSystemTerminal(); },
           ));
           menu.appendChild(menuItem(
@@ -5997,7 +5997,7 @@
                 <span>${escapeHtml(n.name)}</span>
               </div>
               <div class="node-card-meta">
-                SSH: ${escapeHtml(n.sshHost || '未绑定 (仅 Mac 本地目录已就绪)')} · 本地: ~/.takt-ai/${escapeHtml(alias)} · Syncthing: ${escapeHtml(n.syncthingFolderId)}
+                SSH: ${escapeHtml(n.sshHost || '未绑定（仅本机目录已就绪）')} · 本地: ~/.takt-ai/${escapeHtml(alias)} · Syncthing: ${escapeHtml(n.syncthingFolderId)}
               </div>
             </div>
             <div style="display:flex; gap:6px; align-items:center;">
@@ -6277,7 +6277,7 @@
               </div>
               <div style="display:flex; align-items:center; gap:6px;">
                 <button class="btn" id="btnDockRdFullscreen" style="height:22px; font-size:11px; padding:0 8px;">弹窗全屏</button>
-                <button class="btn" id="btnDockRdNativeVnc" style="height:22px; font-size:11px; padding:0 8px;">macOS 屏幕共享</button>
+                <button class="btn" id="btnDockRdNativeVnc" style="height:22px; font-size:11px; padding:0 8px;">系统 VNC 客户端</button>
               </div>
             </div>
             <iframe src="${rdCurrentUrl}" style="flex:1; width:100%; height:100%; border:none; background:#050608;" allow="clipboard-read; clipboard-write; fullscreen"></iframe>
@@ -6310,7 +6310,7 @@
         if (btnVnc) {
           btnVnc.addEventListener('click', async () => {
             await callRemoteDesktopApi('open-native-vnc', 'linux-work4');
-            showToast(`已唤起 macOS 原生屏幕共享 (${rdCurrentVncUrl})`);
+            showToast(`已唤起本机 VNC 客户端 (${rdCurrentVncUrl})`);
           });
         }
       }
@@ -6343,7 +6343,7 @@
 
       document.getElementById('btnRdNativeVnc').addEventListener('click', async () => {
         await callRemoteDesktopApi('open-native-vnc', 'linux-work4');
-        showToast(`已唤起 macOS 原生屏幕共享 (${rdCurrentVncUrl})`);
+        showToast(`已唤起本机 VNC 客户端 (${rdCurrentVncUrl})`);
       });
 
       document.getElementById('btnRdPopWindow').addEventListener('click', () => {
@@ -6565,8 +6565,8 @@
       const MD_TABLE_SEP_RE = /^\s*\|?\s*:?-{2,}:?\s*(\|\s*:?-{2,}:?\s*)*\|?\s*$/;
 
       // ---------------------------------------------------------------- files & images in messages
-      // Paths in the conversation become links: click previews on the right (from the Mac's disk),
-      // ⌘-click opens with the Mac app, ⌥-click reveals in Finder. Images also get thumbnails.
+      // Paths in the conversation become links: click previews on the right (from the local mirror/cache),
+      // Ctrl/⌘-click opens with a host app; Alt/⌥-click reveals in the host file manager.
       const DT_FILE_EXTS = 'py|js|mjs|cjs|ts|tsx|jsx|md|markdown|json|jsonl|ya?ml|toml|sh|bash|zsh|html?|css|scss|less|swift|rs|go|c|cc|cpp|h|hpp|m|mm|java|kt|rb|php|lua|vue|svelte|txt|log|ini|cfg|conf|env|sql|lock|xml|csv|ipynb|png|jpe?g|gif|webp|svg|bmp|ico|pdf|glb|gltf|stl|obj|fbx|3mf|ply|usdz|step|stp|iges|igs|fcstd|blend|dxf|dwg|epro2?|kicad_pcb|kicad_sch|kicad_pro|bin|hex|elf|uf2|docx?|xlsx?|pptx?|key|pages|numbers|mp4|mov|webm|mp3|wav|m4a|zip|tgz|gz';
       const DT_SEG = '[\\w.@+\\-\\u4e00-\\u9fa5]';
       const DT_LINE_SUFFIX = '(?::\\d+(?::\\d+)?)?';
@@ -6586,7 +6586,7 @@
       function dtFileLinkHtml(rawPath, labelHtml) {
         const clean = dtStripLine(rawPath);
         if (mdImageSink && DT_IMAGE_EXT_RE.test(clean)) mdImageSink.push(clean);
-        return `<a href="#" class="md-file-link" data-file-path="${escapeHtml(rawPath)}" title="${escapeHtml(clean)}\n点击预览 · ⌘点击用 Mac 应用打开 · ⌥点击在 Finder 中显示">${labelHtml}</a>`;
+        return `<a href="#" class="md-file-link" data-file-path="${escapeHtml(rawPath)}" title="${escapeHtml(clean)}\n点击预览 · Ctrl/⌘ 点击用本机应用打开 · Alt/⌥ 点击在文件管理器中显示">${labelHtml}</a>`;
       }
       function dtThumbHtml({ path: p, ref, name }) {
         const attr = p ? `data-thumb-path="${escapeHtml(p)}"` : `data-thumb-ref="${escapeHtml(ref)}"`;
@@ -6846,7 +6846,7 @@
           el.title = `${m.tool.name}${m.tool.path ? `: ${m.tool.path}` : m.tool.summary ? `: ${m.tool.summary}` : ''}`;
           const summary = !m.tool.summary ? ''
             : m.tool.path
-              ? `<a href="#" class="reading__tool-summary md-file-link" data-file-path="${escapeHtml(m.tool.path)}" title="${escapeHtml(m.tool.path)}\n点击预览 · ⌘点击用 Mac 应用打开 · ⌥点击在 Finder 中显示">${escapeHtml(m.tool.summary)}</a>`
+              ? `<a href="#" class="reading__tool-summary md-file-link" data-file-path="${escapeHtml(m.tool.path)}" title="${escapeHtml(m.tool.path)}\n点击预览 · Ctrl/⌘ 点击用本机应用打开 · Alt/⌥ 点击在文件管理器中显示">${escapeHtml(m.tool.summary)}</a>`
               : `<span class="reading__tool-summary">${escapeHtml(m.tool.summary)}</span>`;
           el.innerHTML = `
             <span class="reading__tool-icon">${ok === false ? '✕' : ok === true ? '✓' : '●'}</span>
@@ -8130,7 +8130,7 @@
       dtJumpBtn.addEventListener('click', scrollDocktermToBottom);
       dtOlderBtn.addEventListener('click', loadOlderDockterm);
 
-      // ---------------------------------------------------------------- files & images: open on the Mac
+      // ---------------------------------------------------------------- files & images: open on the local client
       async function openDocktermFileOnMac(t, { path: p, chatImage, reveal = false, label = '' } = {}) {
         const name = label || (p ? dtStripLine(p).split('/').pop() : '图片');
         try {
@@ -8146,7 +8146,7 @@
             showToast(data.error || `无法打开 ${name}`);
             return;
           }
-          const how = data.mode === 'reveal' ? '已在 Finder 中显示' : data.mode === 'text' ? '已在文本编辑器中打开' : '已用 Mac 应用打开';
+          const how = data.mode === 'reveal' ? '已在文件管理器中显示' : data.mode === 'text' ? '已在文本编辑器中打开' : '已用本机应用打开';
           showToast(`${how}：${name}${data.fromRemote && !chatImage ? '（已从节点拷贝到本机）' : ''}`);
         } catch {
           showToast(`无法打开 ${name}`);
@@ -8158,7 +8158,7 @@
         const base = clean.split('/').pop();
         const extMatch = base.toLowerCase().match(/(\.[a-z0-9_-]+)$/);
         const ext = extMatch ? extMatch[1] : '';
-        // Previewable (code, images, web) -> right pane; CAD / EDA / office / media -> its Mac app
+        // Previewable content -> right pane; CAD / EDA / office / media -> a host application
         if (checkClientPreviewEligibility({ name: base, ext, size: 0 }).allowed) {
           previewFileInRightPane(p, (t && t.cwd) || currentFilesCwd, false, (t && t.nodeId) || currentFilesNodeId);
         } else {

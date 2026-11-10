@@ -74,6 +74,7 @@ flowchart LR
 - Windows 10/11 + WSL2 + Ubuntu；Web 工作台在 WSL 内运行，使用 Windows 浏览器打开
 - 在 WSL 内安装 Node.js ≥ 22.13、`ssh`、`curl`、`lsof`、`perl` 和原生编译工具
 - WSL2 已支持常用 MCP：Windows 截屏、浏览器控制、Bash/PowerShell、同步文件和 USB/COM 枚举（Xcode 仍仅支持 macOS）
+- 本机操作会调用 Windows 文件管理器/默认应用与 Windows Terminal；状态栏可读取 Windows Tailscale 网卡状态
 - 完整步骤见 [Windows / WSL2 部署指南](docs/zh-CN/WINDOWS-WSL2.md)
 
 **每台 Linux 服务器：**

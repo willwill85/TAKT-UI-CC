@@ -81,6 +81,7 @@ More detail: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 - Windows 10/11 with WSL2 and Ubuntu; the web workbench runs in WSL and opens in a Windows browser
 - Node.js ≥ 22.13, `ssh`, `curl`, `lsof`, `perl`, and native build tools installed inside WSL
 - Common MCP tools are supported: Windows screen capture, browser control, Bash/PowerShell, synced files and USB/COM discovery (Xcode remains macOS-only)
+- Host actions use Windows Explorer/default applications and Windows Terminal; local Tailscale status can be read from the Windows adapter
 - See the complete [Windows / WSL2 guide](docs/WINDOWS-WSL2.md)
 
 **On each Linux server:**

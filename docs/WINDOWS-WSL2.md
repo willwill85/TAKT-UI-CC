@@ -149,6 +149,11 @@ is selected automatically:
 - `usb_list_devices_and_ports` reports both Windows PnP/COM devices and devices attached to WSL.
   `usb_serial_monitor` accepts a WSL path such as `/dev/ttyUSB0` or a Windows name such as `COM3`.
 
+The workbench also maps host UI actions to Windows: opening or revealing a file uses its default
+Windows application or Explorer, and “open in system terminal” launches the same remote tmux session
+in Windows Terminal (with a `wsl.exe` console fallback). The status bar checks both a WSL Tailscale
+CLI and the Windows Tailscale network adapter.
+
 For Linux-native flashing tools, attach the USB device to WSL first with
 [usbipd-win](https://learn.microsoft.com/windows/wsl/connect-usb). Xcode and Apple-device tools
 remain macOS-only and return an explicit platform error on WSL2.
