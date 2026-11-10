@@ -44,8 +44,9 @@ PowerShell 运行 `wsl --install -d Ubuntu`，按要求重启，打开一次 Ubu
 > **同一 VPS 的多电脑限制：** 同一个 SSH/Claude 用户只能由一台 TAKT 客户端主动接管默认
 > MCP 配置。迁移或切换电脑前，先在旧电脑的 WSL 仓库中运行 `bash scripts/stop.sh`，再启动
 > 新电脑。两台电脑同时运行会争用远端 MCP 端口，并且最后配置的电脑会更新远端
-> `~/.claude.json`。这不会向 VPS 暴露 Windows 用户名或本地路径，但两台客户端不能同时控制
-> 同一个远端 Claude 配置。
+> `~/.claude.json`。以后切回旧电脑时，先停止新电脑，在旧电脑启动后打开“节点”并保存一次，
+> 让该电脑重新写入自己的 MCP Token。这不会向 VPS 暴露 Windows 用户名或本地路径，但两台
+> 客户端不能同时控制同一个远端 Claude 配置。
 
 ## 1. 安装 WSL2
 

@@ -46,9 +46,10 @@ if requested, open Ubuntu once to create its Linux user, then run the installer 
 > **Multiple-PC limit for one VPS:** only one TAKT client should actively own the default MCP setup
 > for the same SSH/Claude user. Before moving or switching PCs, run `bash scripts/stop.sh` in the old
 > PC's WSL checkout, then start the new PC. Concurrent clients contend for the remote MCP port, and
-> the most recently provisioned client updates remote `~/.claude.json`. No Windows username or local
-> path is disclosed to the VPS, but two clients cannot control the same remote Claude configuration
-> simultaneously.
+> the most recently provisioned client updates remote `~/.claude.json`. When switching back, stop the
+> new PC, start the old one, then open **Nodes** and save its node once so that its MCP token is written
+> again. No Windows username or local path is disclosed to the VPS, but two clients cannot control the
+> same remote Claude configuration simultaneously.
 
 ## 1. Install WSL2
 
