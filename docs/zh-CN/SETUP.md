@@ -3,6 +3,8 @@
 从零到可用的多机工作台，每台服务器约 10 分钟。
 
 > English: [docs/SETUP.md](../SETUP.md)
+>
+> Windows 用户请先按 [WSL2 部署指南](WINDOWS-WSL2.md)完成本机安装，再从下方第 4 节继续。
 
 ## 0. 准备清单
 
@@ -90,7 +92,7 @@ cp -R build/TAKT-UI-CC.app /Applications/
 
 在已连接的服务器上启动 `claude`，输入 `/mcp`，应当看到 **mac-industrial** 已连接（23 个工具）。可以说“用 Metal 渲染这个 .blend 并保存 PNG”、“列出我 Mac 上的 USB 串口”。工具清单见 [MCP-TOOLS.md](../MCP-TOOLS.md)。
 
-`mac_host_exec`（在你的 Mac 上执行任意 Shell）默认为**询问**，Claude 每次都要你确认。想预先放行：在 `~/.takt-ai/env` 加一行 `TAKT_AUTO_ALLOW_HOST_EXEC=1`，重启工作台并重新保存节点（规则是在保存节点时写到服务器的）。
+会读取或改变本机的工具默认均为**询问**，Claude 每次都要你确认；只有 `work_sync_status` 预先放行。若只想预先放行 `mac_host_exec`：在 `~/.takt-ai/env` 加一行 `TAKT_AUTO_ALLOW_HOST_EXEC=1`，重启工作台并重新保存节点（规则是在保存节点时写到服务器的）。
 
 ## 排错
 

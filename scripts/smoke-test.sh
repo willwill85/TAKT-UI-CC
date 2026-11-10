@@ -37,12 +37,16 @@ RPC='{"jsonrpc":"2.0","id":1,"method":"tools/list"}'
 expect "MCP /mcp without token -> 401"   401 "$(curl -s -o /dev/null -w '%{http_code}' -X POST -H 'Content-Type: application/json' -d "$RPC" "$MCP/mcp")"
 expect "MCP /mcp wrong token -> 401"     401 "$(curl -s -o /dev/null -w '%{http_code}' -X POST -H 'Authorization: Bearer nope' -H 'Content-Type: application/json' -d "$RPC" "$MCP/mcp")"
 expect "MCP /mcp with token -> 200"      200 "$(curl -s -o /dev/null -w '%{http_code}' -X POST -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' -d "$RPC" "$MCP/mcp")"
+expect "MCP status without token -> 401"  401 "$(curl -s -o /dev/null -w '%{http_code}' "$MCP/system-status")"
+expect "MCP status with token -> 200"     200 "$(curl -s -o /dev/null -w '%{http_code}' -H "Authorization: Bearer $TOKEN" "$MCP/system-status")"
+expect "MCP heal without token -> 401"    401 "$(curl -s -o /dev/null -w '%{http_code}' -X POST "$MCP/system-heal")"
+expect "MCP desktop without token -> 401" 401 "$(curl -s -o /dev/null -w '%{http_code}' -X POST "$MCP/remote-desktop")"
 expect "MCP foreign Host rejected"       403 "$(curl -s -o /dev/null -w '%{http_code}' -H 'Host: evil.example.com' "$MCP/health")"
 expect "MCP foreign Origin rejected"     403 "$(curl -s -o /dev/null -w '%{http_code}' -H 'Origin: https://evil.example.com' "$MCP/health")"
 
 BIND="$(lsof -iTCP:"$TAKT_MCP_PORT" -sTCP:LISTEN -n -P 2>/dev/null | awk 'NR==2{print $9}')"
 case "$BIND" in 127.0.0.1:*) pass "MCP bound to loopback ($BIND)";; *) bad "MCP bound to '$BIND'";; esac
-[ "$(stat -f '%Lp' "$TAKT_HOME/mcp-token" 2>/dev/null || stat -c '%a' "$TAKT_HOME/mcp-token")" = "600" ] && pass "token file mode 600" || bad "token file mode"
+[ "$(stat -c '%a' "$TAKT_HOME/mcp-token" 2>/dev/null || stat -f '%Lp' "$TAKT_HOME/mcp-token")" = "600" ] && pass "token file mode 600" || bad "token file mode"
 
 echo
 if [ "$FAILS" -eq 0 ]; then printf '\033[32mAll smoke tests passed.\033[0m\n'; else printf '\033[31m%s test(s) failed.\033[0m\n' "$FAILS"; fi

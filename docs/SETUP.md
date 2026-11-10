@@ -3,6 +3,8 @@
 This guide takes you from zero to a working multi-machine workbench. Estimated time: 10 minutes per server.
 
 > 简体中文版: [docs/zh-CN/SETUP.md](zh-CN/SETUP.md)
+>
+> Windows users: follow the dedicated [WSL2 guide](WINDOWS-WSL2.md), then return to section 4 below.
 
 ## 0. What you need
 
@@ -90,7 +92,7 @@ Add more servers the same way — each gets its own local folder (`work2`, `work
 
 On a connected server, start `claude` and run `/mcp` — you should see **mac-industrial** connected (23 tools). Ask for things like *"render this .blend with Metal and save the PNG"* or *"list my USB serial ports"*. Tool reference: [MCP-TOOLS.md](MCP-TOOLS.md).
 
-The tool `mac_host_exec` (arbitrary shell on your Mac) is set to **ask** — Claude requests approval each time. To pre-approve it, add `TAKT_AUTO_ALLOW_HOST_EXEC=1` to `~/.takt-ai/env`, restart the workbench and re-save the node (the rule is written to the server when a node is saved).
+Tools that inspect or change the local computer are set to **ask** — Claude requests approval each time. Only `work_sync_status` is pre-approved. To pre-approve `mac_host_exec`, add `TAKT_AUTO_ALLOW_HOST_EXEC=1` to `~/.takt-ai/env`, restart the workbench and re-save the node (the rule is written to the server when a node is saved).
 
 ## Troubleshooting
 

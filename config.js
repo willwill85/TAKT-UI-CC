@@ -73,7 +73,8 @@ module.exports = {
   syncthingConfigCandidates,
   findSyncthingConfig() {
     if (process.env.TAKT_SYNCTHING_CONFIG) return process.env.TAKT_SYNCTHING_CONFIG;
-    return syncthingConfigCandidates().find((p) => fs.existsSync(p)) || syncthingConfigCandidates()[0];
+    const candidates = syncthingConfigCandidates();
+    return candidates.find((p) => fs.existsSync(p)) || candidates[process.platform === 'darwin' ? 0 : 1];
   },
   SYNCTHING_URL: process.env.TAKT_SYNCTHING_URL || 'http://127.0.0.1:8384',
 

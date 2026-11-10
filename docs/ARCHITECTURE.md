@@ -2,11 +2,11 @@
 
 > 简体中文版: [zh-CN/ARCHITECTURE.md](zh-CN/ARCHITECTURE.md)
 
-TAKT-UI-CC has three runtime pieces on your Mac and a very small footprint on each server.
+TAKT-UI-CC has three runtime pieces on the local client (macOS or Windows/WSL2) and a very small footprint on each server.
 
 ```mermaid
 flowchart TB
-  subgraph Mac
+  subgraph Client["Local client — macOS or Windows/WSL2"]
     direction TB
     APP["Desktop app (Swift) — WKWebView + SwiftTerm\nor any browser at http://127.0.0.1:3080"]
     WB["server/server.js  (:3080, loopback)\nREST /api/* · WebSocket /ws/term · static UI"]
@@ -57,12 +57,12 @@ Each node owns **one** local folder, **one** Syncthing folder id and **one** tun
 
 `provisionLinuxNode()` in `server/server.js`:
 
-1. creates the local folder and registers it as a Syncthing folder (Mac side);
+1. creates the local folder and registers it as a Syncthing folder (client side);
 2. builds the MCP reverse tunnel: `ssh -M -S <sock> -Nf -R 18765:127.0.0.1:18765 -R 49620:127.0.0.1:49620 <host>`;
 3. runs a small `python3` snippet on the server that
    - creates the remote work dir (falls back to `~/Documents/work` / `~/work` for non-root users),
    - writes the `mac-industrial` MCP server (URL + `Authorization: Bearer <token>`) into `~/.claude.json`,
-   - adds `mcp__mac-industrial` to `permissions.allow` and `mac_host_exec` to `permissions.ask` in `~/.claude/settings.json`,
+   - pre-approves only `work_sync_status` and writes explicit `permissions.ask` rules for local inspection/mutation tools in `~/.claude/settings.json`,
    - reports the server's Syncthing device id;
 4. **pairs Syncthing in both directions** using each side's local REST API (`PUT /rest/config/devices/<id>` + `PUT /rest/config/folders/<id>`), so files start syncing without manual steps.
 
@@ -111,7 +111,7 @@ Every 5 s the **watchdog**:
 
 ## 6. Security boundaries
 
-See [SECURITY.md](SECURITY.md). In short: both HTTP servers listen on loopback only, validate `Host`/`Origin`, `/mcp` needs a bearer token, and the tunnel is the only path from a server to your Mac.
+See [SECURITY.md](SECURITY.md). In short: both HTTP servers listen on loopback only, validate `Host`/`Origin`, MCP/control endpoints need a bearer token, and the tunnel is the only path from a server to your local client.
 
 ## 7. Process model
 

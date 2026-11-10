@@ -6,7 +6,7 @@
 一个窗口管理所有 Linux 服务器：左侧项目 / 对话树、永不断线的终端、本地文件预览、双向文件同步，
 以及一个远端 Claude 可以反向调用的**本机 MCP 服务**。
 
-[English](README.md) · [使用指南](docs/zh-CN/SETUP.md) · [架构说明](docs/zh-CN/ARCHITECTURE.md) · [配置项](docs/CONFIGURATION.md) · [MCP 工具](docs/MCP-TOOLS.md) · [安全说明](docs/SECURITY.md)
+[English](README.md) · [使用指南](docs/zh-CN/SETUP.md) · [Windows / WSL2](docs/zh-CN/WINDOWS-WSL2.md) · [架构说明](docs/zh-CN/ARCHITECTURE.md) · [配置项](docs/CONFIGURATION.md) · [MCP 工具](docs/MCP-TOOLS.md) · [安全说明](docs/SECURITY.md)
 
 ![TAKT-UI-CC 截图](docs/images/screenshot.png)
 
@@ -39,7 +39,7 @@ Claude Code 最适合跑在服务器上（网络好、常驻、离数据近）�
 
 ```mermaid
 flowchart LR
-  subgraph Mac["你的 Mac（客户端）"]
+  subgraph Mac["本机客户端（macOS / WSL2）"]
     UI["桌面 App / 浏览器"]
     WB["工作台服务 :3080\nnode-pty · SQLite · REST + WS"]
     MCP["本机 MCP 服务 :18765"]
@@ -64,11 +64,18 @@ flowchart LR
 ## 环境要求
 
 **本机（Mac）：**
-- macOS 13+（桌面 App 与多数 MCP 工具仅 macOS；Web 界面本身也可在 Linux 浏览器运行）
+- macOS 13+（原生桌面 App 与完整 MCP 工具集）
 - **Node.js ≥ 22.13**（使用内置 `node:sqlite`）：`brew install node`
 - `ssh`，且能用**密钥免密登录**服务器（配置在 `~/.ssh/config`）
 - Xcode 命令行工具（编译原生 App / 无预编译时编译 `node-pty`）：`xcode-select --install`
 - *可选：* [Syncthing](https://syncthing.net)（`brew install syncthing`），用于本地文件镜像
+
+**Windows 本机：**
+- Windows 10/11 + WSL2 + Ubuntu；Web 工作台在 WSL 内运行，使用 Windows 浏览器打开
+- 在 WSL 内安装 Node.js ≥ 22.13、`ssh`、`curl`、`lsof`、`perl` 和原生编译工具
+- WSL2 已支持常用 MCP：Windows 截屏、浏览器控制、Bash/PowerShell、同步文件和 USB/COM 枚举（Xcode 仍仅支持 macOS）
+- 本机操作会调用 Windows 文件管理器/默认应用与 Windows Terminal；状态栏可读取 Windows Tailscale 网卡状态
+- 完整步骤见 [Windows / WSL2 部署指南](docs/zh-CN/WINDOWS-WSL2.md)
 
 **每台 Linux 服务器：**
 - `tmux`、`python3`、`curl`，并为登录用户装好 **Claude Code**
@@ -123,12 +130,12 @@ App = WKWebView + 原生 [SwiftTerm](https://github.com/migueldeicaza/SwiftTerm)
 
 ## 安全模型（请务必阅读）
 
-MCP 服务能在你的 Mac 上执行命令，因此默认做了收紧：
+MCP 服务能在你的本机执行命令，因此默认做了收紧：
 
 - 只绑定 **127.0.0.1**；远端节点只能通过 SSH 反向隧道访问。
 - `/mcp` 需要 `Authorization: Bearer <token>`（随机 Token 存于 `~/.takt-ai/mcp-token`，权限 0600，并写入各节点的 `~/.claude.json`）。
 - 不发送 CORS 头，每个请求校验 `Host` / `Origin` —— 浏览器里的任何网站都无法访问（防 DNS 重绑定 / CSRF）。
-- 远端 Claude 的权限里，`mac_host_exec` 默认设为**询问**，除非你主动开启自动放行。
+- 远端 Claude 的权限里，截屏、浏览器、USB/串口、应用自动化和本机命令等工具默认均设为**询问**；只有 `work_sync_status` 预先放行。
 - 工作台本身同样只监听回环地址，并拒绝陌生 `Host` / `Origin`。
 
 能以对应 SSH 用户登录某个已连接节点的人，可以访问隧道，并读取该用户 `~/.claude.json` 里的 Token 来调用 MCP 工具。**只连接你信任的机器。** 详见 [docs/SECURITY.md](docs/SECURITY.md)。

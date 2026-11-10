@@ -4,7 +4,11 @@ The local MCP server (`mcp-server/server.js`) exposes **23 tools** to Claude Cod
 
 Every tool is **optional and degrades gracefully**: if the application isn't installed, the call returns an error message and nothing else is affected. Paths under a node's remote work dir (e.g. `/home/dev/work/part.step`) are translated to that node's local mirror automatically, and outputs written into the mirror sync back to the server.
 
-> All tools run **as you, on your Mac**. Treat them like handing Claude a terminal on your laptop. See [SECURITY.md](SECURITY.md).
+> All tools run **as you, on your local computer**. Treat them like handing Claude a terminal on your laptop. See [SECURITY.md](SECURITY.md).
+>
+> The MCP server and its legacy `mac_*` tool names predate WSL2 support. The names and the
+> `mac-industrial` server id are retained for backward compatibility; supported tools dispatch to
+> macOS or Windows automatically.
 
 | Group | Tool | What it does | Needs |
 |---|---|---|---|
@@ -21,16 +25,36 @@ Every tool is **optional and degrades gracefully**: if the application isn't ins
 | | `jlceda_generate_extension_script` | Generate EDA SDK automation scripts / `.kicad_mod` footprints | – |
 | | `jlceda_open_gui` | Launch JLC EDA Pro, optionally with a project | `/Applications/嘉立创EDA(专业版).app` |
 | **Browser** | `mac_browser_fetch` | HTTP fetch from *your* network → text/Markdown | – |
-| | `mac_browser_chrome_extract` | Render a JS-heavy page in Chrome, return DOM text/HTML | Google Chrome |
+| | `mac_browser_chrome_extract` | Render a JS-heavy page in Chrome/Edge, return DOM text/HTML | Chrome or Edge |
 | | `mac_browser_open_url` | Open a URL in your default browser | – |
 | **Xcode / iPhone** | `xcode_list_devices` | Connected iPhones/iPads/Watches and simulators | Xcode |
 | | `xcode_build_and_deploy_iphone` | `xcodebuild` an iOS/macOS project; install + launch on a connected iPhone | Xcode, signing set up |
-| **USB / hardware** | `usb_list_devices_and_ports` | USB device tree and `/dev/cu.*` serial ports | – |
+| **USB / hardware** | `usb_list_devices_and_ports` | USB device tree and local serial/COM ports | – |
 | | `usb_serial_monitor` | Read/write a serial port | – |
 | | `hardware_flash_firmware` | Flash MCUs: `esptool`, ESP-IDF `idf.py`, SEGGER `JLinkExe`, `dfu-util` | the respective tool (`TAKT_ESP_PYTHON_ENV`, `TAKT_IDF_EXPORT`, `/usr/local/bin/JLinkExe`, `/opt/homebrew/bin/dfu-util`) |
-| **Host** | `mac_screen_capture` | Screenshot of the desktop or a window; saved to `<work>/screenshots/` (synced) and returned as an image | Screen Recording permission |
-| | `mac_host_exec` | **Run any shell command on your Mac** | – (⚠ see security) |
+| **Host** | `mac_screen_capture` | Screenshot of the desktop or a window; saved to `<work>/screenshots/` (synced) and returned as an image | Screen capture permission/session |
+| | `mac_host_exec` | **Run a shell command on your local client** | – (⚠ see security) |
 | | `work_sync_status` | List the local work mirror and project status | – |
+
+## Windows / WSL2 compatibility
+
+The commonly used local bridge tools work from WSL2 without renaming or reconfiguring the MCP
+server:
+
+| Capability | WSL2 behaviour |
+|---|---|
+| `mac_screen_capture` | Captures the real Windows virtual desktop through Windows PowerShell, writes the PNG into the WSL work mirror, and returns an inline MCP image. Region capture, application activation and image resizing are supported. |
+| `mac_browser_fetch` | Uses WSL's network stack. |
+| `mac_browser_chrome_extract` | Auto-discovers Windows Chrome or Edge and runs it headlessly. Set `TAKT_CHROMIUM_BIN` to override discovery. |
+| `mac_browser_open_url` | Opens the URL in the Windows default browser. |
+| `mac_host_exec` | Uses WSL Bash by default. Pass `shell: "windows-powershell"` to execute native Windows PowerShell in the mapped work directory. |
+| `work_sync_status` and archive parsers | Operate directly on the WSL work mirror. |
+| `usb_list_devices_and_ports` | Reports Windows PnP/COM devices and USB devices attached to WSL. |
+| `usb_serial_monitor` | Accepts either a WSL device such as `/dev/ttyUSB0` or a Windows name such as `COM3`. |
+
+Xcode and Apple-device tools remain macOS-only. Native MCU command-line tools can run in WSL once
+the USB device is attached with `usbipd-win`; Blender, FreeCAD and JLC EDA launch/automation tools
+still require their macOS installations. Unsupported platform calls return an explicit error.
 
 ## Calling the server by hand
 

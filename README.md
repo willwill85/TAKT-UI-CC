@@ -6,7 +6,7 @@
 One window for all your Linux servers: projects & conversations in a sidebar, persistent terminals,
 local file preview, two-way file sync — and a local MCP server your remote Claude can call back into.
 
-[简体中文](README.zh-CN.md) · [Setup guide](docs/SETUP.md) · [Architecture](docs/ARCHITECTURE.md) · [Configuration](docs/CONFIGURATION.md) · [MCP tools](docs/MCP-TOOLS.md) · [Security](docs/SECURITY.md)
+[简体中文](README.zh-CN.md) · [Setup guide](docs/SETUP.md) · [Windows / WSL2](docs/WINDOWS-WSL2.md) · [Architecture](docs/ARCHITECTURE.md) · [Configuration](docs/CONFIGURATION.md) · [MCP tools](docs/MCP-TOOLS.md) · [Security](docs/SECURITY.md)
 
 ![TAKT-UI-CC screenshot](docs/images/screenshot.png)
 
@@ -40,7 +40,7 @@ are out of reach. TAKT-UI-CC fixes that:
 
 ```mermaid
 flowchart LR
-  subgraph Mac["Your Mac (client)"]
+  subgraph Mac["Local client (macOS / WSL2)"]
     UI["Desktop app / browser\n(WKWebView + xterm.js)"]
     WB["Workbench server :3080\nnode-pty · SQLite · REST + WS"]
     MCP["Local MCP server :18765\nBlender · FreeCAD · Xcode · USB …"]
@@ -71,11 +71,18 @@ More detail: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 ## Requirements
 
 **On your Mac (client):**
-- macOS 13+ (the desktop app and most MCP tools are macOS-only; the web UI itself also runs on Linux in a browser)
+- macOS 13+ for the native desktop app and the full MCP tool set
 - **Node.js ≥ 22.13** (uses the built-in `node:sqlite`) — `brew install node`
 - `ssh` with key-based login to your servers (entries in `~/.ssh/config`)
 - Xcode command line tools (only to build the native app / compile `node-pty` when no prebuild exists): `xcode-select --install`
 - *Optional:* [Syncthing](https://syncthing.net) (`brew install syncthing`) for the local file mirror
+
+**On Windows (client):**
+- Windows 10/11 with WSL2 and Ubuntu; the web workbench runs in WSL and opens in a Windows browser
+- Node.js ≥ 22.13, `ssh`, `curl`, `lsof`, `perl`, and native build tools installed inside WSL
+- Common MCP tools are supported: Windows screen capture, browser control, Bash/PowerShell, synced files and USB/COM discovery (Xcode remains macOS-only)
+- Host actions use Windows Explorer/default applications and Windows Terminal; local Tailscale status can be read from the Windows adapter
+- See the complete [Windows / WSL2 guide](docs/WINDOWS-WSL2.md)
 
 **On each Linux server:**
 - `tmux`, `python3`, `curl`, and **Claude Code** installed for the SSH user
@@ -130,12 +137,12 @@ Full list: [docs/CONFIGURATION.md](docs/CONFIGURATION.md).
 
 ## Security model (read this)
 
-The MCP server can run commands on your Mac, so it is locked down by default:
+The MCP server can run commands on your local computer, so it is locked down by default:
 
 - Binds to **127.0.0.1 only**; remote nodes reach it exclusively through the SSH reverse tunnel.
 - `/mcp` requires `Authorization: Bearer <token>` (random token in `~/.takt-ai/mcp-token`, mode 0600, written into each node's `~/.claude.json`).
 - No CORS headers, `Host`/`Origin` validation on every request — websites in your browser cannot talk to it (DNS-rebinding / CSRF safe).
-- `mac_host_exec` is set to **ask** in the remote's Claude permissions unless you opt in.
+- Local inspection and mutation tools (screenshots, browser, USB/serial, app automation and host commands) are set to **ask** in the remote's Claude permissions; only `work_sync_status` is pre-approved.
 - The workbench itself also only listens on loopback and rejects foreign `Host`/`Origin`.
 
 Anyone who can log in to a connected Linux node as the SSH user can reach the tunnel and (with the token, which is readable from that user's `~/.claude.json`) call MCP tools. Only connect machines you trust. Details: [docs/SECURITY.md](docs/SECURITY.md).
