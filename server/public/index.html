@@ -8424,6 +8424,14 @@
       dtInterruptBtn.addEventListener('click', sendDocktermInterrupt);
       document.getElementById('btnLiveInterrupt').addEventListener('click', sendDocktermInterrupt);
 
+      // Chromium reserves Ctrl+Shift+C for its element inspector. Disable that browser action
+      // throughout the workbench; the web terminal's handler can still copy its own selection.
+      window.addEventListener('keydown', (e) => {
+        if (e.ctrlKey && e.shiftKey && !e.altKey && !e.metaKey && e.key.toLowerCase() === 'c') {
+          e.preventDefault();
+        }
+      }, true);
+
       // ⌘E (or Ctrl+Shift+E) toggles the active tab between terminal and conversation view
       window.toggleDocktermChatMode = toggleDocktermChatMode;
       window.addEventListener('keydown', (e) => {
