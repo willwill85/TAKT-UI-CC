@@ -4,9 +4,9 @@ TAKT-UI-CC 可以通过 WSL2 在 Windows 上运行：工作台、SSH、`node-pty
 和辅助脚本都运行在 Linux 中，界面则使用 Windows 浏览器打开
 <http://127.0.0.1:3080>。
 
-> Swift 原生桌面外壳及 macOS 专属 MCP 工具（Xcode、Apple 设备部署、macOS 截屏、
-> Mac App 启动器）仍不可用。浏览器工作台、SSH/tmux 会话、历史对话、文件预览/同步、
-> 本机 Shell MCP 等功能可在 WSL2 下使用。
+> Swift 原生桌面外壳、Xcode/Apple 设备工具和 Mac App 启动器仍只支持 macOS。常用 MCP
+> 能力——Windows 桌面截图、浏览器控制、WSL/PowerShell 命令、同步文件访问、USB/COM
+> 枚举——均可通过 WSL2 使用。
 
 English: [docs/WINDOWS-WSL2.md](../WINDOWS-WSL2.md)
 
@@ -130,6 +130,24 @@ start "" "http://127.0.0.1:3080"
 
 启动脚本是幂等的，重复运行只会提示服务已经启动。
 
+## 7. Windows MCP 工具
+
+为了兼容远端已有配置，`mac_*` 工具名保持不变，运行时会自动选择正确的平台实现：
+
+- `mac_screen_capture` 通过 Windows PowerShell 截取真实 Windows 桌面，保存到
+  `work/screenshots/`，并以内联图片返回给 Claude。
+- `mac_browser_chrome_extract` 自动查找 Windows Chrome 或 Edge。浏览器装在非标准目录时，
+  用 `TAKT_CHROMIUM_BIN` 指定可执行文件。
+- `mac_browser_open_url` 使用 Windows 默认浏览器打开 URL。
+- `mac_host_exec` 默认执行 WSL Bash；传入 `shell: "windows-powershell"` 时直接执行原生
+  PowerShell，并把当前工作目录映射为 `\\wsl.localhost` 路径。
+- `usb_list_devices_and_ports` 同时列出 Windows PnP/COM 设备与已附加到 WSL 的设备；
+  `usb_serial_monitor` 既接受 `/dev/ttyUSB0`，也接受 `COM3`。
+
+需要在 WSL 中运行烧录工具时，先用
+[usbipd-win](https://learn.microsoft.com/windows/wsl/connect-usb) 把 USB 设备附加到 WSL。
+Xcode 和 Apple 设备工具仍只支持 macOS，在 WSL2 调用会返回明确的平台错误。
+
 ## 排错
 
 | 现象 | 解决办法 |
@@ -141,6 +159,9 @@ start "" "http://127.0.0.1:3080"
 | MCP 隧道始终未就绪 | 检查 `AllowTcpForwarding`、服务器端口冲突并运行 `npm run doctor`，再点界面的隧道自愈。 |
 | Syncthing 已安装但离线 | 运行 `syncthing serve --no-browser` 或启用用户服务。不开 22000 也可走中继，直连速度更快。 |
 | WSL 提示无法转换某个 Windows PATH | 删除失效的 Windows PATH，或在 `/etc/wsl.conf` 禁用 Windows PATH 导入；通常不影响 TAKT。 |
+| Windows 截图失败 | 保持 Windows 交互式桌面会话已登录且未锁屏，并确认 WSL 可以运行 `powershell.exe`；没有桌面的服务会话无法截图。 |
+| 找不到 Chrome/Edge | 将 `TAKT_CHROMIUM_BIN` 设为 `chrome.exe` 或 `msedge.exe` 的 WSL 路径，再重启 TAKT。 |
+| Windows 能看到 USB，但 `/dev` 下没有 | 安装 `usbipd-win`，把设备附加到当前 WSL 发行版，再运行 `usb_list_devices_and_ports`；Windows PnP 枚举本身不需要附加。 |
 
 ## 安全说明
 

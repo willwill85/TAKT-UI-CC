@@ -2,7 +2,7 @@
 
 > English: [ARCHITECTURE.md](../ARCHITECTURE.md)
 
-TAKT-UI-CC 在你的 Mac 上有三个运行单元，每台服务器上只有很小的占用。架构图见英文版（Mermaid）；下面是要点。
+TAKT-UI-CC 在本机客户端（macOS 或 Windows/WSL2）有三个运行单元，每台服务器上只有很小的占用。架构图见英文版（Mermaid）；下面是要点。
 
 ## 1. 节点注册表
 
@@ -30,7 +30,7 @@ TAKT-UI-CC 在你的 Mac 上有三个运行单元，每台服务器上只有很�
 3. 在服务器上运行一小段 `python3`：
    - 创建远端工作目录（非 root 自动回退到 `~/Documents/work` / `~/work`）；
    - 把 `mac-industrial` MCP（URL + `Authorization: Bearer <token>`）写入 `~/.claude.json`；
-   - 在 `~/.claude/settings.json` 里把 `mcp__mac-industrial` 加入 `permissions.allow`，`mac_host_exec` 加入 `permissions.ask`；
+   - 在 `~/.claude/settings.json` 中只预先放行 `work_sync_status`，其余读取或改变本机的工具写入 `permissions.ask`；
    - 上报服务器的 Syncthing 设备 ID；
 4. 通过两端各自的本地 REST API（`PUT /rest/config/devices/<id>` + `PUT /rest/config/folders/<id>`）**双向配对 Syncthing**，无需手动操作即可开始同步。
 
@@ -79,7 +79,7 @@ TAKT-UI-CC 在你的 Mac 上有三个运行单元，每台服务器上只有很�
 
 ## 6. 安全边界
 
-见 [SECURITY.md](../SECURITY.md)。简言之：两个 HTTP 服务只监听回环地址并校验 `Host`/`Origin`，`/mcp` 需要 Bearer Token，隧道是服务器通往你 Mac 的唯一通路。
+见 [SECURITY.md](../SECURITY.md)。简言之：两个 HTTP 服务只监听回环地址并校验 `Host`/`Origin`，MCP/控制端点需要 Bearer Token，隧道是服务器通往本机客户端的唯一通路。
 
 ## 7. 进程模型
 

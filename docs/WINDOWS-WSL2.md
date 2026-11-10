@@ -4,10 +4,9 @@ TAKT-UI-CC can run on Windows through WSL2. The workbench, SSH client, `node-pty
 Syncthing and helper scripts run inside Linux; the UI opens in a Windows browser at
 <http://127.0.0.1:3080>.
 
-> The native Swift desktop shell and macOS-only MCP tools (Xcode, Apple device deployment,
-> macOS screen capture, and Mac application launchers) remain unavailable. The browser
-> workbench, SSH/tmux sessions, conversation history, file preview/sync and host-shell MCP
-> tools work in WSL2.
+> The native Swift desktop shell, Xcode/Apple-device tools and Mac application launchers remain
+> macOS-only. Common MCP tools — Windows desktop capture, browser control, WSL/PowerShell command
+> execution, synced-file access and USB/COM discovery — work from WSL2.
 
 简体中文版：[docs/zh-CN/WINDOWS-WSL2.md](zh-CN/WINDOWS-WSL2.md)
 
@@ -135,6 +134,25 @@ start "" "http://127.0.0.1:3080"
 
 The script is idempotent; running it again reports that existing services are already running.
 
+## 7. MCP tools on Windows
+
+Existing `mac_*` names are kept so remote Claude configurations remain compatible. Their runtime
+is selected automatically:
+
+- `mac_screen_capture` captures the real Windows desktop with Windows PowerShell, saves it under
+  `work/screenshots/`, and returns the image inline to Claude.
+- `mac_browser_chrome_extract` discovers Windows Chrome or Edge. Set `TAKT_CHROMIUM_BIN` if the
+  browser is installed in a non-standard location.
+- `mac_browser_open_url` opens the Windows default browser.
+- `mac_host_exec` runs WSL Bash by default. Pass `shell: "windows-powershell"` to run native
+  PowerShell with the current work folder mapped to its `\\wsl.localhost` path.
+- `usb_list_devices_and_ports` reports both Windows PnP/COM devices and devices attached to WSL.
+  `usb_serial_monitor` accepts a WSL path such as `/dev/ttyUSB0` or a Windows name such as `COM3`.
+
+For Linux-native flashing tools, attach the USB device to WSL first with
+[usbipd-win](https://learn.microsoft.com/windows/wsl/connect-usb). Xcode and Apple-device tools
+remain macOS-only and return an explicit platform error on WSL2.
+
 ## Troubleshooting
 
 | Symptom | Fix |
@@ -146,6 +164,9 @@ The script is idempotent; running it again reports that existing services are al
 | MCP tunnel never becomes ready | Check `AllowTcpForwarding`, a port conflict on the server, and `npm run doctor`; then use the UI's tunnel self-heal button. |
 | Syncthing is installed but idle/offline | Run `syncthing serve --no-browser`, or enable its user service. Relays work without opening port 22000; a direct connection is faster. |
 | WSL reports a failed Windows PATH translation | Remove the stale Windows PATH entry or disable Windows PATH import in `/etc/wsl.conf`; it does not normally block TAKT. |
+| Windows screenshot fails | Keep an interactive Windows desktop session unlocked and confirm `powershell.exe` can run from WSL. Remote/service sessions without a desktop cannot be captured. |
+| Chrome/Edge is not found | Set `TAKT_CHROMIUM_BIN` to the WSL path of `chrome.exe` or `msedge.exe`, then restart TAKT. |
+| A USB device is visible in Windows but missing under `/dev` | Install `usbipd-win`, attach the device to the WSL distribution, then rerun `usb_list_devices_and_ports`. Windows PnP enumeration does not require attachment. |
 
 ## Security notes
 
