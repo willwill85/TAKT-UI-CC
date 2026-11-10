@@ -6,7 +6,7 @@
 One window for all your Linux servers: projects & conversations in a sidebar, persistent terminals,
 local file preview, two-way file sync — and a local MCP server your remote Claude can call back into.
 
-[简体中文](README.zh-CN.md) · [Setup guide](docs/SETUP.md) · [Architecture](docs/ARCHITECTURE.md) · [Configuration](docs/CONFIGURATION.md) · [MCP tools](docs/MCP-TOOLS.md) · [Security](docs/SECURITY.md)
+[简体中文](README.zh-CN.md) · [Setup guide](docs/SETUP.md) · [Windows / WSL2](docs/WINDOWS-WSL2.md) · [Architecture](docs/ARCHITECTURE.md) · [Configuration](docs/CONFIGURATION.md) · [MCP tools](docs/MCP-TOOLS.md) · [Security](docs/SECURITY.md)
 
 ![TAKT-UI-CC screenshot](docs/images/screenshot.png)
 
@@ -40,7 +40,7 @@ are out of reach. TAKT-UI-CC fixes that:
 
 ```mermaid
 flowchart LR
-  subgraph Mac["Your Mac (client)"]
+  subgraph Mac["Local client (macOS / WSL2)"]
     UI["Desktop app / browser\n(WKWebView + xterm.js)"]
     WB["Workbench server :3080\nnode-pty · SQLite · REST + WS"]
     MCP["Local MCP server :18765\nBlender · FreeCAD · Xcode · USB …"]
@@ -76,6 +76,11 @@ More detail: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 - `ssh` with key-based login to your servers (entries in `~/.ssh/config`)
 - Xcode command line tools (only to build the native app / compile `node-pty` when no prebuild exists): `xcode-select --install`
 - *Optional:* [Syncthing](https://syncthing.net) (`brew install syncthing`) for the local file mirror
+
+**On Windows (client):**
+- Windows 10/11 with WSL2 and Ubuntu; the web workbench runs in WSL and opens in a Windows browser
+- Node.js ≥ 22.13, `ssh`, `curl`, `lsof`, `perl`, and native build tools installed inside WSL
+- See the complete [Windows / WSL2 guide](docs/WINDOWS-WSL2.md)
 
 **On each Linux server:**
 - `tmux`, `python3`, `curl`, and **Claude Code** installed for the SSH user

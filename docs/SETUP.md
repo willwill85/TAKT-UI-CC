@@ -3,6 +3,8 @@
 This guide takes you from zero to a working multi-machine workbench. Estimated time: 10 minutes per server.
 
 > 简体中文版: [docs/zh-CN/SETUP.md](zh-CN/SETUP.md)
+>
+> Windows users: follow the dedicated [WSL2 guide](WINDOWS-WSL2.md), then return to section 4 below.
 
 ## 0. What you need
 

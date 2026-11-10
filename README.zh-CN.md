@@ -6,7 +6,7 @@
 一个窗口管理所有 Linux 服务器：左侧项目 / 对话树、永不断线的终端、本地文件预览、双向文件同步，
 以及一个远端 Claude 可以反向调用的**本机 MCP 服务**。
 
-[English](README.md) · [使用指南](docs/zh-CN/SETUP.md) · [架构说明](docs/zh-CN/ARCHITECTURE.md) · [配置项](docs/CONFIGURATION.md) · [MCP 工具](docs/MCP-TOOLS.md) · [安全说明](docs/SECURITY.md)
+[English](README.md) · [使用指南](docs/zh-CN/SETUP.md) · [Windows / WSL2](docs/zh-CN/WINDOWS-WSL2.md) · [架构说明](docs/zh-CN/ARCHITECTURE.md) · [配置项](docs/CONFIGURATION.md) · [MCP 工具](docs/MCP-TOOLS.md) · [安全说明](docs/SECURITY.md)
 
 ![TAKT-UI-CC 截图](docs/images/screenshot.png)
 
@@ -39,7 +39,7 @@ Claude Code 最适合跑在服务器上（网络好、常驻、离数据近）�
 
 ```mermaid
 flowchart LR
-  subgraph Mac["你的 Mac（客户端）"]
+  subgraph Mac["本机客户端（macOS / WSL2）"]
     UI["桌面 App / 浏览器"]
     WB["工作台服务 :3080\nnode-pty · SQLite · REST + WS"]
     MCP["本机 MCP 服务 :18765"]
@@ -69,6 +69,11 @@ flowchart LR
 - `ssh`，且能用**密钥免密登录**服务器（配置在 `~/.ssh/config`）
 - Xcode 命令行工具（编译原生 App / 无预编译时编译 `node-pty`）：`xcode-select --install`
 - *可选：* [Syncthing](https://syncthing.net)（`brew install syncthing`），用于本地文件镜像
+
+**Windows 本机：**
+- Windows 10/11 + WSL2 + Ubuntu；Web 工作台在 WSL 内运行，使用 Windows 浏览器打开
+- 在 WSL 内安装 Node.js ≥ 22.13、`ssh`、`curl`、`lsof`、`perl` 和原生编译工具
+- 完整步骤见 [Windows / WSL2 部署指南](docs/zh-CN/WINDOWS-WSL2.md)
 
 **每台 Linux 服务器：**
 - `tmux`、`python3`、`curl`，并为登录用户装好 **Claude Code**

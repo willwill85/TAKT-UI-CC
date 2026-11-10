@@ -3,6 +3,8 @@
 从零到可用的多机工作台，每台服务器约 10 分钟。
 
 > English: [docs/SETUP.md](../SETUP.md)
+>
+> Windows 用户请先按 [WSL2 部署指南](WINDOWS-WSL2.md)完成本机安装，再从下方第 4 节继续。
 
 ## 0. 准备清单
 
