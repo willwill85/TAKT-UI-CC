@@ -4682,6 +4682,26 @@
         }
 
         term.open(mountEl);
+        term.attachCustomKeyEventHandler((event) => {
+          const isTerminalCopy = event.ctrlKey && event.shiftKey && !event.altKey && !event.metaKey
+            && event.key.toLowerCase() === 'c';
+          if (!isTerminalCopy) return true;
+
+          // Ctrl+Shift+C opens Chromium's element picker by default. Inside the web terminal it
+          // should behave like a desktop terminal instead: copy the current xterm selection and
+          // keep the shortcut away from both Chromium and the remote shell.
+          event.preventDefault();
+          event.stopPropagation();
+          if (event.type === 'keydown') {
+            const selectedText = term.getSelection();
+            if (selectedText) {
+              copyTextToClipboard(selectedText).then((ok) => {
+                if (!ok) showToast('复制失败，请使用终端右键菜单复制');
+              });
+            }
+          }
+          return false;
+        });
         registerFilePathLinkProvider(term, cwd || '/root/work');
 
         const tabObj = {
