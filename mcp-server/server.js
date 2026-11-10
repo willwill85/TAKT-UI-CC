@@ -2,7 +2,7 @@
 /**
  * TAKT-UI-CC — local MCP server ("mac-industrial-mcp")
  * --------------------------------------------------------------------------------------
- * Runs on YOUR machine (macOS) and is reverse-tunnelled (ssh -R) to every Linux node, so that
+ * Runs on YOUR machine (macOS or Windows through WSL2) and is reverse-tunnelled (ssh -R) to every Linux node, so that
  * Claude Code running remotely can drive local applications and hardware:
  *   1. Blender            - bpy scripts, Metal GPU rendering, GUI launch
  *   2. FreeCAD            - freecadcmd parametric modeling, STEP inspection, GUI launch
@@ -55,6 +55,13 @@ const PATHS = {
   espPython: path.join(cfg.ESP_PYTHON_ENV, 'bin/python'),
 };
 const HOST_SHELL = fs.existsSync('/bin/zsh') ? '/bin/zsh' : '/bin/bash';
+const HOST_PLATFORM = process.platform === 'darwin'
+  ? 'macos'
+  : process.platform === 'linux'
+      && (Boolean(process.env.WSL_DISTRO_NAME) || os.release().toLowerCase().includes('microsoft'))
+    ? 'wsl2'
+    : process.platform;
+const WINDOWS_POWERSHELL = '/mnt/c/Windows/System32/WindowsPowerShell/v1.0/powershell.exe';
 
 fs.mkdirSync(MAC_WORK_DIR, { recursive: true });
 
@@ -192,6 +199,148 @@ function runCommand(cmd, args, options = {}) {
       resolve({ exitCode: code ?? 0, stdout, stderr, timedOut });
     });
   });
+}
+
+function powerShellLiteral(value) {
+  return `'${String(value).replaceAll("'", "''")}'`;
+}
+
+function redactLocalEnvironment(value) {
+  let output = String(value ?? '');
+  const localHome = os.homedir();
+  const localDirs = new Set([
+    cfg.TAKT_HOME,
+    cfg.WORKSPACE_LINK_DIR,
+    MAC_WORK_DIR,
+    ...loadConfiguredNodes().map((node) => node.localWorkDir),
+  ].filter((item) => typeof item === 'string' && item.length > 3));
+  for (const localDir of [...localDirs].sort((a, b) => b.length - a.length)) {
+    output = output.replaceAll(localDir, '<LOCAL_WORK_DIR>');
+  }
+  if (localHome && localHome.length > 1) output = output.replaceAll(localHome, '<LOCAL_HOME>');
+  return output
+    .replace(/[a-zA-Z]:[\\/]Users[\\/][^\\/\r\n]+/g, '%USERPROFILE%')
+    .replace(/\/(?:Users|home)\/[^/\r\n]+/g, '<LOCAL_HOME>')
+    .replace(/\\\\wsl(?:\.localhost|\$)\\[^\\\r\n]+\\(?:root|home\\[^\\\r\n]+)/gi, '<WSL_HOME>');
+}
+
+async function runWindowsPowerShell(script, options = {}) {
+  if (HOST_PLATFORM !== 'wsl2') {
+    throw new Error('Windows PowerShell bridge is only available when TAKT runs under WSL2.');
+  }
+  const executable = fs.existsSync(WINDOWS_POWERSHELL) ? WINDOWS_POWERSHELL : 'powershell.exe';
+  const preamble = `$ErrorActionPreference = 'Stop'
+$ProgressPreference = 'SilentlyContinue'
+[Console]::OutputEncoding = [System.Text.UTF8Encoding]::new($false)
+$OutputEncoding = [Console]::OutputEncoding`;
+  const encoded = Buffer.from(`${preamble}\n${script}`, 'utf16le').toString('base64');
+  return runCommand(executable, [
+    '-NoLogo',
+    '-NoProfile',
+    '-NonInteractive',
+    '-ExecutionPolicy', 'Bypass',
+    '-EncodedCommand', encoded,
+  ], options);
+}
+
+async function toWindowsPath(inputPath) {
+  const result = await runCommand('wslpath', ['-w', inputPath], { timeoutMs: 5000 });
+  if (result.exitCode !== 0 || !result.stdout.trim()) {
+    throw new Error(`无法将 WSL 路径转换为 Windows 路径: ${inputPath}\n${result.stderr}`);
+  }
+  return result.stdout.trim();
+}
+
+async function openHostUrl(url) {
+  if (HOST_PLATFORM === 'macos') {
+    return runCommand('open', [url], { timeoutMs: 5000 });
+  }
+  if (HOST_PLATFORM === 'wsl2') {
+    return runWindowsPowerShell(`Start-Process -FilePath ${powerShellLiteral(url)}`, { timeoutMs: 5000 });
+  }
+  return runCommand('xdg-open', [url], { timeoutMs: 5000 });
+}
+
+async function findChromiumExecutable() {
+  if (process.env.TAKT_CHROMIUM_BIN) return process.env.TAKT_CHROMIUM_BIN;
+  if (HOST_PLATFORM === 'macos') return PATHS.chromeBin;
+  if (HOST_PLATFORM !== 'wsl2') {
+    for (const candidate of ['google-chrome', 'chromium', 'chromium-browser']) {
+      const found = await runCommand('sh', ['-c', `command -v ${candidate}`], { timeoutMs: 3000 });
+      if (found.exitCode === 0 && found.stdout.trim()) return found.stdout.trim();
+    }
+    return '';
+  }
+
+  const lookup = await runWindowsPowerShell(`
+$candidates = @(
+  (Join-Path $env:ProgramFiles 'Google\\Chrome\\Application\\chrome.exe'),
+  (Join-Path ${'${env:ProgramFiles(x86)}'} 'Google\\Chrome\\Application\\chrome.exe'),
+  (Join-Path $env:LOCALAPPDATA 'Google\\Chrome\\Application\\chrome.exe'),
+  (Join-Path $env:ProgramFiles 'Microsoft\\Edge\\Application\\msedge.exe'),
+  (Join-Path ${'${env:ProgramFiles(x86)}'} 'Microsoft\\Edge\\Application\\msedge.exe')
+)
+$found = $candidates | Where-Object { $_ -and (Test-Path -LiteralPath $_) } | Select-Object -First 1
+if (-not $found) { throw 'Chrome or Edge was not found.' }
+[Console]::Out.Write($found)
+`, { timeoutMs: 8000 });
+  if (lookup.exitCode !== 0 || !lookup.stdout.trim()) return '';
+  const converted = await runCommand('wslpath', ['-u', lookup.stdout.trim()], { timeoutMs: 5000 });
+  return converted.exitCode === 0 ? converted.stdout.trim() : '';
+}
+
+async function captureWindowsScreen(outPath, args, maxDimension) {
+  const outputPath = await toWindowsPath(outPath);
+  const region = args.region ? String(args.region).split(',').map((v) => Number(v.trim())) : null;
+  if (region && (region.length !== 4 || region.some((v) => !Number.isFinite(v)))) {
+    throw new Error('region 必须是 "x,y,width,height"，且四项都必须是数字。');
+  }
+
+  const activateScript = args.activate_app
+    ? `$shell = New-Object -ComObject WScript.Shell\n[void]$shell.AppActivate(${powerShellLiteral(args.activate_app)})\nStart-Sleep -Milliseconds 500`
+    : '';
+  const regionScript = region
+    ? `$x = ${region[0]}\n$y = ${region[1]}\n$width = ${region[2]}\n$height = ${region[3]}`
+    : `$bounds = [System.Windows.Forms.SystemInformation]::VirtualScreen\n$x = $bounds.X\n$y = $bounds.Y\n$width = $bounds.Width\n$height = $bounds.Height`;
+
+  const result = await runWindowsPowerShell(`
+Add-Type -AssemblyName System.Windows.Forms
+Add-Type -AssemblyName System.Drawing
+${activateScript}
+${regionScript}
+if ($width -le 0 -or $height -le 0) { throw 'Capture width and height must be positive.' }
+$bitmap = [System.Drawing.Bitmap]::new($width, $height)
+$graphics = [System.Drawing.Graphics]::FromImage($bitmap)
+try {
+  $graphics.CopyFromScreen($x, $y, 0, 0, $bitmap.Size, [System.Drawing.CopyPixelOperation]::SourceCopy)
+} finally {
+  $graphics.Dispose()
+}
+$maxDimension = ${Math.max(0, Number(maxDimension) || 0)}
+if ($maxDimension -gt 0 -and [Math]::Max($bitmap.Width, $bitmap.Height) -gt $maxDimension) {
+  $scale = $maxDimension / [double][Math]::Max($bitmap.Width, $bitmap.Height)
+  $newWidth = [Math]::Max(1, [int][Math]::Round($bitmap.Width * $scale))
+  $newHeight = [Math]::Max(1, [int][Math]::Round($bitmap.Height * $scale))
+  $resized = [System.Drawing.Bitmap]::new($newWidth, $newHeight)
+  $resizeGraphics = [System.Drawing.Graphics]::FromImage($resized)
+  try {
+    $resizeGraphics.InterpolationMode = [System.Drawing.Drawing2D.InterpolationMode]::HighQualityBicubic
+    $resizeGraphics.DrawImage($bitmap, 0, 0, $newWidth, $newHeight)
+  } finally {
+    $resizeGraphics.Dispose()
+    $bitmap.Dispose()
+  }
+  $bitmap = $resized
+}
+try {
+  $bitmap.Save(${powerShellLiteral(outputPath)}, [System.Drawing.Imaging.ImageFormat]::Png)
+} finally {
+  $bitmap.Dispose()
+}
+`, { timeoutMs: 20000 });
+  if (result.exitCode !== 0) {
+    throw new Error(`Windows 截屏失败: ${result.stderr || result.stdout}`);
+  }
 }
 
 // ============================================================================
@@ -370,7 +519,7 @@ const TOOLS = [
   {
     name: 'mac_browser_fetch',
     description:
-      '使用用户本机 Mac 的真实网络请求 URL 并提取文本/Markdown。可绕过远端 Linux 服务器机房 IP 访问立创商城、GitHub、国内网站时的验证码或拦截。',
+      '使用用户本机的真实网络请求 URL 并提取文本/Markdown。支持 macOS、Linux 与 WSL2，可绕过远端 Linux 服务器机房出口访问网站。',
     inputSchema: {
       type: 'object',
       properties: {
@@ -383,7 +532,7 @@ const TOOLS = [
   {
     name: 'mac_browser_chrome_extract',
     description:
-      '使用用户本机 Mac 的 Google Chrome 浏览器渲染动态网页（支持 SPA / JavaScript 渲染页面）并提取渲染后的 DOM 文本或 HTML。',
+      '使用用户本机 Chromium 浏览器渲染动态网页并提取 DOM 文本或 HTML。macOS 使用 Chrome；WSL2 自动发现 Windows Chrome 或 Edge。',
     inputSchema: {
       type: 'object',
       properties: {
@@ -396,7 +545,7 @@ const TOOLS = [
   },
   {
     name: 'mac_browser_open_url',
-    description: '在用户本机 Mac 的默认浏览器中打开指定 URL。',
+    description: '在用户本机默认浏览器中打开指定 URL，支持 macOS、Linux 与 Windows/WSL2。',
     inputSchema: {
       type: 'object',
       properties: {
@@ -455,7 +604,7 @@ const TOOLS = [
   {
     name: 'usb_list_devices_and_ports',
     description:
-      '枚举本机 Mac 当前连接的所有物理 USB 设备树（system_profiler SPUSBDataType）以及所有可用串口设备（/dev/cu.* 与 /dev/tty.*，如 ESP32、CH340、CP2102、J-Link、ST-Link、WCH-Link、iPhone 等）。',
+      '枚举本机 USB 与串口设备。macOS 返回 system_profiler 与 /dev/cu.*；WSL2 同时返回 Windows PnP/COM 设备和已通过 usbipd 附加到 WSL 的 /dev/ttyUSB*、/dev/ttyACM*。',
     inputSchema: {
       type: 'object',
       properties: {},
@@ -470,7 +619,7 @@ const TOOLS = [
       properties: {
         port: {
           type: 'string',
-          description: '串口路径，例如 /dev/cu.usbserial-5B0B0246551。',
+          description: '串口路径，例如 /dev/cu.usbserial-*、/dev/ttyUSB0、/dev/ttyACM0；WSL2 也支持 Windows COM3 形式。',
         },
         baudrate: {
           type: 'number',
@@ -536,14 +685,14 @@ const TOOLS = [
   {
     name: 'mac_screen_capture',
     description:
-      '对用户本机 MacBook 桌面或指定应用窗口（如 嘉立创EDA、FreeCAD、Blender、Xcode、iOS 模拟器、Chrome）进行截屏！\n' +
+      '对用户本机桌面或指定应用进行截屏，支持 macOS 与 Windows/WSL2。\n' +
       '截图会自动保存到同步目录 work/screenshots/（远端 /root/work/screenshots/ 可直接访问），并同时将压缩后的高清图像直接作为 MCP 视觉图像块返回给 Claude 直接查看。',
     inputSchema: {
       type: 'object',
       properties: {
         activate_app: {
           type: 'string',
-          description: '可选：截屏前先激活置顶的 Mac 应用名称（例如 "FreeCAD"、"Blender"、"嘉立创EDA(专业版)"、"Google Chrome"、"Xcode"、"Simulator"）。',
+          description: '可选：截屏前先激活置顶的应用名称或窗口标题（例如 "FreeCAD"、"Blender"、"Google Chrome"）。',
         },
         region: {
           type: 'string',
@@ -555,7 +704,7 @@ const TOOLS = [
         },
         max_dimension_px: {
           type: 'number',
-          description: '返回给 AI 视觉识别的最大长边像素（默认 1600，使用 macOS sips 缩放以保证清晰且低延迟）。',
+          description: '返回给 AI 视觉识别的最大长边像素（默认 1600）。',
         },
         return_inline_image: {
           type: 'boolean',
@@ -573,7 +722,12 @@ const TOOLS = [
       properties: {
         command: {
           type: 'string',
-          description: '要在本机执行的 zsh/bash 命令字符串。',
+          description: '要在本机执行的 zsh/bash 命令；shell=windows-powershell 时为 PowerShell 脚本。',
+        },
+        shell: {
+          type: 'string',
+          enum: ['default', 'windows-powershell'],
+          description: '执行环境。默认使用 macOS zsh 或 WSL2 bash；WSL2 可选 windows-powershell 直接操作 Windows。',
         },
         cwd: {
           type: 'string',
@@ -591,7 +745,7 @@ const TOOLS = [
   // --- 9. Work Directory Sync Status ---
   {
     name: 'work_sync_status',
-    description: '查看本机 Mac 的 work/ 同步文件夹文件列表及三维模型/硬件工程状态。',
+    description: '查看本机 work/ 同步文件夹的文件列表及三维模型/硬件工程状态。',
     inputSchema: {
       type: 'object',
       properties: {
@@ -933,7 +1087,11 @@ finally:
 
     case 'mac_browser_chrome_extract': {
       const maxChars = Number(args.max_chars || 20000);
-      const res = await runCommand(PATHS.chromeBin, [
+      const chromiumBin = await findChromiumExecutable();
+      if (!chromiumBin) {
+        throw new Error('未找到 Chromium 浏览器。请安装 Chrome/Edge，或通过 TAKT_CHROMIUM_BIN 指定可执行文件。');
+      }
+      const res = await runCommand(chromiumBin, [
         '--headless=new',
         '--disable-gpu',
         '--no-first-run',
@@ -941,23 +1099,33 @@ finally:
         '--dump-dom',
         args.url,
       ], { timeoutMs: 35000 });
+      if (res.exitCode !== 0 && !res.stdout.trim()) {
+        throw new Error(`Chromium 页面渲染失败: ${res.stderr}`);
+      }
       const content = args.raw_html ? res.stdout : stripHtmlToText(res.stdout);
       return `Chrome Rendered URL: ${args.url}\n---\n${content.slice(0, maxChars)}`;
     }
 
     case 'mac_browser_open_url': {
-      await runCommand('open', [args.url]);
-      return `已在 Mac 默认浏览器打开: ${args.url}`;
+      const result = await openHostUrl(args.url);
+      if (result.exitCode !== 0) throw new Error(`无法打开本机浏览器: ${result.stderr}`);
+      return `已在本机默认浏览器打开: ${args.url}`;
     }
 
     // --- 5. Xcode & iPhone Build / Flash / Debug ---
     case 'xcode_list_devices': {
+      if (HOST_PLATFORM !== 'macos') {
+        throw new Error('xcode_list_devices 仅支持 macOS；Windows/WSL2 无法运行 Xcode 或连接 iOS 调试服务。');
+      }
       const devCtl = await runCommand(PATHS.xcrun, ['devicectl', 'list', 'devices'], { timeoutMs: 20000 });
       const xcTrace = await runCommand(PATHS.xcrun, ['xctrace', 'list', 'devices'], { timeoutMs: 20000 });
       return `=== xcrun devicectl list devices ===\n${devCtl.stdout}\n${devCtl.stderr}\n=== xcrun xctrace list devices ===\n${xcTrace.stdout}`;
     }
 
     case 'xcode_build_and_deploy_iphone': {
+      if (HOST_PLATFORM !== 'macos') {
+        throw new Error('xcode_build_and_deploy_iphone 仅支持 macOS；请在安装了 Xcode 的 Mac 节点上执行。');
+      }
       const projPath = resolveWorkPath(args.project_or_workspace_path);
       const isWorkspace = projPath.endsWith('.xcworkspace');
       const cfg = args.configuration || 'Debug';
@@ -1020,6 +1188,25 @@ finally:
 
     // --- 6. Local USB & Serial Port Tools ---
     case 'usb_list_devices_and_ports': {
+      if (HOST_PLATFORM === 'wsl2') {
+        const serials = fs.readdirSync('/dev')
+          .filter((f) => f.startsWith('ttyUSB') || f.startsWith('ttyACM') || f.startsWith('rfcomm'))
+          .map((f) => `/dev/${f}`);
+        const linuxUsb = await runCommand('lsusb', [], { timeoutMs: 10000 });
+        const windowsUsb = await runWindowsPowerShell(`
+$serial = Get-CimInstance Win32_SerialPort -ErrorAction SilentlyContinue |
+  Select-Object DeviceID, Name | Format-Table -AutoSize | Out-String -Width 160
+$usb = Get-PnpDevice -PresentOnly -ErrorAction SilentlyContinue |
+  Where-Object { $_.InstanceId -like 'USB*' } |
+  Select-Object Status, Class, FriendlyName | Sort-Object Class, FriendlyName -Unique |
+  Format-Table -AutoSize | Out-String -Width 160
+$nl = [Environment]::NewLine
+[Console]::Out.Write("=== Windows COM ports ===$nl$serial$nl=== Windows USB devices ===$nl$usb")
+`, { timeoutMs: 15000 });
+        return `=== WSL serial devices ===\n${serials.join('\n') || '(none; attach devices with usbipd if Linux access is required)'}\n\n`
+          + `=== WSL lsusb ===\n${linuxUsb.stdout || linuxUsb.stderr || '(lsusb unavailable)'}\n\n`
+          + `${windowsUsb.stdout || windowsUsb.stderr}`;
+      }
       const serials = fs.readdirSync('/dev')
         .filter((f) => f.startsWith('cu.') || f.startsWith('tty.usb'))
         .map((f) => `/dev/${f}`);
@@ -1032,6 +1219,30 @@ finally:
       const baud = Number(args.baudrate || 115200);
       const duration = Math.min(30, Math.max(1, Number(args.read_duration_sec || 3)));
       const sendData = args.send_data || '';
+
+      if (HOST_PLATFORM === 'wsl2' && /^COM\d+$/i.test(port)) {
+        const result = await runWindowsPowerShell(`
+$port = [System.IO.Ports.SerialPort]::new(${powerShellLiteral(port.toUpperCase())}, ${baud}, 'None', 8, 'One')
+$port.ReadTimeout = 200
+$output = [System.Text.StringBuilder]::new()
+try {
+  $port.Open()
+  if (${powerShellLiteral(sendData)}.Length -gt 0) { $port.Write(${powerShellLiteral(sendData)}) }
+  $deadline = [DateTime]::UtcNow.AddSeconds(${duration})
+  while ([DateTime]::UtcNow -lt $deadline) {
+    $chunk = $port.ReadExisting()
+    if ($chunk) { [void]$output.Append($chunk) }
+    Start-Sleep -Milliseconds 50
+  }
+} finally {
+  if ($port.IsOpen) { $port.Close() }
+  $port.Dispose()
+}
+[Console]::Out.Write($output.ToString())
+`, { timeoutMs: (duration + 5) * 1000 });
+        if (result.exitCode !== 0) throw new Error(`Windows 串口读取失败: ${result.stderr}`);
+        return `串口 ${port} @ ${baud} baud 读取 ${duration}s:\n---\n${result.stdout}`;
+      }
 
       const pyScript = `
 import os, sys, termios, time, select
@@ -1133,7 +1344,7 @@ finally:
       throw new Error(`未知烧录器类型: ${flasher}`);
     }
 
-    // --- 8. Local Mac Screen Capture & Host Command Bridge ---
+    // --- 8. Local Screen Capture & Host Command Bridge ---
     case 'mac_screen_capture': {
       const shotsDir = path.join(MAC_WORK_DIR, 'screenshots');
       await fsp.mkdir(shotsDir, { recursive: true });
@@ -1142,27 +1353,32 @@ finally:
       const shotNode = getActiveNodeConfig();
       const linuxSyncedPath = `${((shotNode && shotNode.remoteWorkDir) || LINUX_WORK_DIR).replace(/\/+$/, '')}/screenshots/${path.basename(fileName)}`;
 
-      if (args.activate_app) {
-        await runCommand('osascript', ['-e', `tell application "${args.activate_app}" to activate`], { timeoutMs: 5000 });
-        await new Promise((r) => setTimeout(r, 500));
-      }
-
-      const capArgs = ['-x'];
-      if (args.region) {
-        capArgs.push('-R', String(args.region));
-      }
-      capArgs.push(outPath);
-      const capRes = await runCommand('/usr/sbin/screencapture', capArgs, { timeoutMs: 15000 });
-      if (!fs.existsSync(outPath)) {
-        throw new Error(`Mac 截屏失败 (请确认终端/Node 具有 macOS 屏幕录制权限): ${capRes.stderr}`);
-      }
-
       const maxDim = Number(args.max_dimension_px || 1600);
-      if (maxDim > 0) {
-        await runCommand('/usr/bin/sips', ['-Z', String(maxDim), outPath], { timeoutMs: 10000 });
+      if (HOST_PLATFORM === 'macos') {
+        if (args.activate_app) {
+          await runCommand('osascript', ['-e', `tell application "${args.activate_app}" to activate`], { timeoutMs: 5000 });
+          await new Promise((r) => setTimeout(r, 500));
+        }
+        const capArgs = ['-x'];
+        if (args.region) capArgs.push('-R', String(args.region));
+        capArgs.push(outPath);
+        const capRes = await runCommand('/usr/sbin/screencapture', capArgs, { timeoutMs: 15000 });
+        if (!fs.existsSync(outPath)) {
+          throw new Error(`Mac 截屏失败 (请确认终端/Node 具有 macOS 屏幕录制权限): ${capRes.stderr}`);
+        }
+        if (maxDim > 0) {
+          await runCommand('/usr/bin/sips', ['-Z', String(maxDim), outPath], { timeoutMs: 10000 });
+        }
+      } else if (HOST_PLATFORM === 'wsl2') {
+        await captureWindowsScreen(outPath, args, maxDim);
+      } else {
+        throw new Error('mac_screen_capture 当前仅支持 macOS 与 Windows/WSL2。');
+      }
+      if (!fs.existsSync(outPath)) {
+        throw new Error(`本机截屏未生成输出文件: ${outPath}`);
       }
 
-      const textSummary = `✅ Mac 截屏成功！\n- Mac 本地路径: ${outPath}\n- 远端 Linux 同步路径: ${linuxSyncedPath}`;
+      const textSummary = `✅ 本机截屏成功！\n- 同步路径: ${linuxSyncedPath}`;
       if (args.return_inline_image !== false) {
         const imgBuf = await fsp.readFile(outPath);
         return {
@@ -1179,8 +1395,16 @@ finally:
       const cwd = args.cwd ? resolveWorkPath(args.cwd) : MAC_WORK_DIR;
       const timeoutMs = Math.min(600000, Math.max(5000, Number(args.timeout_sec || 120) * 1000));
       const cmd = rewriteScriptPaths(args.command);
+      if (args.shell === 'windows-powershell') {
+        if (HOST_PLATFORM !== 'wsl2') {
+          throw new Error('shell=windows-powershell 仅在 Windows/WSL2 客户端上可用。');
+        }
+        const windowsCwd = await toWindowsPath(cwd);
+        const res = await runWindowsPowerShell(`Set-Location -LiteralPath ${powerShellLiteral(windowsCwd)}\n${cmd}`, { timeoutMs });
+        return `Windows PowerShell 执行完成 (exitCode=${res.exitCode}):\nSTDOUT:\n${res.stdout.slice(-6000)}\nSTDERR:\n${res.stderr.slice(-3000)}`;
+      }
       const res = await runCommand(HOST_SHELL, ['-c', cmd], { cwd, timeoutMs });
-      return `本机命令执行完成 (exitCode=${res.exitCode}, cwd=${cwd}):\nSTDOUT:\n${res.stdout.slice(-6000)}\nSTDERR:\n${res.stderr.slice(-3000)}`;
+      return `本机命令执行完成 (exitCode=${res.exitCode}):\nSTDOUT:\n${res.stdout.slice(-6000)}\nSTDERR:\n${res.stderr.slice(-3000)}`;
     }
 
     case 'work_sync_status': {
@@ -1197,7 +1421,7 @@ finally:
           mtime: st ? st.mtime.toISOString() : null,
         });
       }
-      return JSON.stringify({ mac_work_dir: dir, files: rows }, null, 2);
+      return JSON.stringify({ files: rows }, null, 2);
     }
 
     default:
@@ -1251,9 +1475,12 @@ async function handleJsonRpc(msg) {
       const toolArgs = params?.arguments || {};
       try {
         const output = await executeTool(toolName, toolArgs);
-        const content = output && typeof output === 'object' && Array.isArray(output.__mcp_content)
+        const rawContent = output && typeof output === 'object' && Array.isArray(output.__mcp_content)
           ? output.__mcp_content
           : [{ type: 'text', text: String(output) }];
+        const content = rawContent.map((item) => item.type === 'text'
+          ? { ...item, text: redactLocalEnvironment(item.text) }
+          : item);
         return {
           jsonrpc: '2.0',
           id,
@@ -1267,7 +1494,7 @@ async function handleJsonRpc(msg) {
           jsonrpc: '2.0',
           id,
           result: {
-            content: [{ type: 'text', text: `Tool Error (${toolName}): ${err.message}` }],
+            content: [{ type: 'text', text: redactLocalEnvironment(`Tool Error (${toolName}): ${err.message}`) }],
             isError: true,
           },
         };
@@ -1557,7 +1784,10 @@ if (process.argv.includes('--stdio')) {
     // Enforce the documented bearer-token boundary on loopback and SSH reverse-tunnel requests.
     // Set TAKT_REQUIRE_MCP_TOKEN=0 only for isolated troubleshooting.
     const isMcpEndpoint = urlObj.pathname === '/mcp' || urlObj.pathname === '/messages' || urlObj.pathname === '/sse';
-    if (isMcpEndpoint && process.env.TAKT_REQUIRE_MCP_TOKEN !== '0') {
+    const isProtectedControlEndpoint = urlObj.pathname === '/system-status'
+      || urlObj.pathname === '/system-heal'
+      || urlObj.pathname === '/remote-desktop';
+    if ((isMcpEndpoint || isProtectedControlEndpoint) && process.env.TAKT_REQUIRE_MCP_TOKEN !== '0') {
       const auth = String(req.headers.authorization || '');
       const supplied = auth.startsWith('Bearer ') ? auth.slice(7).trim() : String(req.headers['x-takt-token'] || urlObj.searchParams.get('token') || '');
       const a = Buffer.from(supplied);
@@ -1571,7 +1801,7 @@ if (process.argv.includes('--stdio')) {
 
     if (urlObj.pathname === '/health') {
       res.writeHead(200, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({ ok: true, service: 'mac-industrial-mcp', workDir: MAC_WORK_DIR, tools: TOOLS.length }));
+      res.end(JSON.stringify({ ok: true, service: 'mac-industrial-mcp', tools: TOOLS.length }));
       return;
     }
 
@@ -1606,7 +1836,7 @@ if (process.argv.includes('--stdio')) {
       const vncUrl = `vnc://:instabox@127.0.0.1:${vncPort}`;
 
       if (action === 'open-native-vnc') {
-        await runCommand('open', [vncUrl], { timeoutMs: 4000 });
+        await openHostUrl(vncUrl);
         res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
         res.end(JSON.stringify({ ok: true, nodeId: node.id, sshHost: node.sshHost, webPort, vncPort, webUrl, vncUrl }));
         return;

@@ -5,7 +5,7 @@
  * 1. Multi-Linux Node Registry ($TAKT_HOME/nodes.json):
  *    Each Linux server maps to its own isolated local folder (work, work2, work3...),
  *    its own Syncthing folder, and its own dedicated MCP Reverse SSH Tunnel (-R 18765 & -R 49620)
- *    so EVERY Linux server can invoke the Mac's 21 MCP tools (Blender, FreeCAD, 嘉立创EDA, Xcode, Browser).
+ *    so EVERY Linux server can request the local client's MCP tools (macOS or Windows/WSL2).
  * 2. Left Sidebar API: Passively scans all configured Linux servers & local work directories
  *    without touching the `claude` CLI binary, tagging every project and session with its Linux node badge.
  * 3. Center Multi-Tab Terminal WS: Each open conversation tab maps 1:1 to a persistent
@@ -35,6 +35,7 @@ const WORKBENCH_DB_FILE = cfg.DB_FILE;
 const LOCAL_WORK_DIR = cfg.DEFAULT_WORK_DIR;
 const DSH_WEB_LOG = path.join(BASE_TAKT_DIR, 'logs/workbench-web.log');
 const MCP_TOKEN = cfg.getMcpToken();
+const MCP_AUTH_HEADERS = Object.freeze({ Authorization: `Bearer ${MCP_TOKEN}` });
 const PUBLIC_DIR = fs.existsSync(path.join(__dirname, 'public', 'index.html'))
   ? path.join(__dirname, 'public')
   : __dirname;
@@ -308,6 +309,7 @@ async function provisionLinuxNode(node) {
   // Provision remote work directory + ~/.claude.json MCP entry + read remote Syncthing Device ID
   const remoteWork = node.remoteWorkDir || '/root/work';
   const mcpUrl = `http://127.0.0.1:${cfg.MCP_PORT}/mcp?node=${encodeURIComponent(node.id)}`;
+  const autoAllowHostExec = process.env.TAKT_AUTO_ALLOW_HOST_EXEC === '1';
   const setupPy = `
 import json, os, subprocess
 
@@ -316,6 +318,7 @@ mcp_url = ${JSON.stringify(mcpUrl)}
 mcp_token = ${JSON.stringify(MCP_TOKEN)}
 local_st_id = ${JSON.stringify(localSyncthingDeviceId)}
 folder_id = ${JSON.stringify(node.syncthingFolderId || '')}
+auto_allow_host_exec = ${autoAllowHostExec ? 'True' : 'False'}
 try:
     os.makedirs(work_dir, exist_ok=True)
 except Exception:
@@ -375,9 +378,31 @@ if os.path.exists(settings_path):
         st_cfg = {}
 perms = st_cfg.setdefault("permissions", {})
 allow_list = perms.setdefault("allow", [])
-for rule in ("mcp__mac-industrial", "mcp__mac-industrial__*", "mcp__mac-industrial__mac_host_exec"):
-    if rule not in allow_list:
+ask_list = perms.setdefault("ask", [])
+sensitive_tools = (
+    "blender_run_python", "blender_render_image", "blender_open_gui",
+    "freecad_run_python", "freecad_inspect_step", "freecad_open_gui",
+    "jlceda_bridge_status", "jlceda_bridge_execute", "jlceda_inspect_epro",
+    "jlceda_modify_epro", "jlceda_generate_extension_script", "jlceda_open_gui",
+    "mac_browser_fetch", "mac_browser_chrome_extract", "mac_browser_open_url",
+    "xcode_list_devices", "xcode_build_and_deploy_iphone",
+    "usb_list_devices_and_ports", "usb_serial_monitor", "hardware_flash_firmware",
+    "mac_screen_capture", "mac_host_exec",
+)
+managed_rules = {
+    "mcp__mac-industrial", "mcp__mac-industrial__*",
+    "mcp__mac-industrial__work_sync_status",
+    *("mcp__mac-industrial__" + name for name in sensitive_tools),
+}
+allow_list[:] = [rule for rule in allow_list if rule not in managed_rules]
+ask_list[:] = [rule for rule in ask_list if rule not in managed_rules]
+allow_list.append("mcp__mac-industrial__work_sync_status")
+for name in sensitive_tools:
+    rule = "mcp__mac-industrial__" + name
+    if name == "mac_host_exec" and auto_allow_host_exec:
         allow_list.append(rule)
+    else:
+        ask_list.append(rule)
 try:
     with open(settings_path, "w", encoding="utf-8") as f:
         json.dump(st_cfg, f, indent=2, ensure_ascii=False)
@@ -454,12 +479,18 @@ async function ensureMacMcpDaemonRunning() {
     const timer = setTimeout(() => ctrl.abort(), 1800);
     let ok = false;
     try {
-      const res = await fetch(`http://127.0.0.1:${cfg.MCP_PORT}/system-status`, { signal: ctrl.signal });
+      const res = await fetch(`http://127.0.0.1:${cfg.MCP_PORT}/system-status`, {
+        signal: ctrl.signal,
+        headers: MCP_AUTH_HEADERS,
+      });
       if (res.ok) {
         const st = await res.json();
         ok = true;
         if (st && st.mcpStatus && !st.mcpStatus.remoteTunnelOk && !st.healing) {
-          fetch(`http://127.0.0.1:${cfg.MCP_PORT}/system-heal`, { method: 'POST' }).catch(() => {});
+          fetch(`http://127.0.0.1:${cfg.MCP_PORT}/system-heal`, {
+            method: 'POST',
+            headers: MCP_AUTH_HEADERS,
+          }).catch(() => {});
         }
       }
     } catch {}
@@ -1505,7 +1536,10 @@ async function getCombinedSystemStatus() {
   try {
     const ctrl = new AbortController();
     const timer = setTimeout(() => ctrl.abort(), 2000);
-    const res = await fetch(`http://127.0.0.1:${cfg.MCP_PORT}/system-status`, { signal: ctrl.signal });
+    const res = await fetch(`http://127.0.0.1:${cfg.MCP_PORT}/system-status`, {
+      signal: ctrl.signal,
+      headers: MCP_AUTH_HEADERS,
+    });
     clearTimeout(timer);
     if (res.ok) {
       mcpData = await res.json();
@@ -3420,7 +3454,10 @@ const server = http.createServer(async (req, res) => {
       const prov = await provisionLinuxNode(target);
       saveNodes(nodes);
       syncAllNodesToSqlite().catch(() => {});
-      fetch(`http://127.0.0.1:${cfg.MCP_PORT}/system-heal`, { method: 'POST' }).catch(() => {});
+      fetch(`http://127.0.0.1:${cfg.MCP_PORT}/system-heal`, {
+        method: 'POST',
+        headers: MCP_AUTH_HEADERS,
+      }).catch(() => {});
       sendJson(res, 200, { ok: true, node: target, nodes, logs: prov.logs });
       return;
     }
@@ -3443,7 +3480,7 @@ const server = http.createServer(async (req, res) => {
       const body = req.method === 'POST' ? await readJsonBody(req) : {};
       const r = await fetch(`http://127.0.0.1:${cfg.MCP_PORT}/remote-desktop`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { ...MCP_AUTH_HEADERS, 'Content-Type': 'application/json' },
         body: JSON.stringify({
           action: body.action || u.searchParams.get('action') || 'start',
           nodeId: body.nodeId || u.searchParams.get('nodeId') || 'linux-work4',
@@ -4145,7 +4182,10 @@ print(json.dumps({"stuck": stuck, "waited": round(waited, 2)}))
     // API: One-click Heal SSH Tunnel + MCP + Syncthing across all enabled nodes
     if (req.method === 'POST' && u.pathname === '/api/heal') {
       try {
-        await fetch(`http://127.0.0.1:${cfg.MCP_PORT}/system-heal`, { method: 'POST' });
+        await fetch(`http://127.0.0.1:${cfg.MCP_PORT}/system-heal`, {
+          method: 'POST',
+          headers: MCP_AUTH_HEADERS,
+        });
       } catch {
         await ensureMacMcpDaemonRunning();
       }
