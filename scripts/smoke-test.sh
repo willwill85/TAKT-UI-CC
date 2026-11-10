@@ -42,7 +42,7 @@ expect "MCP foreign Origin rejected"     403 "$(curl -s -o /dev/null -w '%{http_
 
 BIND="$(lsof -iTCP:"$TAKT_MCP_PORT" -sTCP:LISTEN -n -P 2>/dev/null | awk 'NR==2{print $9}')"
 case "$BIND" in 127.0.0.1:*) pass "MCP bound to loopback ($BIND)";; *) bad "MCP bound to '$BIND'";; esac
-[ "$(stat -f '%Lp' "$TAKT_HOME/mcp-token" 2>/dev/null || stat -c '%a' "$TAKT_HOME/mcp-token")" = "600" ] && pass "token file mode 600" || bad "token file mode"
+[ "$(stat -c '%a' "$TAKT_HOME/mcp-token" 2>/dev/null || stat -f '%Lp' "$TAKT_HOME/mcp-token")" = "600" ] && pass "token file mode 600" || bad "token file mode"
 
 echo
 if [ "$FAILS" -eq 0 ]; then printf '\033[32mAll smoke tests passed.\033[0m\n'; else printf '\033[31m%s test(s) failed.\033[0m\n' "$FAILS"; fi

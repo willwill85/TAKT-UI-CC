@@ -5,26 +5,30 @@ set -euo pipefail
 
 c_green "== TAKT-UI-CC installer =="
 
-NODE_BIN="$(find_node)" || { fail "Node.js >= 22.13 not found. Install it (macOS: brew install node) and retry."; exit 1; }
+NODE_BIN="$(find_node)" || { fail "Node.js >= 22.13 not found. Install it (macOS: brew; Linux/WSL2: your package manager or nvm) and retry."; exit 1; }
 ok "Node.js $("$NODE_BIN" -v) ($NODE_BIN)"
 
 command -v npm >/dev/null || { fail "npm not found"; exit 1; }
 command -v ssh >/dev/null || { fail "ssh not found"; exit 1; }
 ok "ssh: $(command -v ssh)"
+for tool in curl lsof perl; do
+  command -v "$tool" >/dev/null || { fail "$tool not found"; exit 1; }
+done
+ok "curl, lsof and perl found"
 
 cd "$REPO_ROOT"
-echo "Installing npm dependencies (node-pty needs a prebuilt binary or Xcode command line tools)…"
+echo "Installing npm dependencies (node-pty needs a prebuilt binary or native build tools)…"
 npm install --no-audit --no-fund
 ok "npm dependencies installed"
 
 "$NODE_BIN" -e "const p=require('node-pty');const t=p.spawn('/bin/echo',['ok'],{});t.onExit(()=>process.exit(0));" \
   && ok "node-pty can spawn a pseudo-terminal" \
-  || { fail "node-pty cannot spawn. Run: npm rebuild node-pty (needs Xcode CLT: xcode-select --install)"; exit 1; }
+  || { fail "node-pty cannot spawn. Run: npm rebuild node-pty (macOS: Xcode CLT; Linux/WSL2: build-essential + python3)"; exit 1; }
 
 mkdir -p "$TAKT_HOME/work"
 ok "data directory: $TAKT_HOME"
 
-if command -v syncthing >/dev/null; then ok "syncthing found (optional, used for file sync)"; else warn "syncthing not found (optional). macOS: brew install syncthing"; fi
+if command -v syncthing >/dev/null; then ok "syncthing found (optional, used for file sync)"; else warn "syncthing not found (optional). Install it with brew, apt, dnf or pacman."; fi
 
 echo
 c_green "Done. Next steps:"

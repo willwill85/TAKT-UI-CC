@@ -27,9 +27,32 @@ c_green "== Starting TAKT-UI-CC =="
 start_one mcp-server "$TAKT_MCP_PORT" "$REPO_ROOT/mcp-server/server.js" --http
 start_one workbench  "$TAKT_PORT"     "$REPO_ROOT/server/server.js"
 
-# Syncthing is optional; start it if installed via Homebrew and not already running.
-if command -v brew >/dev/null 2>&1 && brew list syncthing >/dev/null 2>&1; then
-  brew services start syncthing >/dev/null 2>&1 && ok "syncthing service running" || true
+# Syncthing is optional. Prefer the platform service manager, then fall back to a
+# detached process (needed by minimal Linux and WSL2 installations).
+if command -v syncthing >/dev/null 2>&1; then
+  if http_ok "http://127.0.0.1:8384/rest/noauth/health"; then
+    ok "syncthing already running"
+  else
+    started=0
+    if command -v brew >/dev/null 2>&1 && brew list syncthing >/dev/null 2>&1; then
+      brew services start syncthing >/dev/null 2>&1 && started=1
+    elif command -v systemctl >/dev/null 2>&1; then
+      systemctl --user start syncthing.service >/dev/null 2>&1 && started=1
+    fi
+    if [ "$started" -eq 0 ]; then
+      nohup perl -MPOSIX -e 'POSIX::setsid(); exec @ARGV' \
+        "$(command -v syncthing)" serve --no-browser --logflags=0 \
+        </dev/null >"$LOG_DIR/syncthing.log" 2>&1 &
+      echo $! >"$RUN_DIR/syncthing.pid"
+    fi
+    for _ in 1 2 3 4 5 6 7 8 9 10; do
+      http_ok "http://127.0.0.1:8384/rest/noauth/health" && break
+      sleep 0.5
+    done
+    http_ok "http://127.0.0.1:8384/rest/noauth/health" \
+      && ok "syncthing started" \
+      || warn "syncthing is installed but did not start (file sync remains optional)"
+  fi
 fi
 
 echo

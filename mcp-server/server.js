@@ -54,6 +54,7 @@ const PATHS = {
   esptoolPy: path.join(cfg.ESP_PYTHON_ENV, 'bin/esptool.py'),
   espPython: path.join(cfg.ESP_PYTHON_ENV, 'bin/python'),
 };
+const HOST_SHELL = fs.existsSync('/bin/zsh') ? '/bin/zsh' : '/bin/bash';
 
 fs.mkdirSync(MAC_WORK_DIR, { recursive: true });
 
@@ -531,7 +532,7 @@ const TOOLS = [
     },
   },
 
-  // --- 8. Local Mac Host Command Execution Bridge & Screen Capture ---
+  // --- 8. Local host command execution bridge & screen capture ---
   {
     name: 'mac_screen_capture',
     description:
@@ -566,13 +567,13 @@ const TOOLS = [
   {
     name: 'mac_host_exec',
     description:
-      '在用户本机 MacBook 上直接执行 Shell 命令（如调用本机编译器、自定义烧录脚本、操控本地软件、查看硬件状态等）。默认工作目录为 $TAKT_HOME/work。',
+      '在用户本机直接执行 Shell 命令（如调用本机编译器、自定义烧录脚本、操控本地软件、查看硬件状态等）。macOS 使用 zsh，Linux/WSL2 使用 bash；默认工作目录为 $TAKT_HOME/work。',
     inputSchema: {
       type: 'object',
       properties: {
         command: {
           type: 'string',
-          description: '要在 Mac 本机执行的 zsh/bash 命令字符串。',
+          description: '要在本机执行的 zsh/bash 命令字符串。',
         },
         cwd: {
           type: 'string',
@@ -1125,7 +1126,7 @@ finally:
         const projDir = fwPath || MAC_WORK_DIR;
         const portFlag = args.port ? `-p ${args.port}` : '';
         const cmd = `source ${JSON.stringify(cfg.IDF_EXPORT_SH)} && idf.py ${portFlag} build flash`;
-        const res = await runCommand('/bin/zsh', ['-c', cmd], { cwd: projDir, timeoutMs: 300000 });
+        const res = await runCommand(HOST_SHELL, ['-c', cmd], { cwd: projDir, timeoutMs: 300000 });
         return `ESP-IDF 编译烧录结果 (exitCode=${res.exitCode}):\n${res.stdout.slice(-4000)}\n${res.stderr.slice(-2000)}`;
       }
 
@@ -1178,8 +1179,8 @@ finally:
       const cwd = args.cwd ? resolveWorkPath(args.cwd) : MAC_WORK_DIR;
       const timeoutMs = Math.min(600000, Math.max(5000, Number(args.timeout_sec || 120) * 1000));
       const cmd = rewriteScriptPaths(args.command);
-      const res = await runCommand('/bin/zsh', ['-c', cmd], { cwd, timeoutMs });
-      return `Mac 本机命令执行完成 (exitCode=${res.exitCode}, cwd=${cwd}):\nSTDOUT:\n${res.stdout.slice(-6000)}\nSTDERR:\n${res.stderr.slice(-3000)}`;
+      const res = await runCommand(HOST_SHELL, ['-c', cmd], { cwd, timeoutMs });
+      return `本机命令执行完成 (exitCode=${res.exitCode}, cwd=${cwd}):\nSTDOUT:\n${res.stdout.slice(-6000)}\nSTDERR:\n${res.stderr.slice(-3000)}`;
     }
 
     case 'work_sync_status': {
@@ -1553,10 +1554,10 @@ if (process.argv.includes('--stdio')) {
 
     const urlObj = new URL(req.url, `http://${req.headers.host || '127.0.0.1'}`);
 
-    // Loopback / SSH reverse-tunnel requests (127.0.0.1 / localhost / ::1) are trusted.
-    // Only enforce token if TAKT_REQUIRE_MCP_TOKEN=1 is explicitly set.
+    // Enforce the documented bearer-token boundary on loopback and SSH reverse-tunnel requests.
+    // Set TAKT_REQUIRE_MCP_TOKEN=0 only for isolated troubleshooting.
     const isMcpEndpoint = urlObj.pathname === '/mcp' || urlObj.pathname === '/messages' || urlObj.pathname === '/sse';
-    if (isMcpEndpoint && process.env.TAKT_REQUIRE_MCP_TOKEN === '1') {
+    if (isMcpEndpoint && process.env.TAKT_REQUIRE_MCP_TOKEN !== '0') {
       const auth = String(req.headers.authorization || '');
       const supplied = auth.startsWith('Bearer ') ? auth.slice(7).trim() : String(req.headers['x-takt-token'] || urlObj.searchParams.get('token') || '');
       const a = Buffer.from(supplied);
@@ -1948,7 +1949,10 @@ try:
     req = urllib.request.Request(
         "http://127.0.0.1:${PORT}/mcp",
         data=b'{"jsonrpc":"2.0","id":1,"method":"ping"}',
-        headers={"Content-Type": "application/json"},
+        headers={
+            "Content-Type": "application/json",
+            "Authorization": "Bearer ${MCP_TOKEN}",
+        },
         method="POST",
     )
     r = urllib.request.urlopen(req, timeout=1.5).read().decode()
@@ -2121,6 +2125,7 @@ async function healNodeTunnel(node, refreshRemoteClaudeConfig = false) {
 import json, os, time, urllib.request
 
 mcp_url = "http://127.0.0.1:${PORT}/mcp?node=${encodeURIComponent(node.id)}"
+mcp_token = ${JSON.stringify(MCP_TOKEN)}
 home = os.path.expanduser("~")
 claude_cfg = os.path.join(home, ".claude.json")
 try:
@@ -2138,7 +2143,11 @@ if os.path.exists("/usr/local/bin/mac-industrial-mcp-client"):
         "env": {"TAKT_NODE_ID": "${node.id}", "TAKT_HEALED_AT": str(int(time.time()))}
     }
 else:
-    cfg["mcpServers"]["mac-industrial"] = {"type": "http", "url": mcp_url}
+    cfg["mcpServers"]["mac-industrial"] = {
+        "type": "http",
+        "url": mcp_url,
+        "headers": {"Authorization": "Bearer " + mcp_token}
+    }
 if os.path.exists("/usr/local/bin/instabox-computer-use"):
     cfg["mcpServers"]["open-computer-use"] = {
         "type": "stdio",

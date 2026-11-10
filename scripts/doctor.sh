@@ -33,7 +33,7 @@ for (const x of n) console.log([x.id,x.sshHost||"-",x.remoteWorkDir||"-",x.local
   echo "• $id  (ssh: $host, remote: $rdir, local: $ldir, enabled: $enabled)"
   [ -d "$ldir" ] && ok "local folder exists" || warn "local folder missing: $ldir"
   [ "$host" = "-" ] && { warn "no SSH host bound"; continue; }
-  if ! out="$(ssh -o BatchMode=yes -o ConnectTimeout=6 "$host" 'echo up; for b in tmux python3 claude syncthing; do command -v $b >/dev/null 2>&1 && echo "has:$b" || echo "no:$b"; done; curl -fsS -m 2 http://127.0.0.1:'"$TAKT_MCP_PORT"'/health >/dev/null 2>&1 && echo "mcp:ok" || echo "mcp:down"' 2>&1)"; then
+  if ! out="$(ssh -o BatchMode=yes -o ConnectTimeout=6 "$host" 'export PATH="$HOME/.local/bin:$HOME/.npm-global/bin:$PATH"; echo up; for b in tmux python3 claude syncthing; do command -v $b >/dev/null 2>&1 && echo "has:$b" || echo "no:$b"; done; curl -fsS -m 2 http://127.0.0.1:'"$TAKT_MCP_PORT"'/health >/dev/null 2>&1 && echo "mcp:ok" || echo "mcp:down"' 2>&1)"; then
     fail "ssh $host failed: $(echo "$out" | tail -1)"; continue
   fi
   ok "ssh reachable"

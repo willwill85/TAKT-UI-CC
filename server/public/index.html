@@ -5116,7 +5116,8 @@
             // Quick button: send path into active terminal
             row.querySelector('.tree-send-btn').addEventListener('click', (e) => {
               e.stopPropagation();
-              sendTextToActiveTerminal(`${shellEscapePath(node.path)} `);
+              const terminalPath = node.remotePath || node.path;
+              sendTextToActiveTerminal(`${shellEscapePath(terminalPath)} `);
               showToast(`已注入路径: ${node.name}`);
             });
 
@@ -5155,7 +5156,8 @@
               syncNativeTerminalGeometry(); // Temporarily reveal HTML drop zone over native terminal
               e.dataTransfer.effectAllowed = 'copyMove';
               e.dataTransfer.setData('application/x-takt-path', node.path);
-              e.dataTransfer.setData('text/plain', shellEscapePath(node.path));
+              e.dataTransfer.setData('application/x-takt-remote-path', node.remotePath || node.path);
+              e.dataTransfer.setData('text/plain', shellEscapePath(node.remotePath || node.path));
             });
 
             row.addEventListener('dragend', () => {
@@ -5315,7 +5317,8 @@
         e.preventDefault();
         isDraggingFile = false;
         terminalStage.classList.remove('drag-over');
-        const taktPath = e.dataTransfer.getData('application/x-takt-path');
+        const taktPath = e.dataTransfer.getData('application/x-takt-remote-path')
+          || e.dataTransfer.getData('application/x-takt-path');
         const plain = e.dataTransfer.getData('text/plain');
         const pathToInject = taktPath ? shellEscapePath(taktPath) : plain;
         syncNativeTerminalGeometry();
