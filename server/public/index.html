@@ -1867,6 +1867,8 @@
       flex-direction: column;
       gap: 14px;
       min-width: 0;
+      user-select: text;
+      -webkit-user-select: text;
     }
     .reading__messages:empty { display: none; }
     .reading__messages > * { min-width: 0; }
@@ -1922,6 +1924,7 @@
       display: flex;
       justify-content: flex-end;
       margin-top: 4px;
+      position: relative;
     }
     .reading__user-bubble {
       position: relative;
@@ -1968,6 +1971,33 @@
       font-size: calc(13px * var(--fs, 1));
       line-height: 1.65;
       min-width: 0;
+      position: relative;
+    }
+    .reading__copy-message {
+      position: absolute;
+      top: -5px;
+      right: 0;
+      z-index: 2;
+      height: 21px;
+      padding: 0 7px;
+      border-radius: 5px;
+      border: 1px solid var(--border-hairline);
+      background: var(--bg-elevated);
+      color: var(--text-muted);
+      font: inherit;
+      font-size: calc(10px * var(--fs, 1));
+      cursor: pointer;
+      opacity: 0;
+      transition: opacity 0.12s ease, color 0.12s ease, border-color 0.12s ease;
+    }
+    .reading__user:hover > .reading__copy-message,
+    .reading__assistant:hover > .reading__copy-message,
+    .reading__copy-message:focus-visible {
+      opacity: 1;
+    }
+    .reading__copy-message:hover {
+      color: var(--text-primary);
+      border-color: var(--border-strong);
     }
 
     /* Markdown inside assistant messages */
@@ -2513,6 +2543,8 @@
       font-size: calc(13px * var(--fs, 1));
       line-height: 1.5;
       overflow-y: auto;
+      user-select: text;
+      -webkit-user-select: text;
     }
     .composer__input::placeholder { color: var(--text-muted); }
     .composer__foot {
@@ -3137,6 +3169,7 @@
                   <div class="composer__foot">
                     <span class="composer__hints"><kbd>↵</kbd> 发送 · <kbd>⇧↵</kbd> 换行 · <kbd>/</kbd> 命令 · <kbd>↑</kbd> 上一条 · <kbd>Esc</kbd> 中断</span>
                     <div class="composer__actions">
+                      <button type="button" class="btn" id="btnDocktermPaste" title="从本机剪贴板粘贴文字或图片">粘贴</button>
                       <button type="button" class="btn" id="btnDocktermInterrupt" hidden>■ 中断</button>
                       <button type="button" class="composer__send" id="btnDocktermSend" disabled>
                         <span>发送</span>
@@ -3621,6 +3654,38 @@
         el.classList.add('show');
         clearTimeout(showToast._timer);
         showToast._timer = setTimeout(() => el.classList.remove('show'), ms);
+      }
+
+      async function copyTextToClipboard(text) {
+        const value = String(text ?? '');
+        try {
+          if (navigator.clipboard && typeof navigator.clipboard.writeText === 'function') {
+            await navigator.clipboard.writeText(value);
+            return true;
+          }
+        } catch {}
+
+        // Chromium/WebView may deny the async Clipboard API even for a user click. Keep a
+        // selection-based fallback for local HTTP pages and older embedded browsers.
+        const active = document.activeElement;
+        const selection = document.getSelection();
+        const ranges = selection ? Array.from({ length: selection.rangeCount }, (_, i) => selection.getRangeAt(i).cloneRange()) : [];
+        const helper = document.createElement('textarea');
+        helper.value = value;
+        helper.setAttribute('readonly', '');
+        helper.setAttribute('aria-hidden', 'true');
+        helper.style.cssText = 'position:fixed;left:-10000px;top:0;opacity:0;pointer-events:none;';
+        document.body.appendChild(helper);
+        helper.select();
+        let copied = false;
+        try { copied = document.execCommand('copy'); } catch {}
+        helper.remove();
+        if (active && typeof active.focus === 'function') active.focus({ preventScroll: true });
+        if (selection && ranges.length) {
+          selection.removeAllRanges();
+          for (const range of ranges) selection.addRange(range);
+        }
+        return copied;
       }
 
       // ============================================================================
@@ -5635,9 +5700,9 @@
           copyBtn.style.height = '20px';
           copyBtn.style.fontSize = '10.5px';
           copyBtn.innerHTML = `${SVG_ICONS.copy}<span>复制</span>`;
-          copyBtn.addEventListener('click', () => {
-            navigator.clipboard.writeText(data.content || '');
-            showToast('文件内容已复制到剪贴板');
+          copyBtn.addEventListener('click', async () => {
+            const ok = await copyTextToClipboard(data.content || '');
+            showToast(ok ? '文件内容已复制到剪贴板' : '复制失败，请选中文字后按 Ctrl+C');
           });
           actionsEl.prepend(copyBtn);
 
@@ -5838,10 +5903,11 @@
         sendTextToActiveTerminal(`${claudeLaunchCommand(tabs.get(activeTabId), { forShell: true })}\r`);
       });
 
-      document.getElementById('btnCopyManualCmd').addEventListener('click', () => {
+      document.getElementById('btnCopyManualCmd').addEventListener('click', async () => {
         if (!activeTabId || !tabs.has(activeTabId)) return;
         const cmd = claudeLaunchCommand(tabs.get(activeTabId));
-        navigator.clipboard.writeText(cmd).then(() => showToast(`已复制：${cmd}`), () => showToast('复制失败'));
+        const ok = await copyTextToClipboard(cmd);
+        showToast(ok ? `已复制：${cmd}` : '复制失败，请选中文字后按 Ctrl+C');
       });
 
       function populateNewProjectNodeSelect(preferredNodeId) {
@@ -6408,6 +6474,7 @@
       const dtInput = document.getElementById('docktermComposerInput');
       const dtSlashMenu = document.getElementById('docktermSlashMenu');
       const dtSendBtn = document.getElementById('btnDocktermSend');
+      const dtPasteBtn = document.getElementById('btnDocktermPaste');
       const dtInterruptBtn = document.getElementById('btnDocktermInterrupt');
       const dtStartBtn = document.getElementById('btnDocktermStartClaude');
       const dtStartBtnLabel = document.getElementById('btnDocktermStartClaudeLabel');
@@ -6825,6 +6892,7 @@
         el.dataset.seq = String(m.seq);
         if (m.role === 'user') {
           el.className = 'reading__user';
+          el._taktCopyText = m.text || '';
           const split = dtSplitAttachmentLines(m.text || '');
           const text = split.text;
           const long = text.length > 1400 || text.split('\n').length > 18;
@@ -6835,11 +6903,12 @@
           const upFiles = split.files.filter((p) => !DT_IMAGE_EXT_RE.test(p));
           const uploads = (upImgs.length ? `<div class="reading__images">${upImgs.map((p) => dtThumbHtml({ path: p, name: dtUploadDisplayName(p) })).join('')}</div>` : '')
             + (upFiles.length ? `<div class="reading__files">${upFiles.map((p) => `<a href="#" class="reading__file md-file-link" data-file-path="${escapeHtml(p)}" title="${escapeHtml(p)}"><b>${escapeHtml(dtExtLabel(p))}</b>${escapeHtml(dtUploadDisplayName(p))}</a>`).join('')}</div>` : '');
-          el.innerHTML = `<div class="reading__user-wrap">${dtChatImageThumbs(m.images, '图片')}${uploads}${bubble}</div>`;
+          el.innerHTML = `<div class="reading__user-wrap">${dtChatImageThumbs(m.images, '图片')}${uploads}${bubble}</div>${text ? '<button type="button" class="reading__copy-message" data-dt-copy-message title="复制这条消息">复制</button>' : ''}`;
         } else if (m.role === 'assistant') {
           el.className = 'reading__assistant';
+          el._taktCopyText = m.text || '';
           if (!m._html) m._html = renderDocktermMarkdown(m.text || '');
-          el.innerHTML = m._html;
+          el.innerHTML = `${m._html}<button type="button" class="reading__copy-message" data-dt-copy-message title="复制这条回复">复制</button>`;
         } else if (m.role === 'tool' && m.tool) {
           const ok = m.tool.ok;
           el.className = `reading__tool${ok === false ? ' reading__tool--err' : ok === true ? ' reading__tool--ok' : ' reading__tool--pending'}`;
@@ -7762,6 +7831,50 @@
         dtInput.dispatchEvent(new Event('input'));
       }
 
+      function insertDocktermClipboardText(text) {
+        const value = String(text ?? '').replace(/\r\n?/g, '\n');
+        if (!value) return false;
+        const start = dtInput.selectionStart ?? dtInput.value.length;
+        const end = dtInput.selectionEnd ?? start;
+        dtInput.setRangeText(value, start, end, 'end');
+        dtInput.focus();
+        dtInput.dispatchEvent(new Event('input', { bubbles: true }));
+        return true;
+      }
+
+      async function pasteClipboardIntoDockterm() {
+        dtInput.focus();
+        try {
+          if (navigator.clipboard && typeof navigator.clipboard.read === 'function') {
+            const items = await navigator.clipboard.read();
+            const files = [];
+            let text = '';
+            for (const item of items) {
+              const imageType = item.types.find((type) => /^image\//i.test(type));
+              if (imageType) {
+                const blob = await item.getType(imageType);
+                const ext = (imageType.split('/')[1] || 'png').replace('jpeg', 'jpg');
+                files.push(new File([blob], `pasted-image.${ext}`, { type: imageType }));
+              } else if (!text && item.types.includes('text/plain')) {
+                text = await (await item.getType('text/plain')).text();
+              }
+            }
+            if (files.length) {
+              addDocktermAttachments(files);
+              return;
+            }
+            if (insertDocktermClipboardText(text)) return;
+          }
+          if (navigator.clipboard && typeof navigator.clipboard.readText === 'function') {
+            const text = await navigator.clipboard.readText();
+            if (insertDocktermClipboardText(text)) return;
+          }
+          showToast('剪贴板中没有可粘贴的文字或图片');
+        } catch {
+          showToast('浏览器未允许读取剪贴板；请在输入框内按 Ctrl+V');
+        }
+      }
+
       function updateDocktermSlashMenu() {
         const m = dtInput.value.match(/^(\/[a-zA-Z0-9_-]*)$/);
         if (!m) {
@@ -7931,14 +8044,24 @@
       // rendered picture (Excel, Word …) still pastes as text.
       dtInput.addEventListener('paste', (e) => {
         const cd = e.clipboardData;
-        const files = cd ? Array.from(cd.files || []) : [];
-        if (!files.length) return;
-        const text = (cd.getData('text/plain') || '').trim();
-        const names = new Set(files.map((f) => f.name));
-        const textIsNames = !text || /^(https?|file):\/\//i.test(text) || text.split(/\r?\n/).every((l) => !l.trim() || names.has(l.trim()) || names.has(l.trim().split('/').pop()));
-        if (!textIsNames && files.every((f) => /^image\//.test(f.type))) return;
-        e.preventDefault();
-        addDocktermAttachments(files);
+        if (!cd) return;
+        const directFiles = Array.from(cd.files || []);
+        const files = directFiles.length ? directFiles : Array.from(cd.items || []).map((item) => item.kind === 'file' ? item.getAsFile() : null).filter(Boolean);
+        const rawText = cd.getData('text/plain') || '';
+        if (files.length) {
+          const text = rawText.trim();
+          const names = new Set(files.map((f) => f.name));
+          const textIsNames = !text || /^(https?|file):\/\//i.test(text) || text.split(/\r?\n/).every((l) => !l.trim() || names.has(l.trim()) || names.has(l.trim().split('/').pop()));
+          if (textIsNames || !files.every((f) => /^image\//.test(f.type))) {
+            e.preventDefault();
+            addDocktermAttachments(files);
+            return;
+          }
+        }
+        if (rawText) {
+          e.preventDefault();
+          insertDocktermClipboardText(rawText);
+        }
       });
 
       async function submitDocktermComposerPrompt() {
@@ -8206,6 +8329,19 @@
       }, true);
 
       dtStage.addEventListener('click', (e) => {
+        const messageCopyBtn = e.target.closest('[data-dt-copy-message]');
+        if (messageCopyBtn) {
+          const messageEl = messageCopyBtn.closest('.reading__user, .reading__assistant');
+          copyTextToClipboard((messageEl && messageEl._taktCopyText) || '').then((ok) => {
+            if (!ok) {
+              showToast('复制失败，请选中文字后按 Ctrl+C');
+              return;
+            }
+            messageCopyBtn.textContent = '已复制';
+            setTimeout(() => { messageCopyBtn.textContent = '复制'; }, 1200);
+          });
+          return;
+        }
         const thumb = e.target.closest('.reading__thumb');
         if (thumb) {
           e.preventDefault();
@@ -8231,10 +8367,14 @@
         const copyBtn = e.target.closest('.md-code-copy');
         if (copyBtn) {
           const code = copyBtn.closest('.md-code').querySelector('pre').textContent;
-          navigator.clipboard.writeText(code).then(() => {
+          copyTextToClipboard(code).then((ok) => {
+            if (!ok) {
+              showToast('复制失败，请选中文字后按 Ctrl+C');
+              return;
+            }
             copyBtn.textContent = '已复制';
             setTimeout(() => { copyBtn.textContent = '复制'; }, 1200);
-          }, () => showToast('复制失败'));
+          });
           return;
         }
         const expand = e.target.closest('.reading__expand');
@@ -8260,6 +8400,7 @@
         kickDocktermPoll(0);
       });
       dtSendBtn.addEventListener('click', () => submitDocktermComposerPrompt());
+      dtPasteBtn.addEventListener('click', pasteClipboardIntoDockterm);
       dtInterruptBtn.addEventListener('click', sendDocktermInterrupt);
       document.getElementById('btnLiveInterrupt').addEventListener('click', sendDocktermInterrupt);
 
