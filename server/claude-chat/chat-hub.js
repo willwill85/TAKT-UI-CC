@@ -3,10 +3,12 @@
 const {
   readRemoteTranscriptChunk,
   readRemoteTranscriptOlder,
+  startRemoteStreamWatcher,
 } = require('./remote-jsonl');
 const { parseJsonlRecordsToEvents } = require('./terminal-transcript');
 const {
   classifyClaudeScreen,
+  normalizeForStreamCompare,
   buildAskKeys,
   sendTmuxInput,
   launchClaudeInTmux,
@@ -15,6 +17,8 @@ const {
 const SESSION_SWEEP_MS = 5 * 60 * 1000;
 const SESSION_IDLE_TTL_MS = 30 * 60 * 1000;
 const POLL_INTERVAL_MS = 1150;
+const POLL_BACKGROUND_MS = 2500;
+const MAX_WATCHERS_PER_HOST = 3;
 const PENDING_IDLE_TTL_MS = 8000;
 
 function createChatHub({
@@ -26,13 +30,47 @@ function createChatHub({
   onSessionActivity,
 } = {}) {
   const sessions = new Map(); // `${nodeId}::${tabId}` -> session state
+  let processHooksInstalled = false;
+
+  function stopWatcher(s) {
+    if (!s) return;
+    if (s.watcherRetryTimer) {
+      clearTimeout(s.watcherRetryTimer);
+      s.watcherRetryTimer = null;
+    }
+    if (s.watcher) {
+      const w = s.watcher;
+      s.watcher = null;
+      w.stop();
+    }
+  }
+
+  function stopAllWatchers() {
+    for (const s of sessions.values()) {
+      stopPollTimer(s);
+      stopWatcher(s);
+    }
+  }
+
+  function installProcessHooks() {
+    if (processHooksInstalled) return;
+    processHooksInstalled = true;
+    process.once('exit', stopAllWatchers);
+    const onTerm = (sig) => {
+      stopAllWatchers();
+      try { process.kill(process.pid, sig); } catch {}
+    };
+    process.once('SIGTERM', () => onTerm('SIGTERM'));
+    process.once('SIGINT', () => onTerm('SIGINT'));
+  }
 
   function sweep() {
     const now = Date.now();
     for (const [key, s] of sessions) {
       if (s.clients.size > 0) continue;
+      stopPollTimer(s);
+      stopWatcher(s);
       if (now - s.touchedAt > SESSION_IDLE_TTL_MS) {
-        stopPollTimer(s);
         sessions.delete(key);
       }
     }
@@ -68,6 +106,8 @@ function createChatHub({
       status: s.status,
       ask: s.ask,
       tail: s.tail,
+      activity: s.activity || '',
+      liveStreamText: s.liveStreamText || '',
       permissionMode: s.screenMode || s.jsonlMode || '',
       model: s.model || '',
       effort: s.effort || '',
@@ -105,17 +145,45 @@ function createChatHub({
   function schedulePoll(s, delayMs = POLL_INTERVAL_MS) {
     stopPollTimer(s);
     if (s.clients.size === 0) return;
+    if (s.watcher && s.watcher.isAlive()) return;
     s.pollTimer = setTimeout(() => {
       s.pollTimer = null;
-      if (s.clients.size === 0) return;
+      if (s.clients.size === 0 || (s.watcher && s.watcher.isAlive())) return;
       pollSession(s, { incremental: s.events.length > 0 || Boolean(s.jsonlPath) })
         .catch(() => {})
         .finally(() => {
-          if (s.clients.size > 0 && !s.pollTimer) {
-            schedulePoll(s, POLL_INTERVAL_MS);
+          if (s.clients.size > 0 && !s.pollTimer && !(s.watcher && s.watcher.isAlive())) {
+            const nextDelay = (s.focused || s.status === 'working' || s.pendingUsers.length > 0)
+              ? POLL_INTERVAL_MS
+              : POLL_BACKGROUND_MS;
+            schedulePoll(s, nextDelay);
           }
         });
     }, delayMs);
+  }
+
+  function resolveLiveStreamText(s, sc) {
+    if (s.status !== 'working' || !sc || !sc.liveText) return '';
+    const cand = sc.liveText;
+    const normCand = normalizeForStreamCompare(cand);
+    if (!normCand) return '';
+    let checked = 0;
+    for (let i = s.events.length - 1; i >= 0 && checked < 4; i--) {
+      const ev = s.events[i];
+      if (!ev || ev.type !== 'text.delta' || !ev.payload || !ev.payload.text) continue;
+      checked += 1;
+      const normPrev = normalizeForStreamCompare(ev.payload.text);
+      if (!normPrev) continue;
+      if (
+        normCand === normPrev
+        || (normCand.length >= 24 && normPrev.startsWith(normCand.slice(0, 24)))
+        || (normPrev.length >= 24 && normCand.startsWith(normPrev.slice(0, 24)))
+        || (normCand.length >= 24 && normPrev.includes(normCand.slice(0, 32)))
+      ) {
+        return '';
+      }
+    }
+    return cand;
   }
 
   function reconcilePendingUsers(s, emittedUsers) {
@@ -142,6 +210,257 @@ function createChatHub({
     return changed;
   }
 
+  function applyRemoteChunk(s, r, { incremental = false } = {}) {
+    if (!r || !r.ok) {
+      s.stale = true;
+      s.lastError = (r && r.error) || '连接节点超时';
+      const localTab = activePtyTabs && activePtyTabs.get(s.tabId);
+      if (localTab && Array.isArray(localTab.scrollback) && localTab.scrollback.length) {
+        const sc = classifyClaudeScreen(localTab.scrollback.slice(-40).join(''));
+        s.status = sc.status;
+        s.ask = sc.ask;
+        s.tail = sc.tail;
+        s.activity = sc.activity || '';
+        if (sc.permissionMode) s.screenMode = sc.permissionMode;
+        s.liveStreamText = resolveLiveStreamText(s, sc);
+      }
+      broadcast(s, { type: 'state', state: buildPublicState(s) });
+      return;
+    }
+
+    const prevStatus = s.status;
+    s.stale = false;
+    s.lastError = '';
+    s.loadedAt = Date.now();
+    s.claudeRunning = Boolean(r.claudeRunning);
+    s.tmuxAlive = Boolean(r.tmuxAlive);
+    s.launchModel = r.launchModel || '';
+    s.launchEffort = r.launchEffort || '';
+    if (r.resolvedSessionId) s.resolvedSessionId = r.resolvedSessionId;
+
+    const paneText = r.paneChanged === false
+      ? (s.lastPaneText || '')
+      : (typeof r.paneText === 'string' ? r.paneText : (s.lastPaneText || ''));
+    if (r.paneChanged !== false && typeof r.paneText === 'string') {
+      s.lastPaneText = r.paneText;
+    }
+
+    const sc = classifyClaudeScreen(paneText);
+    const stateSigBefore = JSON.stringify({
+      claudeRunning: s.claudeRunning,
+      status: s.status,
+      ask: s.ask,
+      tail: s.tail,
+      activity: s.activity,
+      liveStreamText: s.liveStreamText,
+      screenMode: s.screenMode,
+      jsonlMode: s.jsonlMode,
+      model: s.model,
+      effort: s.effort,
+      contextUsage: s.contextUsage,
+      jsonlPath: s.jsonlPath,
+    });
+
+    s.status = sc.status;
+    s.ask = sc.ask;
+    s.tail = sc.tail;
+    s.activity = sc.activity || '';
+    s.screenMode = sc.permissionMode || '';
+
+    const prevJsonlPath = s.jsonlPath;
+    const wasReset = Boolean(
+      (r.jsonlPath && (r.reset || !incremental || r.jsonlPath !== prevJsonlPath))
+      || (!r.jsonlPath && prevJsonlPath)
+    );
+    if (wasReset) {
+      s.jsonlPath = r.jsonlPath || '';
+      s.startOffset = Number(r.chunkStart || 0);
+      s.endOffset = Number(r.chunkEnd || 0);
+      s.hasOlder = Boolean(r.hasOlder);
+      s.histSeq = 1;
+      s.histToolNames.clear();
+      s.histSeenMsgIds.clear();
+      const parsed = parseJsonlRecordsToEvents(r.records || [], {
+        startSeq: s.histSeq,
+        idPrefix: 'hist',
+      });
+      s.histSeq = parsed.nextSeq;
+      s.histToolNames = parsed.toolNameById;
+      s.histSeenMsgIds = parsed.seenMsgIds || new Set();
+      if (parsed.meta.model) s.model = parsed.meta.model;
+      if (parsed.meta.effort) s.effort = parsed.meta.effort;
+      if (parsed.meta.permissionMode) s.jsonlMode = parsed.meta.permissionMode;
+      s.contextUsage = parsed.meta.contextUsage || null;
+      s.events = parsed.events;
+      s.liveStreamText = resolveLiveStreamText(s, sc);
+      reconcilePendingUsers(s, parsed.emittedUserTexts);
+      broadcast(s, { type: 'snapshot', state: buildPublicState(s), events: s.events });
+    } else {
+      s.endOffset = Math.max(s.endOffset, Number(r.chunkEnd || s.endOffset));
+      const parsed = parseJsonlRecordsToEvents(r.records || [], {
+        startSeq: s.histSeq,
+        idPrefix: 'hist',
+        existingToolNames: s.histToolNames,
+        existingSeenMsgIds: s.histSeenMsgIds,
+      });
+      s.histSeq = parsed.nextSeq;
+      for (const [k, v] of parsed.toolNameById) s.histToolNames.set(k, v);
+      if (parsed.seenMsgIds) {
+        for (const mid of parsed.seenMsgIds) s.histSeenMsgIds.add(mid);
+      }
+      if (parsed.meta.model) s.model = parsed.meta.model;
+      if (parsed.meta.effort) s.effort = parsed.meta.effort;
+      if (parsed.meta.permissionMode) s.jsonlMode = parsed.meta.permissionMode;
+      if (parsed.meta.contextUsage !== undefined && parsed.meta.contextUsage !== null) {
+        s.contextUsage = parsed.meta.contextUsage;
+      } else if (parsed.events.some((e) => e.type === 'native.compact')) {
+        s.contextUsage = null;
+      }
+      const pendingChanged = reconcilePendingUsers(s, parsed.emittedUserTexts);
+      if (parsed.events.length > 0) {
+        s.events.push(...parsed.events);
+        for (const ev of parsed.events) {
+          broadcast(s, { type: 'event', event: ev });
+        }
+        if (parsed.events.some((e) => e.type === 'turn.stats') && typeof onSessionActivity === 'function') {
+          onSessionActivity({
+            nodeId: s.nodeId,
+            cwd: s.cwd,
+            sessionId: s.resolvedSessionId || s.sessionId,
+            title: s.title,
+          });
+        }
+      }
+
+      s.liveStreamText = resolveLiveStreamText(s, sc);
+      const stateSigAfter = JSON.stringify({
+        claudeRunning: s.claudeRunning,
+        status: s.status,
+        ask: s.ask,
+        tail: s.tail,
+        activity: s.activity,
+        liveStreamText: s.liveStreamText,
+        screenMode: s.screenMode,
+        jsonlMode: s.jsonlMode,
+        model: s.model,
+        effort: s.effort,
+        contextUsage: s.contextUsage,
+        jsonlPath: s.jsonlPath,
+      });
+      if (pendingChanged || stateSigBefore !== stateSigAfter) {
+        broadcast(s, { type: 'state', state: buildPublicState(s) });
+      }
+    }
+
+    if (s.status !== prevStatus || wasReset) {
+      reconcileWatchers(s.sshHost);
+    }
+  }
+
+  function wantsWatcher(s) {
+    return Boolean(
+      s
+      && s.clients.size > 0
+      && s.sshHost
+      && (s.focused || s.status === 'working' || s.pendingUsers.length > 0)
+    );
+  }
+
+  function startWatcher(s) {
+    if (!s || !s.sshHost || (s.watcher && s.watcher.isAlive()) || s.watcherRetryTimer) return;
+    installProcessHooks();
+    stopPollTimer(s);
+    const tmuxSess = typeof sanitizeTmuxSessionId === 'function' ? sanitizeTmuxSessionId(s.tabId) : '';
+    const claimedPaths = Array.from(sessions.values())
+      .filter((o) => o !== s && o.sshHost === s.sshHost && o.jsonlPath)
+      .map((o) => o.jsonlPath);
+
+    let handle = null;
+    handle = startRemoteStreamWatcher({
+      sshHost: s.sshHost,
+      sessionId: s.resolvedSessionId || s.sessionId,
+      cwd: s.cwd,
+      knownPath: s.jsonlPath || '',
+      knownEnd: s.endOffset || 0,
+      claimedPaths,
+      tmuxSess,
+      sshOpts,
+      onChunk: (r) => {
+        if (s.watcher !== handle) return;
+        s.watcherRetryMs = 1500;
+        applyRemoteChunk(s, r, { incremental: s.events.length > 0 || Boolean(s.jsonlPath) });
+      },
+      onClose: ({ expected }) => {
+        if (s.watcher === handle) s.watcher = null;
+        if (!expected && s.clients.size > 0) {
+          const retryDelay = Math.min(8000, s.watcherRetryMs || 1500);
+          s.watcherRetryMs = Math.min(8000, retryDelay * 2);
+          if (!s.pollTimer) schedulePoll(s, 300);
+          if (!s.watcherRetryTimer) {
+            s.watcherRetryTimer = setTimeout(() => {
+              s.watcherRetryTimer = null;
+              if (s.clients.size > 0) reconcileWatchers(s.sshHost);
+            }, retryDelay);
+            if (typeof s.watcherRetryTimer.unref === 'function') s.watcherRetryTimer.unref();
+          }
+        }
+      },
+    });
+    if (handle) {
+      s.watcher = handle;
+    } else if (s.clients.size > 0 && !s.pollTimer) {
+      schedulePoll(s, POLL_INTERVAL_MS);
+    }
+  }
+
+  function reconcileWatchers(sshHost) {
+    if (!sshHost) return;
+    const hostSessions = Array.from(sessions.values()).filter((o) => o.sshHost === sshHost);
+    const candidates = [];
+    for (const o of hostSessions) {
+      if (!wantsWatcher(o)) {
+        stopWatcher(o);
+        if (o.clients.size > 0 && !o.pollTimer) {
+          schedulePoll(o, POLL_BACKGROUND_MS);
+        }
+      } else {
+        candidates.push(o);
+      }
+    }
+
+    candidates.sort((a, b) => {
+      const pa = (a.focused ? 4 : 0) + (a.status === 'working' ? 2 : 0) + (a.pendingUsers.length ? 1 : 0);
+      const pb = (b.focused ? 4 : 0) + (b.status === 'working' ? 2 : 0) + (b.pendingUsers.length ? 1 : 0);
+      if (pb !== pa) return pb - pa;
+      return (b.touchedAt || 0) - (a.touchedAt || 0);
+    });
+
+    for (let i = 0; i < candidates.length; i++) {
+      const o = candidates[i];
+      if (i < MAX_WATCHERS_PER_HOST) {
+        if (!o.watcher || !o.watcher.isAlive()) {
+          startWatcher(o);
+        } else {
+          stopPollTimer(o);
+        }
+      } else {
+        stopWatcher(o);
+        if (o.clients.size > 0 && !o.pollTimer) {
+          schedulePoll(o, POLL_BACKGROUND_MS);
+        }
+      }
+    }
+  }
+
+  function wakeSession(s) {
+    if (!s) return;
+    if (s.watcher && s.watcher.isAlive()) {
+      s.watcher.wake();
+    } else {
+      schedulePoll(s, 200);
+    }
+  }
+
   async function pollSession(s, { incremental = false, force = false } = {}) {
     if (!s.sshHost) return;
     if (s.pollInflight) {
@@ -166,130 +485,7 @@ function createChatHub({
         runCmd,
         sshOpts,
       });
-
-      if (!r || !r.ok) {
-        s.stale = true;
-        s.lastError = (r && r.error) || '连接节点超时';
-        const localTab = activePtyTabs && activePtyTabs.get(s.tabId);
-        if (localTab && Array.isArray(localTab.scrollback) && localTab.scrollback.length) {
-          const sc = classifyClaudeScreen(localTab.scrollback.slice(-40).join(''));
-          s.status = sc.status;
-          s.ask = sc.ask;
-          s.tail = sc.tail;
-          if (sc.permissionMode) s.screenMode = sc.permissionMode;
-        }
-        broadcast(s, { type: 'state', state: buildPublicState(s) });
-        return;
-      }
-
-      s.stale = false;
-      s.lastError = '';
-      s.loadedAt = Date.now();
-      s.claudeRunning = Boolean(r.claudeRunning);
-      s.tmuxAlive = Boolean(r.tmuxAlive);
-      s.launchModel = r.launchModel || '';
-      s.launchEffort = r.launchEffort || '';
-      if (r.resolvedSessionId) s.resolvedSessionId = r.resolvedSessionId;
-
-      const sc = classifyClaudeScreen(r.paneText || '');
-      const stateSigBefore = JSON.stringify({
-        claudeRunning: s.claudeRunning,
-        status: s.status,
-        ask: s.ask,
-        tail: s.tail,
-        screenMode: s.screenMode,
-        jsonlMode: s.jsonlMode,
-        model: s.model,
-        effort: s.effort,
-        contextUsage: s.contextUsage,
-        jsonlPath: s.jsonlPath,
-      });
-
-      s.status = sc.status;
-      s.ask = sc.ask;
-      s.tail = sc.tail;
-      s.screenMode = sc.permissionMode || '';
-
-      const prevJsonlPath = s.jsonlPath;
-      const wasReset = Boolean(
-        (r.jsonlPath && (r.reset || !incremental || r.jsonlPath !== prevJsonlPath))
-        || (!r.jsonlPath && prevJsonlPath)
-      );
-      if (wasReset) {
-        s.jsonlPath = r.jsonlPath || '';
-        s.startOffset = Number(r.chunkStart || 0);
-        s.endOffset = Number(r.chunkEnd || 0);
-        s.hasOlder = Boolean(r.hasOlder);
-        s.histSeq = 1;
-        s.histToolNames.clear();
-        s.histSeenMsgIds.clear();
-        const parsed = parseJsonlRecordsToEvents(r.records || [], {
-          startSeq: s.histSeq,
-          idPrefix: 'hist',
-        });
-        s.histSeq = parsed.nextSeq;
-        s.histToolNames = parsed.toolNameById;
-        s.histSeenMsgIds = parsed.seenMsgIds || new Set();
-        if (parsed.meta.model) s.model = parsed.meta.model;
-        if (parsed.meta.effort) s.effort = parsed.meta.effort;
-        if (parsed.meta.permissionMode) s.jsonlMode = parsed.meta.permissionMode;
-        s.contextUsage = parsed.meta.contextUsage || null;
-        s.events = parsed.events;
-        reconcilePendingUsers(s, parsed.emittedUserTexts);
-        broadcast(s, { type: 'snapshot', state: buildPublicState(s), events: s.events });
-      } else {
-        s.endOffset = Math.max(s.endOffset, Number(r.chunkEnd || s.endOffset));
-        const parsed = parseJsonlRecordsToEvents(r.records || [], {
-          startSeq: s.histSeq,
-          idPrefix: 'hist',
-          existingToolNames: s.histToolNames,
-          existingSeenMsgIds: s.histSeenMsgIds,
-        });
-        s.histSeq = parsed.nextSeq;
-        for (const [k, v] of parsed.toolNameById) s.histToolNames.set(k, v);
-        if (parsed.seenMsgIds) {
-          for (const mid of parsed.seenMsgIds) s.histSeenMsgIds.add(mid);
-        }
-        if (parsed.meta.model) s.model = parsed.meta.model;
-        if (parsed.meta.effort) s.effort = parsed.meta.effort;
-        if (parsed.meta.permissionMode) s.jsonlMode = parsed.meta.permissionMode;
-        if (parsed.meta.contextUsage !== undefined && parsed.meta.contextUsage !== null) {
-          s.contextUsage = parsed.meta.contextUsage;
-        } else if (parsed.events.some((e) => e.type === 'native.compact')) {
-          s.contextUsage = null;
-        }
-        const pendingChanged = reconcilePendingUsers(s, parsed.emittedUserTexts);
-        if (parsed.events.length > 0) {
-          s.events.push(...parsed.events);
-          for (const ev of parsed.events) {
-            broadcast(s, { type: 'event', event: ev });
-          }
-          if (parsed.events.some((e) => e.type === 'turn.stats') && typeof onSessionActivity === 'function') {
-            onSessionActivity({
-              nodeId: s.nodeId,
-              cwd: s.cwd,
-              sessionId: s.resolvedSessionId || s.sessionId,
-              title: s.title,
-            });
-          }
-        }
-
-        const stateSigAfter = JSON.stringify({
-          claudeRunning: s.claudeRunning,
-          status: s.status,
-          ask: s.ask,
-          tail: s.tail,
-          screenMode: s.screenMode,
-          jsonlMode: s.jsonlMode,
-          model: s.model,
-          effort: s.effort,
-          contextUsage: s.contextUsage,
-          jsonlPath: s.jsonlPath,
-        });
-        if (pendingChanged || stateSigBefore !== stateSigAfter) {
-          broadcast(s, { type: 'state', state: buildPublicState(s) });
-        }
-      }
+      applyRemoteChunk(s, r, { incremental });
     })().finally(() => {
       s.pollInflight = null;
       if (s.pollAgain) {
@@ -336,6 +532,13 @@ function createChatHub({
         status: 'idle',
         ask: null,
         tail: '',
+        activity: '',
+        lastPaneText: '',
+        liveStreamText: '',
+        focused: false,
+        watcher: null,
+        watcherRetryTimer: null,
+        watcherRetryMs: 1500,
         screenMode: '',
         jsonlMode: '',
         model: '',
@@ -367,10 +570,21 @@ function createChatHub({
       return;
     }
 
+    if (type === 'focus') {
+      s.focused = Boolean(msg.active);
+      reconcileWatchers(s.sshHost);
+      if (s.focused) wakeSession(s);
+      return;
+    }
+
     if (type === 'refresh') {
+      stopWatcher(s);
       s.jsonlPath = '';
       s.endOffset = 0;
+      s.lastPaneText = '';
+      s.liveStreamText = '';
       await pollSession(s, { incremental: false, force: true });
+      if (s.clients.size > 0) reconcileWatchers(s.sshHost);
       return;
     }
 
@@ -441,7 +655,8 @@ function createChatHub({
         sendWs(ws, { type: 'toast', level: 'error', message: r.error || '在终端启动 Claude 失败' });
       } else {
         sendWs(ws, { type: 'toast', level: 'ok', message: `已在终端执行：${r.cmd}` });
-        schedulePoll(s, 600);
+        wakeSession(s);
+        reconcileWatchers(s.sshHost);
       }
       return;
     }
@@ -504,7 +719,8 @@ function createChatHub({
           title: s.title,
         });
       }
-      schedulePoll(s, 300);
+      wakeSession(s);
+      reconcileWatchers(s.sshHost);
       return;
     }
 
@@ -522,7 +738,7 @@ function createChatHub({
         sshOpts,
       });
       if (!r.ok) sendWs(ws, { type: 'toast', level: 'error', message: r.error || '提交确认失败' });
-      schedulePoll(s, 250);
+      wakeSession(s);
       return;
     }
 
@@ -538,7 +754,7 @@ function createChatHub({
         sshOpts,
       });
       sendWs(ws, { type: 'toast', level: 'ok', message: '已发送 Esc 中断' });
-      schedulePoll(s, 300);
+      wakeSession(s);
       return;
     }
 
@@ -553,7 +769,7 @@ function createChatHub({
         sshOpts,
       });
       if (!r.ok) sendWs(ws, { type: 'toast', level: 'error', message: r.error || '切换权限模式失败' });
-      schedulePoll(s, 300);
+      wakeSession(s);
       return;
     }
 
@@ -586,7 +802,7 @@ function createChatHub({
         else s.effort = val;
         broadcast(s, { type: 'state', state: buildPublicState(s) });
       }
-      schedulePoll(s, 450);
+      wakeSession(s);
     }
   }
 
@@ -601,6 +817,7 @@ function createChatHub({
 
     const s = getOrCreateSession({ tabId, sessionId, cwd, nodeId, sshHost, title, resume });
     s.clients.add(ws);
+    s.focused = true;
 
     sendWs(ws, { type: 'snapshot', state: buildPublicState(s), events: s.events });
 
@@ -608,10 +825,10 @@ function createChatHub({
       pollSession(s, { incremental: s.events.length > 0 && Boolean(s.jsonlPath) })
         .catch(() => {})
         .finally(() => {
-          if (s.clients.size > 0 && !s.pollTimer) schedulePoll(s, POLL_INTERVAL_MS);
+          if (s.clients.size > 0) reconcileWatchers(s.sshHost);
         });
     } else {
-      schedulePoll(s, POLL_INTERVAL_MS);
+      reconcileWatchers(s.sshHost);
     }
 
     ws.on('message', (raw) => {
@@ -630,7 +847,9 @@ function createChatHub({
       s.clients.delete(ws);
       s.touchedAt = Date.now();
       if (s.clients.size === 0) {
+        s.focused = false;
         stopPollTimer(s);
+        stopWatcher(s);
       }
     });
   }
@@ -640,6 +859,7 @@ function createChatHub({
     for (const [key, s] of sessions) {
       if (explicitNodeId ? key === sessionKey(explicitNodeId, tabId) : key.endsWith(suffix)) {
         stopPollTimer(s);
+        stopWatcher(s);
         for (const ws of s.clients) {
           try { ws.close(); } catch {}
         }

@@ -216,6 +216,174 @@ function detectFooterPermissionMode(rawLines) {
   return '';
 }
 
+function extractSpinnerActivity(lines) {
+  for (let i = lines.length - 1; i >= Math.max(0, lines.length - 16); i--) {
+    const trimmed = String(lines[i] || '').trim();
+    if (!trimmed) continue;
+    const m = trimmed.match(/^[·✢✳✶✻✽∗*]\s+(.+?)\s*$/);
+    if (!m) continue;
+    const act = m[1]
+      .replace(/\s*\(?\besc to interrupt\b[^)]*\)?$/i, '')
+      .replace(/\s*[·•]\s*$/, '')
+      .trim();
+    if (act) return act;
+  }
+  return '';
+}
+
+const CLAUDE_DONE_TURN_RE = /^\s*[✻✽✶✳✢·]\s+(?:Worked|Cooked|Brewed|Baked|Churned|Crunched|Saut[eé]ed|Cogitated|Thought|Simmered|Stewed|Marinated)\s+for\b/i;
+const CLAUDE_FOOTER_HINT_RE = /\? for shortcuts|shift\+tab|⏵⏵|bypass permissions|auto-accept edits|plan mode on|new task\?|update installed|\/restart to apply|^esc to interrupt\b/i;
+const CLAUDE_TOOL_BULLET_RE = /^\s?[●⏺]\s+(?:Bash|Read|Edit|Write|Update|MultiEdit|Create|Delete|Search|Grep|Glob|LS|List|Agent|Task|Explore|Plan|Skill|Monitor|WebSearch|WebFetch|NotebookEdit|TodoWrite|AskUserQuestion|ExitPlanMode|EnterPlanMode|EnterWorktree|ToolSearch|REPL|Poll|mcp__[\w-]+)\s*\(/i;
+const CLAUDE_TOOL_COUNT_RE = /^\s?[●⏺]\s+(?:Read|Wrote|Edited|Updated|Created|Deleted|Searched|Listed|Ran|Called|Fetched|Loaded)\s+\d+\s+/i;
+const CLAUDE_TOOL_OUTPUT_RE = /^\s*⎿/;
+const CLAUDE_CODE_MODE_SUMMARY_RE = /^\s{2}(?:(?:Called|Ran|Read|Edited|Wrote|Searched|Listed|Fetched|Loaded|Used)\s+.*\b(?:times?|commands?|files?|lines?|tools?)\b|Called\s+[\w-]+)/i;
+
+function normalizeForStreamCompare(str) {
+  return String(str || '')
+    .replace(/\[([^\]]+)\]\([^)]*\)/g, '$1')
+    .replace(/(\*\*|__|~~|`)/g, '')
+    .replace(/(?:^|\n)[ \t]*[#>]+\s*/g, '\n')
+    .replace(/[#>`*_]/g, '')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .toLowerCase();
+}
+
+function displayWidth(s) {
+  let w = 0;
+  for (const ch of String(s || '')) {
+    const code = ch.codePointAt(0) || 0;
+    if (
+      code >= 0x1100
+      && (
+        (code <= 0x115f)
+        || (code >= 0x2e80 && code <= 0xa4cf && code !== 0x303f)
+        || (code >= 0xac00 && code <= 0xd7a3)
+        || (code >= 0xf900 && code <= 0xfaff)
+        || (code >= 0xfe10 && code <= 0xfe19)
+        || (code >= 0xfe30 && code <= 0xfe6f)
+        || (code >= 0xff00 && code <= 0xff60)
+        || (code >= 0xffe0 && code <= 0xffe6)
+        || code >= 0x1f300
+      )
+    ) {
+      w += 2;
+    } else {
+      w += 1;
+    }
+  }
+  return w;
+}
+
+function isStructuralLine(line) {
+  const s = String(line || '');
+  if (!s.trim()) return true;
+  if (/^ {2,}/.test(s)) return true;
+  if (/^(?:[-*+•◦▪‣]|\d+[.)])\s+/.test(s)) return true;
+  if (/^(?:#|>\s?|```|~~~|\|)/.test(s)) return true;
+  if (/[┌┬┐├┼┤└┴┘│─╭╰╮╯]/.test(s)) return true;
+  return false;
+}
+
+function extractLiveStreamText(rawScreen) {
+  const clean = stripAnsiCodes(rawScreen);
+  const lines = clean.split('\n').map((l) => l.trimEnd());
+  while (lines.length && !lines[lines.length - 1].trim()) lines.pop();
+  if (!lines.length) return '';
+
+  // Find bottom-most empty/input prompt line within the last 12 non-empty lines
+  let bodyEnd = lines.length;
+  let nonEmptyCount = 0;
+  for (let i = lines.length - 1; i >= 0 && nonEmptyCount < 12; i--) {
+    const t = lines[i].trim();
+    if (!t) continue;
+    nonEmptyCount += 1;
+    if (/^\s*[❯›]\s*$/.test(lines[i])) {
+      bodyEnd = i;
+      while (bodyEnd > 0) {
+        const pt = lines[bodyEnd - 1].trim();
+        if (!pt || isClaudeRuleLine(pt) || isClaudeBoxEdge(pt)) bodyEnd -= 1;
+        else break;
+      }
+      break;
+    }
+  }
+
+  // Strip footer hints, rules, and completed/active spinner rows at the bottom
+  while (bodyEnd > 0) {
+    const t = lines[bodyEnd - 1].trim();
+    if (!t || isClaudeRuleLine(t) || isClaudeBoxEdge(t)) {
+      bodyEnd -= 1;
+      continue;
+    }
+    if (CLAUDE_DONE_TURN_RE.test(t)) return '';
+    if (CLAUDE_FOOTER_HINT_RE.test(t)) {
+      bodyEnd -= 1;
+      continue;
+    }
+    if (/^[·✢✳✶✻✽∗*]\s+/.test(t)) {
+      bodyEnd -= 1;
+      continue;
+    }
+    break;
+  }
+
+  while (bodyEnd > 0 && !lines[bodyEnd - 1].trim()) bodyEnd -= 1;
+  if (bodyEnd <= 0) return '';
+
+  // Locate bottom-most assistant prose bullet without crossing user prompt or previous turn summary
+  let bulletIdx = -1;
+  for (let i = bodyEnd - 1; i >= 0; i--) {
+    const raw = lines[i];
+    const t = raw.trim();
+    if (/^\s*[❯›]\s+\S/.test(raw)) return '';
+    if (CLAUDE_DONE_TURN_RE.test(t)) return '';
+    if (/^\s?[●⏺]\s+(.+)$/.test(raw)) {
+      bulletIdx = i;
+      break;
+    }
+  }
+  if (bulletIdx < 0) return '';
+
+  const bulletLine = lines[bulletIdx];
+  if (CLAUDE_TOOL_BULLET_RE.test(bulletLine) || CLAUDE_TOOL_COUNT_RE.test(bulletLine)) {
+    return '';
+  }
+
+  for (let i = bulletIdx + 1; i < bodyEnd; i++) {
+    const line = lines[i];
+    if (CLAUDE_TOOL_OUTPUT_RE.test(line) || CLAUDE_CODE_MODE_SUMMARY_RE.test(line)) {
+      return '';
+    }
+  }
+
+  const rawBlock = [bulletLine.replace(/^\s?[●⏺]\s+/, '')];
+  for (let i = bulletIdx + 1; i < bodyEnd; i++) {
+    rawBlock.push(lines[i].replace(/^ {1,2}/, ''));
+  }
+  while (rawBlock.length && !rawBlock[rawBlock.length - 1].trim()) rawBlock.pop();
+  if (!rawBlock.length) return '';
+
+  const outLines = [rawBlock[0]];
+  for (let i = 1; i < rawBlock.length; i++) {
+    const prev = outLines[outLines.length - 1];
+    const next = rawBlock[i];
+    if (
+      !isStructuralLine(prev)
+      && !isStructuralLine(next)
+      && displayWidth(prev) >= 72
+      && !/[:：]$/.test(prev.trimEnd())
+    ) {
+      const prevCjk = /[\u3000-\u303f\u3040-\u30ff\u4e00-\u9fff\uac00-\ud7a3\uff00-\uffef]$/.test(prev.trimEnd());
+      const nextCjk = /^[\u3000-\u303f\u3040-\u30ff\u4e00-\u9fff\uac00-\ud7a3\uff00-\uffef]/.test(next);
+      outLines[outLines.length - 1] = prev + (prevCjk || nextCjk ? '' : ' ') + next;
+    } else {
+      outLines.push(next);
+    }
+  }
+  return outLines.join('\n').trim();
+}
+
 function classifyClaudeScreen(rawScreen) {
   const clean = stripAnsiCodes(rawScreen);
   const lines = clean.split('\n').map((l) => l.trimEnd());
@@ -230,6 +398,8 @@ function classifyClaudeScreen(rawScreen) {
 
   const ask = status === 'asking' ? parseClaudeAsk(lines.join('\n')) : null;
   const permissionMode = detectFooterPermissionMode(lines);
+  const activity = status === 'working' ? extractSpinnerActivity(lines) : '';
+  const liveText = status === 'working' ? extractLiveStreamText(clean) : '';
 
   const tailLines = lines
     .map(unframeLine)
@@ -242,7 +412,7 @@ function classifyClaudeScreen(rawScreen) {
     })
     .slice(-8);
 
-  return { status, ask, permissionMode, tail: tailLines.join('\n') };
+  return { status, ask, permissionMode, tail: tailLines.join('\n'), activity, liveText };
 }
 
 function moveKeys(delta) {
@@ -417,6 +587,8 @@ module.exports = {
   stripAnsiCodes,
   parseClaudeAsk,
   classifyClaudeScreen,
+  extractLiveStreamText,
+  normalizeForStreamCompare,
   buildAskKeys,
   sendTmuxInput,
   launchClaudeInTmux,

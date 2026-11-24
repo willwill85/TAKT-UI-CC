@@ -176,12 +176,74 @@
           removed: 0,
         };
       case 'Bash':
+      case 'bash':
+      case 'mcp__magpie__Bash':
         return {
           category: 'bash',
           verb: active ? '正在执行' : '执行',
           target: trimOne(inp.description || inp.command, 88),
           filePath: '',
           detail: inp.description && inp.command ? trimOne(inp.command, 60) : '',
+          added: 0,
+          removed: 0,
+        };
+      case 'mcp__mac-industrial__mac_host_exec':
+        return {
+          category: 'bash',
+          verb: active ? '正在执行 Mac 命令' : 'Mac 执行',
+          target: trimOne(inp.command || inp.description, 88),
+          filePath: '',
+          detail: inp.cwd ? basename(inp.cwd) : '',
+          added: 0,
+          removed: 0,
+        };
+      case 'Monitor':
+        return {
+          category: 'bash',
+          verb: active ? '正在监听' : '监听',
+          target: trimOne(inp.description || inp.command, 80),
+          filePath: '',
+          detail: inp.description && inp.command ? trimOne(inp.command, 60) : '',
+          added: 0,
+          removed: 0,
+        };
+      case 'Skill':
+        return {
+          category: 'skill',
+          verb: active ? '正在加载技能' : '加载技能',
+          target: String(inp.skill || ''),
+          filePath: '',
+          detail: trimOne(inp.args, 48),
+          added: 0,
+          removed: 0,
+        };
+      case 'SendMessage':
+        return {
+          category: 'agent',
+          verb: active ? '正在发消息给子代理' : '发消息给子代理',
+          target: trimOne(inp.summary || inp.to, 72),
+          filePath: '',
+          detail: inp.summary && inp.to ? String(inp.to) : '',
+          added: 0,
+          removed: 0,
+        };
+      case 'TaskStop':
+        return {
+          category: 'other',
+          verb: '停止后台任务',
+          target: String(inp.task_id || ''),
+          filePath: '',
+          detail: '',
+          added: 0,
+          removed: 0,
+        };
+      case 'EnterWorktree':
+        return {
+          category: 'other',
+          verb: '切换工作树',
+          target: String(inp.name || ''),
+          filePath: '',
+          detail: '',
           added: 0,
           removed: 0,
         };
@@ -251,6 +313,26 @@
           removed: 0,
         };
       }
+      case 'TaskCreate':
+        return {
+          category: 'plan',
+          verb: '新建任务',
+          target: trimOne(inp.subject || inp.description, 72),
+          filePath: '',
+          detail: '',
+          added: 0,
+          removed: 0,
+        };
+      case 'TaskUpdate':
+        return {
+          category: 'plan',
+          verb: '更新计划',
+          target: trimOne(inp.subject || (inp.taskId ? `#${inp.taskId}${inp.status ? ` → ${inp.status}` : ''}` : inp.status), 72),
+          filePath: '',
+          detail: '',
+          added: 0,
+          removed: 0,
+        };
       case 'AskUserQuestion':
         return {
           category: 'question',
@@ -282,6 +364,19 @@
           removed: 0,
         };
       default: {
+        if (/(?:^|_)update_plan$/i.test(name)) {
+          const items = Array.isArray(inp.items) ? inp.items : [];
+          const doneCount = items.filter((x) => x && x.status === 'completed').length;
+          return {
+            category: 'plan',
+            verb: active ? '正在更新计划' : '更新计划',
+            target: items.length ? `${doneCount}/${items.length} 步` : '',
+            filePath: '',
+            detail: '',
+            added: 0,
+            removed: 0,
+          };
+        }
         const label = name.startsWith('mcp__') ? formatMcpName(name) : name;
         const target = basename(inp.file_path || inp.path) || trimOne(inp.command || inp.query || inp.pattern || inp.url || inp.description, 72);
         return {
@@ -316,6 +411,8 @@
       search: 0,
       agent: 0,
       web: 0,
+      skill: 0,
+      plan: 0,
       other: 0,
     };
     let errs = 0;
@@ -334,6 +431,8 @@
     if (counts.bash) parts.push(`执行 ${counts.bash} 条命令`);
     if (counts.agent) parts.push(`运行 ${counts.agent} 个子代理`);
     if (counts.web) parts.push(`检索网页 ${counts.web} 次`);
+    if (counts.skill) parts.push(`加载 ${counts.skill} 个技能`);
+    if (counts.plan) parts.push('更新计划');
     if (counts.other) parts.push(`${counts.other} 个工具调用`);
     if (errs) parts.push(`${errs} 项失败`);
     return parts.join(' · ') || `${list.length} 个操作`;
@@ -356,7 +455,10 @@
   function formatTokens(n) {
     const v = Number(n || 0);
     if (!Number.isFinite(v) || v <= 0) return '0';
-    if (v >= 1000000) return `${(v / 1000000).toFixed(2)}M`;
+    if (v >= 1000000) {
+      const m = v / 1000000;
+      return `${Math.abs(m - Math.round(m)) < 0.05 ? Math.round(m) : m.toFixed(1)}M`;
+    }
     if (v >= 1000) return `${(v / 1000).toFixed(v >= 100000 ? 0 : 1)}k`;
     return String(Math.round(v));
   }

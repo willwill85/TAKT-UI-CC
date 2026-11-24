@@ -1,9 +1,11 @@
 'use strict';
 
+const { spawn } = require('child_process');
+
 // Reads remote ~/.claude/projects/<slug>/<session>.jsonl bytes and captures the visible
 // tmux pane + running interactive `claude` process metadata without writing anything to the node.
 const REMOTE_JSONL_PY = String.raw`
-import os, sys, json, glob, re, time, base64, subprocess
+import os, sys, json, glob, re, time, base64, subprocess, hashlib, select
 
 cfg = json.loads(base64.b64decode(CFG_B64).decode("utf-8"))
 mode = cfg.get("mode", "chunk")
@@ -16,7 +18,7 @@ UUID_RE = re.compile(r"(?:--resume|--session-id|-r)[ =]([0-9a-fA-F]{8}-[0-9a-fA-
 CLAUDE_RE = re.compile(r"(^|/)claude(\s|$)|claude-code/cli|@anthropic-ai/claude")
 
 def out(obj):
-    sys.stdout.write(json.dumps(obj, ensure_ascii=False))
+    sys.stdout.write(json.dumps(obj, ensure_ascii=False) + "\n")
     sys.stdout.flush()
 
 def safe_jsonl(p):
@@ -78,6 +80,32 @@ def compact_input(inp):
             except Exception:
                 pass
     return out_d
+
+def extract_tur_text(tur):
+    if isinstance(tur, str):
+        return clip_str(tur)
+    if isinstance(tur, dict):
+        if "stdout" in tur or "stderr" in tur:
+            parts = []
+            if tur.get("stdout"):
+                parts.append(str(tur["stdout"]))
+            if tur.get("stderr"):
+                err = str(tur["stderr"])
+                parts.append(("[stderr]\n" + err) if parts else err)
+            return clip_str("\n".join(parts)) if parts else ""
+        if isinstance(tur.get("file"), dict) and isinstance(tur["file"].get("content"), str):
+            return clip_str(tur["file"]["content"])
+        if isinstance(tur.get("content"), str):
+            return clip_str(tur["content"])
+        if isinstance(tur.get("filenames"), list) and tur["filenames"]:
+            return clip_str("\n".join(str(x) for x in tur["filenames"]))
+        if isinstance(tur.get("message"), str):
+            return clip_str(tur["message"])
+        if tur.get("commandName"):
+            return "已加载技能 " + str(tur["commandName"])
+        if tur.get("status") == "async_launched" and tur.get("description"):
+            return "子代理已启动：" + str(tur["description"])
+    return ""
 
 def compact_record(obj, off=None):
     t = obj.get("type")
@@ -147,6 +175,10 @@ def compact_record(obj, off=None):
                             rc.append(img_ref(ib, off, k, uuid))
                             k += 1
                     r["content"] = rc
+                if not r.get("content") and obj.get("toolUseResult") is not None:
+                    tur_txt = extract_tur_text(obj["toolUseResult"])
+                    if tur_txt:
+                        r["content"] = tur_txt
                 cc.append(r)
             elif bt == "image":
                 cc.append(img_ref(b, off, k, uuid))
@@ -258,97 +290,12 @@ if mode == "older":
     out({"ok": True, "jsonlPath": fp, "chunkStart": start, "chunkEnd": before, "hasOlder": start > 0, "records": records_from(data, start)})
     sys.exit(0)
 
-# mode == "chunk": tmux screen + running claude process + incremental transcript read
-tmux_sess = cfg.get("tmuxSess", "")
-tab_cwd = (cfg.get("cwd") or "").rstrip("/") or home
-sid = (cfg.get("sessionId") or "").strip()
-known_path = safe_jsonl(cfg.get("knownPath", ""))
-known_end = int(cfg.get("knownEnd", 0))
-claimed_paths = set(os.path.realpath(p) for p in (cfg.get("claimedPaths") or []) if p)
-
 def run_q(args, timeout=2):
     try:
         r = subprocess.run(args, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, universal_newlines=True, timeout=timeout)
         return r.stdout if r.returncode == 0 else ""
     except Exception:
         return ""
-
-pane_pid = 0
-pane_cwd = ""
-pane_text = ""
-if tmux_sess:
-    target = "=" + tmux_sess + ":"
-    info = run_q(["tmux", "display-message", "-p", "-t", target, "#{pane_pid}\t#{pane_current_path}"]).strip()
-    if info:
-        parts = info.split("\t")
-        try:
-            pane_pid = int(parts[0])
-        except Exception:
-            pane_pid = 0
-        pane_cwd = parts[1] if len(parts) > 1 else ""
-    if pane_pid:
-        pane_text = run_q(["tmux", "capture-pane", "-p", "-J", "-t", target])
-
-procs = {}
-children = {}
-for line in run_q(["ps", "-eo", "pid=,ppid=,etimes=,args="]).splitlines():
-    p = line.strip().split(None, 3)
-    if len(p) < 3:
-        continue
-    try:
-        pid, ppid, et = int(p[0]), int(p[1]), int(p[2])
-    except Exception:
-        continue
-    args = p[3] if len(p) > 3 else ""
-    procs[pid] = (ppid, et, args)
-    children.setdefault(ppid, []).append(pid)
-
-claude_pid = 0
-if pane_pid:
-    queue = [pane_pid]
-    seen = set()
-    while queue and not claude_pid:
-        cur = queue.pop(0)
-        if cur in seen:
-            continue
-        seen.add(cur)
-        pr = procs.get(cur)
-        if pr and CLAUDE_RE.search(pr[2]):
-            claude_pid = cur
-            break
-        queue.extend(children.get(cur, []))
-
-claimed_by_others = set()
-for pid, pr in procs.items():
-    if pid != claude_pid and CLAUDE_RE.search(pr[2]):
-        m = UUID_RE.search(pr[2])
-        if m:
-            claimed_by_others.add(m.group(1))
-
-claude_running = bool(claude_pid)
-claude_start = 0
-claude_cwd = ""
-hint_ids = []
-launch_model = ""
-launch_effort = ""
-if claude_pid:
-    ppid, et, args = procs[claude_pid]
-    claude_start = time.time() - et
-    try:
-        claude_cwd = os.readlink("/proc/%d/cwd" % claude_pid)
-    except Exception:
-        claude_cwd = ""
-    m = UUID_RE.search(args)
-    if m:
-        hint_ids.append(m.group(1))
-    m = re.search(r"--model[ =](\S+)", args)
-    launch_model = m.group(1) if m else ""
-    m = re.search(r"--effort[ =](\S+)", args)
-    launch_effort = m.group(1) if m else ""
-elif pane_text and ("esc to interrupt" in pane_text.lower() or "? for shortcuts" in pane_text):
-    claude_running = True
-if sid and sid not in hint_ids:
-    hint_ids.append(sid)
 
 def slug(p):
     return re.sub(r"[^a-zA-Z0-9]", "-", p)
@@ -385,67 +332,295 @@ def follow_clear(current, pool):
             break
     return best
 
-cwd_opts = []
-for c in (claude_cwd, pane_cwd, tab_cwd):
-    if c and c not in cwd_opts:
-        cwd_opts.append(c)
-if tab_cwd.startswith("/root/") and home != "/root":
-    cwd_opts.append(os.path.join(home, tab_cwd[6:]))
-dirs = []
-for c in cwd_opts:
-    d = os.path.join(proj_root, slug(c.rstrip("/") or "/"))
-    if os.path.isdir(d) and d not in dirs:
-        dirs.append(d)
+def discover_state(tmux_sess, tab_cwd, sid, known_path, claimed_paths):
+    pane_pid = 0
+    pane_cwd = ""
+    pane_text = ""
+    if tmux_sess:
+        target = "=" + tmux_sess + ":"
+        info = run_q(["tmux", "display-message", "-p", "-t", target, "#{pane_pid}\t#{pane_current_path}"]).strip()
+        if info:
+            parts = info.split("\t")
+            try:
+                pane_pid = int(parts[0])
+            except Exception:
+                pane_pid = 0
+            pane_cwd = parts[1] if len(parts) > 1 else ""
+        if pane_pid:
+            pane_text = run_q(["tmux", "capture-pane", "-p", "-J", "-S", "-120", "-t", target])
 
-hinted = ""
-for hid in hint_ids:
-    for d in dirs:
-        p = os.path.join(d, hid + ".jsonl")
-        if os.path.isfile(p):
-            hinted = p
+    procs = {}
+    children = {}
+    for line in run_q(["ps", "-eo", "pid=,ppid=,etimes=,args="]).splitlines():
+        p = line.strip().split(None, 3)
+        if len(p) < 3:
+            continue
+        try:
+            pid, ppid, et = int(p[0]), int(p[1]), int(p[2])
+        except Exception:
+            continue
+        args = p[3] if len(p) > 3 else ""
+        procs[pid] = (ppid, et, args)
+        children.setdefault(ppid, []).append(pid)
+
+    claude_pid = 0
+    if pane_pid:
+        queue = [pane_pid]
+        seen = set()
+        while queue and not claude_pid:
+            cur = queue.pop(0)
+            if cur in seen:
+                continue
+            seen.add(cur)
+            pr = procs.get(cur)
+            if pr and CLAUDE_RE.search(pr[2]):
+                claude_pid = cur
+                break
+            queue.extend(children.get(cur, []))
+
+    claimed_by_others = set()
+    for pid, pr in procs.items():
+        if pid != claude_pid and CLAUDE_RE.search(pr[2]):
+            m = UUID_RE.search(pr[2])
+            if m:
+                claimed_by_others.add(m.group(1))
+
+    claude_running = bool(claude_pid)
+    claude_start = 0
+    claude_cwd = ""
+    hint_ids = []
+    launch_model = ""
+    launch_effort = ""
+    if claude_pid:
+        ppid, et, args = procs[claude_pid]
+        claude_start = time.time() - et
+        try:
+            claude_cwd = os.readlink("/proc/%d/cwd" % claude_pid)
+        except Exception:
+            claude_cwd = ""
+        m = UUID_RE.search(args)
+        if m:
+            hint_ids.append(m.group(1))
+        m = re.search(r"--model[ =](\S+)", args)
+        launch_model = m.group(1) if m else ""
+        m = re.search(r"--effort[ =](\S+)", args)
+        launch_effort = m.group(1) if m else ""
+    elif pane_text and ("esc to interrupt" in pane_text.lower() or "? for shortcuts" in pane_text):
+        claude_running = True
+    if sid and sid not in hint_ids:
+        hint_ids.append(sid)
+
+    cwd_opts = []
+    for c in (claude_cwd, pane_cwd, tab_cwd):
+        if c and c not in cwd_opts:
+            cwd_opts.append(c)
+    if tab_cwd.startswith("/root/") and home != "/root":
+        cwd_opts.append(os.path.join(home, tab_cwd[6:]))
+    dirs = []
+    for c in cwd_opts:
+        d = os.path.join(proj_root, slug(c.rstrip("/") or "/"))
+        if os.path.isdir(d) and d not in dirs:
+            dirs.append(d)
+
+    hinted = ""
+    for hid in hint_ids:
+        for d in dirs:
+            p = os.path.join(d, hid + ".jsonl")
+            if os.path.isfile(p):
+                hinted = p
+                break
+        if not hinted:
+            g = glob.glob(os.path.join(proj_root, "*", hid + ".jsonl"))
+            if g:
+                hinted = max(g, key=mtime)
+        if hinted:
             break
-    if not hinted:
-        g = glob.glob(os.path.join(proj_root, "*", hid + ".jsonl"))
-        if g:
-            hinted = max(g, key=mtime)
-    if hinted:
-        break
 
-chosen = ""
-if claude_pid:
-    window = claude_start - 5
-    pool = []
-    for d in dirs:
-        for p in glob.glob(os.path.join(d, "*.jsonl")):
-            if mtime(p) < window:
-                continue
-            if os.path.splitext(os.path.basename(p))[0] in claimed_by_others or os.path.realpath(p) in claimed_paths:
-                continue
-            pool.append(p)
-    if hinted and mtime(hinted) >= window:
-        chosen = follow_clear(hinted, pool)
-    elif known_path and known_path in pool:
-        chosen = follow_clear(known_path, pool)
-    elif pool:
-        chosen = max(pool, key=mtime)
+    chosen = ""
+    if claude_pid:
+        window = claude_start - 5
+        pool = []
+        for d in dirs:
+            for p in glob.glob(os.path.join(d, "*.jsonl")):
+                if mtime(p) < window:
+                    continue
+                if os.path.splitext(os.path.basename(p))[0] in claimed_by_others or os.path.realpath(p) in claimed_paths:
+                    continue
+                pool.append(p)
+        if hinted and mtime(hinted) >= window:
+            chosen = follow_clear(hinted, pool)
+        elif known_path and known_path in pool:
+            chosen = follow_clear(known_path, pool)
+        elif pool:
+            chosen = max(pool, key=mtime)
+        elif hinted:
+            chosen = hinted
     elif hinted:
         chosen = hinted
-elif hinted:
-    chosen = hinted
-elif known_path:
-    chosen = known_path
-chosen = safe_jsonl(chosen)
+    elif known_path:
+        chosen = known_path
+    chosen = safe_jsonl(chosen)
+
+    return {
+        "claudeRunning": claude_running,
+        "paneText": pane_text,
+        "paneCwd": claude_cwd or pane_cwd,
+        "tmuxAlive": bool(pane_pid),
+        "chosen": chosen,
+        "launchModel": launch_model,
+        "launchEffort": launch_effort,
+    }
+
+tmux_sess = cfg.get("tmuxSess", "")
+tab_cwd = (cfg.get("cwd") or "").rstrip("/") or home
+sid = (cfg.get("sessionId") or "").strip()
+known_path = safe_jsonl(cfg.get("knownPath", ""))
+known_end = int(cfg.get("knownEnd", 0))
+claimed_paths = set(os.path.realpath(p) for p in (cfg.get("claimedPaths") or []) if p)
+max_bytes = int(cfg.get("maxBytes", 8388608))
+initial_bytes = int(cfg.get("initialBytes", 2097152))
+
+if mode == "watch":
+    SPINNER_WATCH_RE = re.compile(r"^\s*[·✢✳✶✻✽∗*]\s+\S", re.M)
+    last_pane_hash = ""
+    last_meta_sig = None
+    last_discover_ts = 0.0
+    wake_requested = True
+    first_tick = True
+    fast_until = time.monotonic() + 4.0
+    st = None
+    stdin_fd = sys.stdin.fileno()
+    try:
+        while True:
+            now = time.monotonic()
+            if wake_requested or st is None or not known_path or (now - last_discover_ts >= 2.0):
+                st = discover_state(tmux_sess, tab_cwd, sid, known_path, claimed_paths)
+                last_discover_ts = now
+                wake_requested = False
+            else:
+                pane_text_fast = run_q(["tmux", "capture-pane", "-p", "-J", "-S", "-120", "-t", "=" + tmux_sess + ":"], timeout=1.5) if tmux_sess else ""
+                st = dict(st)
+                st["paneText"] = pane_text_fast
+                if not st.get("claudeRunning") and pane_text_fast and ("esc to interrupt" in pane_text_fast.lower() or "? for shortcuts" in pane_text_fast):
+                    st["claudeRunning"] = True
+
+            pane_text = st.get("paneText") or ""
+            pane_hash = hashlib.md5(pane_text.encode("utf-8", "ignore")).hexdigest()
+            pane_changed = first_tick or (pane_hash != last_pane_hash)
+            pane_busy = ("esc to interrupt" in pane_text.lower()) or bool(SPINNER_WATCH_RE.search(pane_text))
+            if pane_busy or pane_hash != last_pane_hash:
+                fast_until = max(fast_until, now + 3.0)
+
+            chosen = st.get("chosen") or ""
+            records = []
+            reset = False
+            chunk_start = known_end
+            chunk_end = known_end
+            has_older = False
+            size = 0
+            jsonl_changed = False
+
+            if chosen:
+                try:
+                    size = os.path.getsize(chosen)
+                except Exception:
+                    size = 0
+                if chosen != known_path or size < known_end or (first_tick and known_end == 0):
+                    with open(chosen, "rb") as f:
+                        start = 0 if size <= initial_bytes else next_line_start(f, size - initial_bytes)
+                        if start is None:
+                            start = prev_line_start(f, size)
+                        data, end = read_lines(f, start, size)
+                    reset = True
+                    chunk_start = start
+                    chunk_end = end
+                    has_older = start > 0
+                    records = records_from(data, start)
+                    known_path = chosen
+                    known_end = end
+                    jsonl_changed = True
+                    fast_until = max(fast_until, now + 3.0)
+                elif size > known_end:
+                    stop = min(size, known_end + max_bytes)
+                    with open(chosen, "rb") as f:
+                        data, end = read_lines(f, known_end, stop)
+                        if not data and size - known_end > max_bytes:
+                            nxt = next_line_start(f, known_end + 1)
+                            end = nxt if nxt is not None else known_end
+                    records = records_from(data, known_end)
+                    chunk_start = known_end
+                    chunk_end = end
+                    known_end = end
+                    if records or end > chunk_start:
+                        jsonl_changed = True
+                        fast_until = max(fast_until, now + 3.0)
+            elif known_path:
+                known_path = ""
+                known_end = 0
+                reset = True
+                jsonl_changed = True
+
+            meta_sig = (
+                bool(st.get("claudeRunning")),
+                bool(st.get("tmuxAlive")),
+                st.get("paneCwd") or "",
+                known_path,
+                st.get("launchModel") or "",
+                st.get("launchEffort") or "",
+            )
+            meta_changed = first_tick or (meta_sig != last_meta_sig)
+
+            if first_tick or jsonl_changed or pane_changed or meta_changed:
+                evt = {
+                    "ok": True,
+                    "claudeRunning": bool(st.get("claudeRunning")),
+                    "paneChanged": bool(pane_changed),
+                    "paneCwd": st.get("paneCwd") or "",
+                    "tmuxAlive": bool(st.get("tmuxAlive")),
+                    "jsonlPath": known_path,
+                    "resolvedSessionId": os.path.splitext(os.path.basename(known_path))[0] if known_path else "",
+                    "launchModel": st.get("launchModel") or "",
+                    "launchEffort": st.get("launchEffort") or "",
+                    "reset": bool(reset),
+                    "chunkStart": chunk_start,
+                    "chunkEnd": chunk_end,
+                    "hasOlder": bool(has_older),
+                    "size": size,
+                    "records": records,
+                }
+                if pane_changed:
+                    evt["paneText"] = pane_text
+                out(evt)
+                last_pane_hash = pane_hash
+                last_meta_sig = meta_sig
+                first_tick = False
+
+            sleep_s = 0.12 if (pane_busy or now < fast_until) else 0.6
+            rlist, _, _ = select.select([stdin_fd], [], [], sleep_s)
+            if rlist:
+                chunk_in = os.read(stdin_fd, 4096)
+                if not chunk_in:
+                    break
+                wake_requested = True
+                fast_until = max(fast_until, time.monotonic() + 5.0)
+    except BrokenPipeError:
+        pass
+    sys.exit(0)
+
+# mode == "chunk": one-shot tmux screen + running claude process + incremental transcript read
+st = discover_state(tmux_sess, tab_cwd, sid, known_path, claimed_paths)
+chosen = st["chosen"]
 
 res = {
     "ok": True,
-    "claudeRunning": claude_running,
-    "paneText": pane_text,
-    "paneCwd": claude_cwd or pane_cwd,
-    "tmuxAlive": bool(pane_pid),
+    "claudeRunning": st["claudeRunning"],
+    "paneText": st["paneText"],
+    "paneCwd": st["paneCwd"],
+    "tmuxAlive": st["tmuxAlive"],
     "jsonlPath": chosen,
     "resolvedSessionId": os.path.splitext(os.path.basename(chosen))[0] if chosen else "",
-    "launchModel": launch_model,
-    "launchEffort": launch_effort,
+    "launchModel": st["launchModel"],
+    "launchEffort": st["launchEffort"],
     "reset": True,
     "chunkStart": 0,
     "chunkEnd": 0,
@@ -459,9 +634,9 @@ if chosen:
     res["size"] = size
     with open(chosen, "rb") as f:
         if chosen == known_path and size >= known_end > 0:
-            stop = min(size, known_end + int(cfg.get("maxBytes", 8388608)))
+            stop = min(size, known_end + max_bytes)
             data, end = read_lines(f, known_end, stop)
-            if not data and size - known_end > int(cfg.get("maxBytes", 8388608)):
+            if not data and size - known_end > max_bytes:
                 nxt = next_line_start(f, known_end + 1)
                 end = nxt if nxt is not None else known_end
             res.update({
@@ -471,8 +646,7 @@ if chosen:
                 "records": records_from(data, known_end),
             })
         else:
-            initial = int(cfg.get("initialBytes", 2097152))
-            start = 0 if size <= initial else next_line_start(f, size - initial)
+            start = 0 if size <= initial_bytes else next_line_start(f, size - initial_bytes)
             if start is None:
                 start = prev_line_start(f, size)
             data, end = read_lines(f, start, size)
@@ -564,7 +738,130 @@ async function readRemoteTranscriptOlder({
   });
 }
 
+function startRemoteStreamWatcher({
+  sshHost,
+  sessionId,
+  cwd,
+  knownPath = '',
+  knownEnd = 0,
+  claimedPaths = [],
+  initialBytes = 2 * 1024 * 1024,
+  maxBytes = 8 * 1024 * 1024,
+  tmuxSess = '',
+  sshOpts = [],
+  onChunk,
+  onClose,
+}) {
+  if (!sshHost) return null;
+  const cfg = {
+    mode: 'watch',
+    sessionId,
+    cwd,
+    knownPath,
+    knownEnd,
+    claimedPaths,
+    initialBytes,
+    maxBytes,
+    tmuxSess,
+  };
+  const cfgB64 = Buffer.from(JSON.stringify(cfg), 'utf8').toString('base64');
+  const py = REMOTE_JSONL_PY.replace('CFG_B64', JSON.stringify(cfgB64));
+  const pyB64 = Buffer.from(py, 'utf8').toString('base64');
+
+  const child = spawn('ssh', [
+    ...(Array.isArray(sshOpts) ? sshOpts : []),
+    '-T',
+    sshHost,
+    `python3 -u -c "import base64;exec(base64.b64decode('${pyB64}'))"`,
+  ], {
+    stdio: ['pipe', 'pipe', 'pipe'],
+  });
+
+  let stdoutBuf = '';
+  let stderrBuf = '';
+  let stopped = false;
+  let alive = true;
+  let killTimer = null;
+
+  if (child.stdin) {
+    child.stdin.on('error', () => {});
+  }
+
+  child.stdout.setEncoding('utf8');
+  child.stdout.on('data', (chunk) => {
+    if (stopped) return;
+    stdoutBuf += chunk;
+    let idx;
+    while ((idx = stdoutBuf.indexOf('\n')) >= 0) {
+      const line = stdoutBuf.slice(0, idx).trim();
+      stdoutBuf = stdoutBuf.slice(idx + 1);
+      if (!line) continue;
+      try {
+        const obj = JSON.parse(line);
+        if (obj && typeof obj === 'object' && typeof onChunk === 'function') {
+          onChunk(obj);
+        }
+      } catch {}
+    }
+  });
+
+  child.stderr.setEncoding('utf8');
+  child.stderr.on('data', (chunk) => {
+    if (stderrBuf.length < 2048) {
+      stderrBuf += chunk.slice(0, 2048 - stderrBuf.length);
+    }
+  });
+
+  child.on('error', (err) => {
+    alive = false;
+    if (stderrBuf.length < 2048) stderrBuf += String((err && err.message) || err || '');
+  });
+
+  child.on('close', (code, signal) => {
+    alive = false;
+    if (killTimer) {
+      clearTimeout(killTimer);
+      killTimer = null;
+    }
+    if (typeof onClose === 'function') {
+      onClose({ code, signal, stderr: stderrBuf.trim(), expected: stopped });
+    }
+  });
+
+  return {
+    isAlive: () => alive && !stopped && child.exitCode === null,
+    wake: () => {
+      if (stopped || !alive || !child.stdin || child.stdin.destroyed) return false;
+      try {
+        child.stdin.write('{"cmd":"wake"}\n');
+        return true;
+      } catch {
+        return false;
+      }
+    },
+    stop: () => {
+      if (stopped) return;
+      stopped = true;
+      alive = false;
+      try {
+        if (child.stdin && !child.stdin.destroyed) child.stdin.end();
+      } catch {}
+      if (!killTimer && child.exitCode === null && !child.killed) {
+        killTimer = setTimeout(() => {
+          killTimer = null;
+          try {
+            if (child.exitCode === null) child.kill('SIGTERM');
+          } catch {}
+        }, 400);
+        if (typeof killTimer.unref === 'function') killTimer.unref();
+      }
+    },
+  };
+}
+
 module.exports = {
   readRemoteTranscriptChunk,
   readRemoteTranscriptOlder,
+  startRemoteStreamWatcher,
+  REMOTE_JSONL_PY,
 };

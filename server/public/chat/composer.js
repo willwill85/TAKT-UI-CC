@@ -79,10 +79,11 @@
                   <svg class="icon icon-sm" viewBox="0 0 24 24"><path d="m7 15 5 5 5-5"/><path d="m7 9 5-5 5 5"/></svg>
                 </button>
 
-                <button type="button" class="cc-btn cc-btn--danger cc-stop-btn" hidden>■ 中断</button>
-                <button type="button" class="cc-send-btn" disabled>
-                  <span class="cc-send-lbl">发送</span>
-                  <span class="cc-send-kbd">↵</span>
+                <button type="button" class="cc-stop-btn" title="中断 Claude (Esc)" aria-label="中断 Claude" hidden>
+                  <svg viewBox="0 0 16 16" width="13" height="13" fill="currentColor" aria-hidden="true"><rect x="3.5" y="3.5" width="9" height="9" rx="2"/></svg>
+                </button>
+                <button type="button" class="cc-send-btn" title="发送 (Enter)" aria-label="发送" disabled>
+                  <svg viewBox="0 0 16 16" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 13V3"/><path d="M3.5 7.5 8 3l4.5 4.5"/></svg>
                 </button>
               </div>
             </div>
@@ -146,6 +147,7 @@
       const uploading = currentTab.attachments.some((a) => a.uploading);
       const isBusy = st.status === 'working' || st.status === 'asking';
       stopBtn.hidden = !isBusy;
+      sendBtn.hidden = isBusy && !hasText && !hasAtt;
       sendBtn.disabled = uploading || (!hasText && !hasAtt);
     }
 

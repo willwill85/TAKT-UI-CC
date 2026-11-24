@@ -54,6 +54,7 @@ const NOISE_TAGS = [
   'command-args',
   'local-command-caveat',
   'system-reminder',
+  'tools-used-before-summary',
 ];
 const NOISE_RE = new RegExp(`<(${NOISE_TAGS.join('|')})>[\\s\\S]*?<\\/\\1>`, 'g');
 
@@ -81,6 +82,69 @@ function extractLocalCommandOutputs(raw) {
   return notices;
 }
 
+function readXmlTag(xml, tag) {
+  const m = new RegExp(`<${tag}>([\\s\\S]*?)<\\/${tag}>`, 'i').exec(String(xml || ''));
+  return m ? m[1].trim() : '';
+}
+
+function formatTaskNotification(body) {
+  const taskId = readXmlTag(body, 'task-id');
+  const toolUseId = readXmlTag(body, 'tool-use-id');
+  const rawStatus = readXmlTag(body, 'status').toLowerCase();
+  const summary = readXmlTag(body, 'summary');
+  const outputFile = readXmlTag(body, 'output-file');
+  const usageXml = readXmlTag(body, 'usage');
+  const toolUses = readXmlTag(usageXml, 'tool_uses');
+  const durationMs = Number(readXmlTag(usageXml, 'duration_ms') || 0);
+
+  let statusLabel = '后台任务更新';
+  if (rawStatus === 'completed') statusLabel = '子代理完成';
+  else if (rawStatus === 'failed' || rawStatus === 'error') statusLabel = '子代理失败';
+  else if (rawStatus === 'killed' || rawStatus === 'stopped') statusLabel = '子代理已停止';
+
+  const metaParts = [];
+  if (toolUses && /^\d+$/.test(toolUses)) metaParts.push(`${toolUses} 次工具`);
+  if (Number.isFinite(durationMs) && durationMs > 0) {
+    metaParts.push(durationMs >= 1000 ? `${Math.round(durationMs / 1000)}s` : `${Math.round(durationMs)}ms`);
+  }
+
+  const noticeText = `${statusLabel}${summary ? ` · ${summary}` : ''}${metaParts.length ? `（${metaParts.join(' · ')}）` : ''}`;
+  return {
+    taskId,
+    toolUseId,
+    status: rawStatus || 'completed',
+    summary,
+    outputFile,
+    noticeText,
+  };
+}
+
+function extractSystemUserEnvelopes(raw) {
+  const taskEvents = [];
+  const systemNotices = [];
+  let strippedText = String(raw || '');
+
+  strippedText = strippedText.replace(/<task-notification>([\s\S]*?)<\/task-notification>/gi, (_, body) => {
+    taskEvents.push(formatTaskNotification(body));
+    return '';
+  });
+
+  strippedText = strippedText.replace(/<teammate-message\b([^>]*)>([\s\S]*?)<\/teammate-message>/gi, (_, attrs, body) => {
+    const idMatch = /\bteammate_id\s*=\s*["']([^"']*)["']/i.exec(attrs || '');
+    const sumMatch = /\bsummary\s*=\s*["']([^"']*)["']/i.exec(attrs || '');
+    const id = idMatch ? idMatch[1].trim() : '';
+    const rawBody = String(body || '').replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
+    const bodySummary = (sumMatch ? sumMatch[1].trim() : '') || (rawBody.length > 100 ? `${rawBody.slice(0, 99)}…` : rawBody);
+    systemNotices.push({
+      kind: 'task',
+      text: `协作成员消息${id ? ` · ${id}` : ''}${bodySummary ? `：${bodySummary}` : ''}`,
+    });
+    return '';
+  });
+
+  return { strippedText, taskEvents, systemNotices };
+}
+
 function parseTs(raw, fallback = Date.now()) {
   if (typeof raw === 'number' && Number.isFinite(raw)) return raw;
   if (typeof raw === 'string' && raw) {
@@ -90,6 +154,15 @@ function parseTs(raw, fallback = Date.now()) {
   return fallback;
 }
 
+function resolveMaxContextTokens(model, totalTokens = 0) {
+  const s = String(model || '').trim();
+  if (/1m/i.test(s) || Number(totalTokens || 0) > 200000) return 1000000;
+  if (!/haiku/i.test(s) && (/(?:^|-)claude-(?:opus|sonnet)-[5-9]/i.test(s) || /^(?:opus|sonnet)$/i.test(s))) {
+    return 1000000;
+  }
+  return 200000;
+}
+
 function buildContextUsage(usage, model) {
   if (!usage || typeof usage !== 'object') return null;
   const input = Number(usage.input_tokens || 0);
@@ -97,7 +170,7 @@ function buildContextUsage(usage, model) {
   const cacheCreate = Number(usage.cache_creation_input_tokens || 0);
   const totalTokens = input + cacheRead + cacheCreate;
   if (totalTokens <= 0) return null;
-  const rawMaxTokens = /1m/i.test(String(model || '')) ? 1000000 : 200000;
+  const rawMaxTokens = resolveMaxContextTokens(model, totalTokens);
   const percentage = Math.min(100, Math.max(0, Math.round((totalTokens / rawMaxTokens) * 100)));
   return {
     percentage,
@@ -112,7 +185,7 @@ function buildContextUsage(usage, model) {
   };
 }
 
-const HIDDEN_INTERNAL_TOOLS = new Set(['ToolSearch']);
+const HIDDEN_INTERNAL_TOOLS = new Set(['ToolSearch', 'searchTools', 'describeTool', 'Poll', 'REPL']);
 
 function parseJsonlRecordsToEvents(records, { startSeq = 1, idPrefix = 'hist', existingToolNames, existingSeenMsgIds } = {}) {
   const events = [];
@@ -221,12 +294,26 @@ function parseJsonlRecordsToEvents(records, { startSeq = 1, idPrefix = 'hist', e
       const content = msg && msg.content;
       const textParts = [];
       const userImages = [];
-      const noticeTexts = [];
+      const taskEvents = [];
+      const systemNotices = [];
+      const commandNotices = [];
+
+      const processUserText = (rawStr) => {
+        const env = extractSystemUserEnvelopes(rawStr);
+        if (env.taskEvents.length) taskEvents.push(...env.taskEvents);
+        if (env.systemNotices.length) systemNotices.push(...env.systemNotices);
+        commandNotices.push(...extractLocalCommandOutputs(env.strippedText));
+        const clean = stripNoise(env.strippedText);
+        if (!clean) return;
+        if (/^This session is being continued from a previous conversation that ran out of context\./i.test(clean)) {
+          systemNotices.push({ kind: 'info', text: '已从压缩上下文继续对话' });
+          return;
+        }
+        textParts.push(clean);
+      };
 
       if (typeof content === 'string') {
-        noticeTexts.push(...extractLocalCommandOutputs(content));
-        const clean = stripNoise(content);
-        if (clean) textParts.push(clean);
+        processUserText(content);
       } else if (Array.isArray(content)) {
         for (const b of content) {
           if (!b || typeof b !== 'object') continue;
@@ -263,9 +350,7 @@ function parseJsonlRecordsToEvents(records, { startSeq = 1, idPrefix = 'hist', e
               }, ts);
             }
           } else if (b.type === 'text' && typeof b.text === 'string') {
-            noticeTexts.push(...extractLocalCommandOutputs(b.text));
-            const clean = stripNoise(b.text);
-            if (clean) textParts.push(clean);
+            processUserText(b.text);
           } else if (b.type === 'image' && b.source && b.source.type === 'takt_ref') {
             const s = b.source;
             userImages.push({ off: s.off, idx: s.idx, mt: s.mt || 'image/png', u: s.u || obj.uuid || '' });
@@ -273,7 +358,22 @@ function parseJsonlRecordsToEvents(records, { startSeq = 1, idPrefix = 'hist', e
         }
       }
 
-      for (const n of noticeTexts) {
+      for (const te of taskEvents) {
+        if (te.toolUseId) {
+          push('tool.task', {
+            taskId: te.taskId || '',
+            toolUseId: te.toolUseId,
+            status: te.status || 'completed',
+            summary: te.summary || '',
+            outputFile: te.outputFile || '',
+          }, ts);
+        }
+        push('native.notice', { kind: 'task', text: te.noticeText }, ts);
+      }
+      for (const sn of systemNotices) {
+        push('native.notice', sn, ts);
+      }
+      for (const n of commandNotices) {
         push('native.notice', { kind: 'command', text: n }, ts);
       }
 
@@ -400,4 +500,5 @@ module.exports = {
   clipText,
   extractToolResultContent,
   buildContextUsage,
+  resolveMaxContextTokens,
 };

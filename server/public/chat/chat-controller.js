@@ -137,6 +137,9 @@
         if (tv.ws !== ws) return;
         tv.connected = true;
         tv.reconnectDelay = 1000;
+        if (activeTabId === tv.tabId) {
+          try { ws.send(JSON.stringify({ type: 'focus', active: true })); } catch {}
+        }
         syncTabObj(tv);
         scheduleRender();
       });
@@ -154,6 +157,7 @@
         if (msg.type === 'snapshot') {
           tv.events = Array.isArray(msg.events) ? msg.events : [];
           tv.state = msg.state || {};
+          tv.lastLiveTextId = '';
           syncTabObj(tv);
           if (activeView() === tv) scheduleRender(true);
           return;
@@ -161,6 +165,10 @@
 
         if (msg.type === 'event' && msg.event) {
           tv.events.push(msg.event);
+          if (msg.event.type === 'text.delta') {
+            tv.lastLiveTextId = msg.event.id || '';
+            tv.liveTextEventSeq = (tv.liveTextEventSeq || 0) + 1;
+          }
           if (msg.event.type === 'turn.stats' && callbacks.onSessionActivity) {
             callbacks.onSessionActivity(tv.tabObj);
           }
@@ -172,6 +180,7 @@
           const older = Array.isArray(msg.events) ? msg.events : [];
           if (older.length) tv.events = older.concat(tv.events);
           if (msg.state) tv.state = msg.state;
+          tv.lastLiveTextId = '';
           syncTabObj(tv);
           if (activeView() === tv && convView) {
             convView.prependEventsPreserveScroll(tv);
@@ -239,6 +248,8 @@
           globalExpand: false,
           scrollTop: 0,
           offlineMeta: null,
+          liveTextEventSeq: 0,
+          lastLiveTextId: '',
         };
         tabViews.set(tabObj.tabId, tv);
       } else {
@@ -356,9 +367,16 @@
 
     function activateTab(tabObj) {
       if (!tabObj || !mountEl) return;
+      const prevView = activeView();
+      if (prevView && prevView.tabObj && prevView.tabObj.tabId !== tabObj.tabId && prevView.ws && prevView.ws.readyState === WebSocket.OPEN) {
+        try { prevView.ws.send(JSON.stringify({ type: 'focus', active: false })); } catch {}
+      }
       activeTabId = tabObj.tabId;
       const tv = getOrCreateView(tabObj);
       ensureConnected(tv);
+      if (tv.ws && tv.ws.readyState === WebSocket.OPEN) {
+        try { tv.ws.send(JSON.stringify({ type: 'focus', active: true })); } catch {}
+      }
       syncTabObj(tv);
       if (convView && compView) {
         convView.render(tv, { full: true });
@@ -369,7 +387,11 @@
     }
 
     function deactivate() {
+      const prevView = activeView();
       activeTabId = '';
+      if (prevView && prevView.ws && prevView.ws.readyState === WebSocket.OPEN) {
+        try { prevView.ws.send(JSON.stringify({ type: 'focus', active: false })); } catch {}
+      }
     }
 
     function refreshActiveTab() {

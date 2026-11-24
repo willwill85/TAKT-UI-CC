@@ -35,18 +35,21 @@
             </div>
             <div class="cc-turns"></div>
             <div class="cc-pending-users" hidden></div>
+            <div class="cc-live-stream cc-md" hidden></div>
             <div class="cc-run-status" hidden>
-              <div class="cc-run-status-head">
-                <span class="cc-breath-dot"></span>
-                <span class="cc-run-status-text">Claude 正在执行…</span>
-                <span class="cc-run-status-timer"></span>
-                <button type="button" class="cc-mini-btn" data-live-interrupt>中断 (Esc)</button>
-              </div>
-              <pre class="cc-run-tail" hidden></pre>
+              <span class="cc-claude-burst" aria-hidden="true">
+                <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+                  <path d="M12 2v20M3.34 7l17.32 10M20.66 7L3.34 17"/>
+                </svg>
+              </span>
+              <span class="cc-run-status-text">Claude 正在思考…</span>
+              <span class="cc-run-status-timer"></span>
             </div>
             <div class="cc-live-ask cc-card is-pending" hidden></div>
           </div>
         </div>
+
+        <div class="cc-todo-dock" hidden></div>
 
         <button type="button" class="cc-jump" hidden>↓ 回到最新</button>
 
@@ -72,10 +75,11 @@
     const emptyEl = mountEl.querySelector('.cc-empty');
     const turnsEl = mountEl.querySelector('.cc-turns');
     const pendingEl = mountEl.querySelector('.cc-pending-users');
+    const liveStreamEl = mountEl.querySelector('.cc-live-stream');
     const runStatusEl = mountEl.querySelector('.cc-run-status');
     const runStatusText = mountEl.querySelector('.cc-run-status-text');
     const runStatusTimer = mountEl.querySelector('.cc-run-status-timer');
-    const runTailEl = mountEl.querySelector('.cc-run-tail');
+    const todoDockEl = mountEl.querySelector('.cc-todo-dock');
     const liveAskEl = mountEl.querySelector('.cc-live-ask');
     const jumpBtn = mountEl.querySelector('.cc-jump');
     const planModal = mountEl.querySelector('.cc-plan-modal');
@@ -87,8 +91,26 @@
     let openStatsTurnId = '';
     const turnSigs = new Map();
     let lastPendingSig = '';
+    let lastTodoSig = '';
     let lastAskSig = '';
     let lastAskCoreSig = '';
+
+    // Smooth 60fps streaming & reveal state
+    const CARET_HTML = '<span class="cc-stream-caret" aria-hidden="true"></span>';
+    let streamTarget = '';
+    let streamShown = 0;
+    let streamRaf = 0;
+    let streamLastTs = 0;
+    let streamPeakChars = 0;
+    let peakTurnId = '';
+
+    let revealTurnId = '';
+    let revealFullText = '';
+    let revealShown = 0;
+    let revealRaf = 0;
+    let revealLastTs = 0;
+
+    let statusTickTimer = 0;
 
     // Find bar state
     let findRanges = [];
@@ -216,12 +238,6 @@
       else if (act === 'launch-claude') actions.onLaunchClaude();
     });
 
-    runStatusEl.addEventListener('click', (e) => {
-      if (e.target.closest('[data-live-interrupt]')) {
-        actions.onInterrupt();
-      }
-    });
-
     olderBtn.addEventListener('click', () => actions.onLoadOlder());
     jumpBtn.addEventListener('click', () => scrollToBottom(true));
 
@@ -346,6 +362,46 @@
       return `<pre class="cc-io-pre${isError ? ' is-error' : ''}">${Md.escapeHtml(outputText.slice(0, 12000))}${outputText.length > 12000 ? '\n… [输出已截断]' : ''}</pre>`;
     }
 
+    function renderTodoInlineHtml(list) {
+      const items = Array.isArray(list) ? list : [];
+      if (!items.length) return '';
+      return `<div class="cc-todo-inline">${items.map((it) => {
+        const st = String(it.status || 'pending').toLowerCase();
+        const cls = st === 'completed' || st === 'done'
+          ? 'is-done'
+          : (st === 'in_progress' || st === 'in-progress' || st === 'running')
+            ? 'is-active'
+            : 'is-pending';
+        const mark = cls === 'is-done' ? '✓' : '';
+        const label = it.content || it.step || it.title || '';
+        return `<div class="cc-todo-item ${cls}"><span class="cc-todo-dot">${mark}</span><span class="cc-todo-txt">${Md.escapeHtml(label)}</span></div>`;
+      }).join('')}</div>`;
+    }
+
+    const TOOL_CAT_SVGS = {
+      read: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.45" stroke-linecap="round" stroke-linejoin="round"><path d="M4 2.5h5.5L12.5 5.5v8a1 1 0 0 1-1 1h-7.5a1 1 0 0 1-1-1v-10a1 1 0 0 1 1-1z"/><path d="M9.5 2.5v3h3"/><path d="M5.5 8.5h5M5.5 11h3.5"/></svg>',
+      edit: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.45" stroke-linecap="round" stroke-linejoin="round"><path d="M11.2 2.5a1.6 1.6 0 0 1 2.3 2.3L6.2 12.1 3 13l.9-3.2 7.3-7.3z"/></svg>',
+      write: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.45" stroke-linecap="round" stroke-linejoin="round"><path d="M11.2 2.5a1.6 1.6 0 0 1 2.3 2.3L6.2 12.1 3 13l.9-3.2 7.3-7.3z"/></svg>',
+      bash: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.45" stroke-linecap="round" stroke-linejoin="round"><path d="M3.5 5l3 3-3 3"/><path d="M8 11.5h4.5"/></svg>',
+      search: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.45" stroke-linecap="round" stroke-linejoin="round"><circle cx="7" cy="7" r="4"/><path d="M10.2 10.2l3.3 3.3"/></svg>',
+      web: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><circle cx="8" cy="8" r="5.5"/><path d="M2.8 8h10.4"/><path d="M8 2.5c1.8 1.7 1.8 9.3 0 11M8 2.5c-1.8 1.7-1.8 9.3 0 11"/></svg>',
+      agent: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.45" stroke-linecap="round" stroke-linejoin="round"><path d="M8 2l1.2 3.3L12.5 6.5l-3.3 1.2L8 11l-1.2-3.3L3.5 6.5l3.3-1.2L8 2z"/><path d="M12.5 10.5l.6 1.4 1.4.6-1.4.6-.6 1.4-.6-1.4-1.4-.6 1.4-.6.6-1.4z"/></svg>',
+      plan: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.45" stroke-linecap="round" stroke-linejoin="round"><path d="M3 4.5l1.3 1.3L6.5 3.5"/><path d="M8.5 4.8h4.5"/><path d="M3 8.5l1.3 1.3L6.5 7.5"/><path d="M8.5 8.8h4.5"/><circle cx="4.3" cy="12" r="1"/><path d="M8.5 12h4.5"/></svg>',
+      skill: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.45" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3.5h4a1.5 1.5 0 0 1 1.5 1.5v8.5a1.2 1.2 0 0 0-1.2-1.2H3V3.5z"/><path d="M13 3.5H9A1.5 1.5 0 0 0 7.5 5v8.5a1.2 1.2 0 0 1 1.2-1.2H13V3.5z"/></svg>',
+      other: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.45" stroke-linecap="round" stroke-linejoin="round"><circle cx="8" cy="8" r="2.2"/><path d="M8 2.5v1.3M8 12.2v1.3M2.5 8h1.3M12.2 8h1.3M4.1 4.1l.9.9M11 11l.9.9M11.9 4.1l-.9.9M5 11l-.9.9"/></svg>',
+    };
+
+    function renderToolIcon(tool, category) {
+      if (tool.status === 'running') {
+        return '<span class="cc-ti cc-ti-spin"></span>';
+      }
+      if (tool.isError) {
+        return '<span class="cc-ti cc-ti-err"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M4.5 4.5l7 7M11.5 4.5l-7 7"/></svg></span>';
+      }
+      const cat = Object.prototype.hasOwnProperty.call(TOOL_CAT_SVGS, category) ? category : 'other';
+      return `<span class="cc-ti cc-ti-cat is-${cat}">${TOOL_CAT_SVGS[cat]}</span>`;
+    }
+
     function renderToolBodyHtml(tool) {
       const inp = tool.input && typeof tool.input === 'object' ? tool.input : {};
       const outputText = tool.output ? Md.stripAnsi(tool.output).trim() : '';
@@ -374,7 +430,12 @@
           chunks.push(`<div class="cc-io-path"><a href="${Md.escapeHtml(href)}" target="_blank" rel="noopener noreferrer" class="cc-ext-link">${Md.escapeHtml(href)}</a></div>`);
         }
         if (outputText) chunks.push(formatToolOutputPre(outputText, tool.isError));
-      } else if (name === 'Bash') {
+      } else if (
+        name === 'Bash'
+        || name === 'bash'
+        || name === 'mcp__magpie__Bash'
+        || name === 'mcp__mac-industrial__mac_host_exec'
+      ) {
         const cmd = String(inp.command || '').trim();
         const cmdHtml = cmd ? `<div class="cc-term-cmd"><span class="cc-term-prompt">$</span><code>${Md.escapeHtml(cmd)}</code></div>` : '';
         const outHtml = outputText ? formatToolOutputPre(outputText, tool.isError) : '';
@@ -402,6 +463,15 @@
         if (outputText && (tool.isError || !isRedundantMutationOutput(outputText))) {
           chunks.push(formatToolOutputPre(outputText, tool.isError));
         }
+      } else if (name === 'TodoWrite' && Array.isArray(inp.todos)) {
+        const listHtml = renderTodoInlineHtml(inp.todos);
+        if (listHtml) chunks.push(listHtml);
+      } else if (/(?:^|_)update_plan$/i.test(name) && Array.isArray(inp.items)) {
+        const listHtml = renderTodoInlineHtml(inp.items);
+        if (listHtml) chunks.push(listHtml);
+        if (outputText) chunks.push(formatToolOutputPre(outputText, tool.isError));
+      } else if (name === 'Skill') {
+        if (outputText) chunks.push(`<div class="cc-muted">${Md.escapeHtml(outputText)}</div>`);
       } else if (name === 'Read' || name === 'Grep' || name === 'Glob') {
         if (outputText) chunks.push(formatToolOutputPre(outputText, tool.isError));
       } else {
@@ -433,11 +503,7 @@
           ? 'is-error'
           : 'is-done';
 
-      const iconHtml = tool.status === 'running'
-        ? '<span class="cc-ti cc-ti-spin"></span>'
-        : tool.isError
-          ? '<span class="cc-ti cc-ti-err">✕</span>'
-          : '<span class="cc-ti cc-ti-ok">✓</span>';
+      const iconHtml = renderToolIcon(tool, d.category);
 
       const targetHtml = d.target
         ? (d.filePath
@@ -492,12 +558,13 @@
 
     function renderPlanCardHtml(tool) {
       const inp = tool.input && typeof tool.input === 'object' ? tool.input : {};
-      const planText = String(inp.plan || (tool.approval && tool.approval.plan) || '');
+      const planText = String(inp.plan || inp.content || (tool.approval && tool.approval.plan) || '');
+      const planFileName = inp.file_path ? Act.basename(inp.file_path) : '';
       const approval = tool.approval;
       if (!currentTab.planExpanded) currentTab.planExpanded = new Set();
       const expanded = currentTab.planExpanded.has(tool.id);
 
-      let statusText = '计划方案';
+      let statusText = planFileName || '计划方案';
       if (approval && approval.decision === 'approve') statusText = '已批准执行';
       else if (approval && approval.decision === 'reject') statusText = '已退回修改';
       else if (tool.status === 'running') statusText = '等待确认';
@@ -590,32 +657,38 @@
       return '';
     }
 
-    function renderTurnStatsHtml(turn) {
+    function renderTurnFooterHtml(turn) {
+      const hasClosing = Boolean(turn.closing && turn.closing.text);
       const s = turn.stats;
-      if (!s) return '';
-      const durStr = s.durationMs ? Act.duration(s.durationMs) : '';
-      const outTok = Number(s.outputTokens || 0);
-      const inTok = Number(s.inputTokens || 0);
-      const cacheRead = Number(s.cacheReadTokens || 0);
-      const cacheCreate = Number(s.cacheCreationTokens || 0);
-      const totalIn = inTok + cacheRead + cacheCreate;
-      const cacheHit = totalIn > 0 ? Math.round((cacheRead / totalIn) * 100) : 0;
-      const modelShort = s.model ? Act.formatModelName(s.model) : '';
+      if (!hasClosing && !s) return '';
 
-      const isOpen = openStatsTurnId === turn.id;
-      const summaryParts = [
-        durStr && `用时 ${durStr}`,
-        outTok && `输出 ${Act.formatTokens(outTok)}`,
-        modelShort,
-      ].filter(Boolean);
+      let statsInlineHtml = '';
+      let statsPopoverHtml = '';
+      if (s) {
+        const durStr = s.durationMs ? Act.duration(s.durationMs) : '';
+        const outTok = Number(s.outputTokens || 0);
+        const inTok = Number(s.inputTokens || 0);
+        const cacheRead = Number(s.cacheReadTokens || 0);
+        const cacheCreate = Number(s.cacheCreationTokens || 0);
+        const totalIn = inTok + cacheRead + cacheCreate;
+        const cacheHit = totalIn > 0 ? Math.round((cacheRead / totalIn) * 100) : 0;
+        const modelShort = s.model ? Act.formatModelName(s.model) : '';
 
-      return `
-        <div class="cc-stats-wrap">
+        const isOpen = openStatsTurnId === turn.id;
+        const summaryParts = [
+          durStr && `用时 ${durStr}`,
+          outTok && `输出 ${Act.formatTokens(outTok)}`,
+          modelShort,
+        ].filter(Boolean);
+
+        statsInlineHtml = `
           <div class="cc-stats-line">
             <span>${Md.escapeHtml(summaryParts.join(' · ') || '已完成')}</span>
             <button type="button" class="cc-stats-btn" data-stats-toggle="${Md.escapeHtml(turn.id)}">${isOpen ? '收起统计' : '详情'}</button>
           </div>
-          ${isOpen ? `
+        `;
+        if (isOpen) {
+          statsPopoverHtml = `
             <div class="cc-stats-popover">
               <div class="cc-stat-cell"><label>总耗时</label><span>${Md.escapeHtml(durStr || '—')}</span></div>
               <div class="cc-stat-cell"><label>请求轮次</label><span>${Number(s.requests || 1)}</span></div>
@@ -624,7 +697,21 @@
               <div class="cc-stat-cell"><label>缓存命中率</label><span>${cacheHit}%</span></div>
               <div class="cc-stat-cell"><label>模型</label><span>${Md.escapeHtml(s.model ? Act.formatModelName(s.model) : '—')}</span></div>
             </div>
-          ` : ''}
+          `;
+        }
+      }
+
+      const copyHtml = hasClosing
+        ? `<button type="button" class="cc-copy-btn" data-copy-turn="${Md.escapeHtml(turn.id)}" title="复制回复 Markdown"><svg viewBox="0 0 16 16" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="5" y="5" width="8.5" height="8.5" rx="1.5"/><path d="M3 11V3.5A1.5 1.5 0 0 1 4.5 2H11"/></svg><span>复制</span></button>`
+        : '<span></span>';
+
+      return `
+        <div class="cc-stats-wrap">
+          <div class="cc-turn-foot">
+            <div class="cc-turn-foot-l">${copyHtml}</div>
+            ${statsInlineHtml}
+          </div>
+          ${statsPopoverHtml}
         </div>
       `;
     }
@@ -652,9 +739,12 @@
         chunks.push(`<div class="cc-closing cc-md">${Md.renderMarkdown(turn.closing.text)}</div>`);
       }
 
-      if (turn.stats) {
-        chunks.push(renderTurnStatsHtml(turn));
+      if (Array.isArray(turn.trailingNotices) && turn.trailingNotices.length) {
+        chunks.push(turn.trailingNotices.map((n) => renderSegmentHtml(n, turn)).join(''));
       }
+
+      const footerHtml = renderTurnFooterHtml(turn);
+      if (footerHtml) chunks.push(footerHtml);
 
       return chunks.join('');
     }
@@ -678,8 +768,9 @@
       }).join(';');
 
       const closingLen = turn.closing ? turn.closing.text.length : 0;
+      const trailLen = Array.isArray(turn.trailingNotices) ? turn.trailingNotices.length : 0;
       const userExp = turn.user && currentTab.expandedUsers.has(turn.user.id) ? 1 : 0;
-      return `${turn.active ? 1 : 0}|${currentTab.globalExpand ? 1 : 0}|${openStatsTurnId === turn.id ? 1 : 0}|${userExp}|${segSig}|${closingLen}|${turn.stats ? 's' : ''}`;
+      return `${turn.active ? 1 : 0}|${currentTab.globalExpand ? 1 : 0}|${openStatsTurnId === turn.id ? 1 : 0}|${userExp}|${segSig}|${closingLen}|${trailLen}|${turn.stats ? 's' : ''}`;
     }
 
     function renderTurns(turns, isWorking) {
@@ -731,15 +822,51 @@
           : p.failed
             ? '发送失败'
             : p.inflight
-              ? '正在发送到终端…'
-              : '已写入终端，等待落盘…';
+              ? '发送中…'
+              : '';
         return `
           <div class="cc-user is-pending">
             <div class="cc-user-bubble">${Md.escapeHtml(p.text || '')}</div>
-            <span class="cc-delivery${p.failed ? ' is-failed' : ''}">${Md.escapeHtml(statText)}</span>
+            ${statText ? `<span class="cc-delivery${p.failed ? ' is-failed' : ''}">${Md.escapeHtml(statText)}</span>` : ''}
           </div>
         `;
       }).join('');
+    }
+
+    function renderTodoDock(todos) {
+      const list = Array.isArray(todos) ? todos : [];
+      const open = Boolean(currentTab && currentTab.todoDockOpen);
+      const sig = JSON.stringify({ list, open });
+      if (sig === lastTodoSig) return;
+      lastTodoSig = sig;
+
+      if (!list.length) {
+        todoDockEl.hidden = true;
+        todoDockEl.innerHTML = '';
+        return;
+      }
+
+      const done = list.filter((x) => x.status === 'completed').length;
+      const total = list.length;
+      const activeItem = list.find((x) => x.status === 'in_progress') || list.find((x) => x.status !== 'completed');
+      const pct = total > 0 ? Math.round((done / total) * 100) : 0;
+      const headTitle = activeItem
+        ? (activeItem.activeForm || activeItem.content)
+        : `计划已完成（${done}/${total}）`;
+
+      todoDockEl.hidden = false;
+      todoDockEl.innerHTML = `
+        <div class="cc-todo-dock-inner">
+          <button type="button" class="cc-todo-dock-bar" data-todo-dock-toggle aria-expanded="${open ? 'true' : 'false'}">
+            <span class="cc-todo-dock-icon" aria-hidden="true">${TOOL_CAT_SVGS.plan}</span>
+            <span class="cc-todo-dock-title">${Md.escapeHtml(headTitle)}</span>
+            <span class="cc-todo-dock-count">${done} / ${total}</span>
+            <svg class="cc-todo-dock-chev${open ? ' is-open' : ''}" viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="4 6 8 10 12 6"/></svg>
+          </button>
+          <div class="cc-todo-progress"><div class="cc-todo-progress-fill" style="width:${pct}%"></div></div>
+          ${open ? `<div class="cc-todo-dock-list">${renderTodoInlineHtml(list)}</div>` : ''}
+        </div>
+      `;
     }
 
     function renderLiveAsk(ask, asking) {
@@ -824,7 +951,7 @@
       liveAskEl.innerHTML = `
         <div class="cc-card-head">
           <div class="cc-card-head-l">
-            <span class="cc-card-badge cc-card-badge--ask">终端正在等待确认</span>
+            <span class="cc-card-badge cc-card-badge--ask">需要你的确认</span>
           </div>
           <div class="cc-card-head-r">
             <button type="button" class="cc-mini-btn" data-ask-switch-term>去终端</button>
@@ -832,7 +959,7 @@
           </div>
         </div>
         ${stepsHtml}
-        <pre class="cc-live-ask-title">${Md.escapeHtml(ask.title || 'Claude 需要你确认')}</pre>
+        <div class="cc-live-ask-title">${Md.escapeHtml(ask.title || 'Claude 需要你确认')}</div>
         <div class="cc-live-ask-opts">${optionsHtml}</div>
         ${needSubmitFallback ? '<button type="button" class="cc-btn cc-btn--primary cc-btn--sm" data-ask-submit-multi>提交选择</button>' : ''}
         ${freeHtml}
@@ -840,14 +967,179 @@
       liveAskEl.hidden = false;
     }
 
+    function injectCaretHtml(html) {
+      if (!html) return CARET_HTML;
+      const m = /(<\/(?:p|li|h[1-6]|blockquote)>)\s*$/i.exec(html);
+      if (m) {
+        const idx = m.index;
+        return `${html.slice(0, idx)}${CARET_HTML}${html.slice(idx)}`;
+      }
+      return `${html}${CARET_HTML}`;
+    }
+
+    function renderLiveStreamFrame() {
+      const slice = streamTarget.slice(0, streamShown);
+      liveStreamEl.innerHTML = injectCaretHtml(Md.renderMarkdown(slice));
+      liveStreamEl.hidden = false;
+      if (pinnedToBottom) scrollEl.scrollTop = scrollEl.scrollHeight;
+    }
+
+    function stopLiveStream({ resetPeak = false } = {}) {
+      if (streamRaf) {
+        cancelAnimationFrame(streamRaf);
+        streamRaf = 0;
+      }
+      streamTarget = '';
+      streamShown = 0;
+      streamLastTs = 0;
+      if (resetPeak) streamPeakChars = 0;
+      liveStreamEl.hidden = true;
+      liveStreamEl.innerHTML = '';
+    }
+
+    function updateLiveStream(tabView, isWorking, liveText) {
+      if (!isWorking || !liveText) {
+        stopLiveStream({ resetPeak: false });
+        return;
+      }
+      const prefixLen = Math.min(16, streamTarget.length, liveText.length);
+      const sameBlock = Boolean(
+        streamTarget
+        && prefixLen > 0
+        && liveText.slice(0, prefixLen) === streamTarget.slice(0, prefixLen)
+      );
+      if (!sameBlock) {
+        streamShown = 0;
+      } else if (streamShown > liveText.length) {
+        streamShown = liveText.length;
+      }
+      streamTarget = liveText;
+      streamPeakChars = Math.max(streamPeakChars, liveText.length);
+
+      if (!streamRaf) {
+        if (streamShown === 0) {
+          streamShown = Math.min(streamTarget.length, 4);
+          renderLiveStreamFrame();
+        }
+        const tickStream = (now) => {
+          streamRaf = 0;
+          if (!currentTab || currentTab !== tabView || !streamTarget) return;
+          const dt = streamLastTs ? Math.min(48, Math.max(8, now - streamLastTs)) : 16;
+          streamLastTs = now;
+          const backlog = streamTarget.length - streamShown;
+          if (backlog > 0) {
+            const step = Math.max(2, Math.ceil((backlog * dt) / 130));
+            streamShown = Math.min(streamTarget.length, streamShown + step);
+            renderLiveStreamFrame();
+          }
+          if (streamShown < streamTarget.length) {
+            streamRaf = requestAnimationFrame(tickStream);
+          } else {
+            streamLastTs = 0;
+          }
+        };
+        streamRaf = requestAnimationFrame(tickStream);
+      }
+    }
+
+    function stopReveal({ renderFull = false } = {}) {
+      if (revealRaf) {
+        cancelAnimationFrame(revealRaf);
+        revealRaf = 0;
+      }
+      if (renderFull && revealTurnId && revealFullText) {
+        try {
+          const el = turnsEl.querySelector(`.cc-turn[data-turn-id="${CSS.escape(revealTurnId)}"] .cc-closing`);
+          if (el) el.innerHTML = Md.renderMarkdown(revealFullText);
+        } catch {}
+      }
+      revealTurnId = '';
+      revealFullText = '';
+      revealShown = 0;
+      revealLastTs = 0;
+    }
+
+    function applyCurrentRevealSlice(turn) {
+      if (!revealTurnId || !turn || turn.id !== revealTurnId || !turn.closing || turn.closing.text !== revealFullText) {
+        return;
+      }
+      try {
+        const el = turnsEl.querySelector(`.cc-turn[data-turn-id="${CSS.escape(revealTurnId)}"] .cc-closing`);
+        if (el) el.innerHTML = Md.renderMarkdown(revealFullText.slice(0, revealShown));
+      } catch {}
+    }
+
+    function startReveal(tabView, turn, fullText) {
+      stopReveal({ renderFull: false });
+      if (!turn || !fullText) return;
+      revealTurnId = turn.id;
+      revealFullText = fullText;
+      revealShown = Math.min(fullText.length, 8);
+      applyCurrentRevealSlice(turn);
+      if (pinnedToBottom) scrollEl.scrollTop = scrollEl.scrollHeight;
+
+      const tickReveal = (now) => {
+        revealRaf = 0;
+        if (!currentTab || currentTab !== tabView || !revealTurnId) return;
+        const dt = revealLastTs ? Math.min(48, Math.max(8, now - revealLastTs)) : 16;
+        revealLastTs = now;
+        const durationMs = Math.min(450, Math.max(180, revealFullText.length * 1.2));
+        const step = Math.max(4, Math.ceil((revealFullText.length * dt) / durationMs));
+        revealShown = Math.min(revealFullText.length, revealShown + step);
+        try {
+          const el = turnsEl.querySelector(`.cc-turn[data-turn-id="${CSS.escape(revealTurnId)}"] .cc-closing`);
+          if (el) {
+            el.innerHTML = revealShown >= revealFullText.length
+              ? Md.renderMarkdown(revealFullText)
+              : Md.renderMarkdown(revealFullText.slice(0, revealShown));
+          }
+        } catch {}
+        if (pinnedToBottom) scrollEl.scrollTop = scrollEl.scrollHeight;
+        if (revealShown < revealFullText.length) {
+          revealRaf = requestAnimationFrame(tickReveal);
+        } else {
+          revealTurnId = '';
+          revealFullText = '';
+          revealShown = 0;
+          revealLastTs = 0;
+        }
+      };
+      revealRaf = requestAnimationFrame(tickReveal);
+    }
+
+    function syncStatusTicker(tabView, isWorking) {
+      if (isWorking) {
+        if (!statusTickTimer) {
+          statusTickTimer = setInterval(() => {
+            if (!currentTab || currentTab !== tabView || !lastConversation) return;
+            const st = currentTab.state || {};
+            if (st.status !== 'working') return;
+            const turns = lastConversation.turns || [];
+            const lastTurn = turns[turns.length - 1];
+            runStatusTimer.textContent = lastTurn && lastTurn.startedAt
+              ? Act.duration(Math.max(0, Date.now() - lastTurn.startedAt))
+              : '';
+          }, 1000);
+        }
+      } else if (statusTickTimer) {
+        clearInterval(statusTickTimer);
+        statusTickTimer = 0;
+      }
+    }
+
     function render(tabView, { full = false } = {}) {
       if (!tabView) return;
       const prevTab = currentTab;
       currentTab = tabView;
       if (prevTab !== tabView || full) {
+        stopReveal({ renderFull: false });
+        stopLiveStream({ resetPeak: true });
+        peakTurnId = '';
+        tabView._revealedTextSeq = Number(tabView.liveTextEventSeq || 0);
         turnsEl.innerHTML = '';
         turnSigs.clear();
         lastPendingSig = '';
+        lastTodoSig = '';
         lastAskSig = '';
         lastAskCoreSig = '';
         openStatsTurnId = '';
@@ -859,6 +1151,13 @@
       const isWorking = st.status === 'working';
       const isAsking = st.status === 'asking';
 
+      const lastTurn = conv.turns[conv.turns.length - 1];
+      const curTurnId = (lastTurn && lastTurn.id) || '';
+      if (curTurnId !== peakTurnId) {
+        peakTurnId = curTurnId;
+        streamPeakChars = 0;
+      }
+
       launchBanner.hidden = Boolean(st.claudeRunning);
       olderBtn.hidden = !st.hasOlder;
       olderBtn.disabled = Boolean(st.loadingOlder);
@@ -867,30 +1166,49 @@
       emptyEl.hidden = conv.turns.length > 0 || (st.pendingUsers && st.pendingUsers.length > 0);
 
       renderTurns(conv.turns, isWorking);
+      if (revealRaf && lastTurn && lastTurn.id === revealTurnId) {
+        applyCurrentRevealSlice(lastTurn);
+      }
       renderPendingUsers(st.pendingUsers);
+      renderTodoDock(conv.todos);
+
+      const curTextSeq = Number(tabView.liveTextEventSeq || 0);
+      const prevTextSeq = Number(tabView._revealedTextSeq || 0);
+      if (curTextSeq > prevTextSeq) {
+        tabView._revealedTextSeq = curTextSeq;
+        if (!full && prevTab === tabView && lastTurn && lastTurn.closing && lastTurn.closing.text) {
+          const fullText = lastTurn.closing.text;
+          const alreadyStreamed = streamPeakChars >= Math.min(40, fullText.length * 0.3);
+          if (!alreadyStreamed) {
+            startReveal(tabView, lastTurn, fullText);
+          }
+        }
+      }
+
+      const liveStreamText = String(st.liveStreamText || '');
+      updateLiveStream(tabView, isWorking, liveStreamText);
+      if (!isWorking && !liveStreamText) {
+        streamPeakChars = 0;
+      }
 
       runStatusEl.hidden = !isWorking;
+      syncStatusTicker(tabView, isWorking);
       if (isWorking) {
-        const lastTurn = conv.turns[conv.turns.length - 1];
-        let label = 'Claude 正在执行…';
-        if (lastTurn && lastTurn.segments.length) {
+        let label = '';
+        if (liveStreamText) {
+          label = 'Claude 正在回复…';
+        } else if (lastTurn && lastTurn.segments.length) {
           const lastSeg = lastTurn.segments[lastTurn.segments.length - 1];
           if (lastSeg.kind === 'process' && lastSeg.parts.length) {
             const lp = lastSeg.parts[lastSeg.parts.length - 1];
-            if (lp.kind === 'work') label = Act.summarize(lp.tools, true) || label;
+            if (lp.kind === 'work') label = Act.summarize(lp.tools, true) || '';
             else if (lp.kind === 'thinking') label = 'Claude 正在思考…';
           }
         }
-        runStatusText.textContent = label;
+        runStatusText.textContent = label || st.activity || 'Claude 正在思考…';
         runStatusTimer.textContent = lastTurn && lastTurn.startedAt
           ? Act.duration(Math.max(0, Date.now() - lastTurn.startedAt))
           : '';
-        if (st.tail) {
-          runTailEl.textContent = st.tail;
-          runTailEl.hidden = false;
-        } else {
-          runTailEl.hidden = true;
-        }
       }
 
       renderLiveAsk(st.ask, isAsking);
@@ -1008,6 +1326,34 @@
         return;
       }
 
+      const todoToggle = e.target.closest('[data-todo-dock-toggle]');
+      if (todoToggle) {
+        currentTab.todoDockOpen = !currentTab.todoDockOpen;
+        renderTodoDock(lastConversation && lastConversation.todos);
+        return;
+      }
+
+      const copyTurnBtn = e.target.closest('[data-copy-turn]');
+      if (copyTurnBtn) {
+        stopReveal({ renderFull: true });
+        const tid = copyTurnBtn.dataset.copyTurn;
+        const conv = lastConversation || Tr.conversation(currentTab.events);
+        const turn = conv.turns.find((t) => t.id === tid);
+        const mdText = (turn && turn.closing && turn.closing.text) || '';
+        if (mdText && navigator.clipboard && navigator.clipboard.writeText) {
+          navigator.clipboard.writeText(mdText).then(() => {
+            const sp = copyTurnBtn.querySelector('span');
+            if (sp) sp.textContent = '已复制';
+            copyTurnBtn.classList.add('is-copied');
+            setTimeout(() => {
+              if (sp) sp.textContent = '复制';
+              copyTurnBtn.classList.remove('is-copied');
+            }, 1500);
+          }).catch(() => {});
+        }
+        return;
+      }
+
       const planFs = e.target.closest('[data-plan-fullscreen]');
       if (planFs) {
         const tid = planFs.dataset.planFullscreen;
@@ -1016,7 +1362,7 @@
         for (const t of conv.turns) {
           for (const s of t.segments) {
             if (s.kind === 'plan' && s.tool.id === tid) {
-              planMd = (s.tool.input && s.tool.input.plan) || '';
+              planMd = (s.tool.input && (s.tool.input.plan || s.tool.input.content)) || '';
             }
           }
         }
@@ -1048,7 +1394,14 @@
       prependEventsPreserveScroll,
       scrollToBottom,
       toggleFind,
-      destroy: () => {},
+      destroy: () => {
+        stopLiveStream({ resetPeak: true });
+        stopReveal({ renderFull: false });
+        if (statusTickTimer) {
+          clearInterval(statusTickTimer);
+          statusTickTimer = 0;
+        }
+      },
     };
   }
 

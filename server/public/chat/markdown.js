@@ -89,20 +89,39 @@
     return html.replace(/\uE000TOK(\d+)\uE001/g, (_, idx) => tokens[Number(idx)] || '');
   }
 
+  function formatInlineEmphasis(text) {
+    return text
+      .replace(/\*\*([^*\n]+)\*\*/g, '<strong>$1</strong>')
+      .replace(/~~([^~\n]+)~~/g, '<del>$1</del>')
+      .replace(/(^|[^*])\*([^*\n]+)\*(?!\*)/g, '$1<em>$2</em>');
+  }
+
   function renderInline(raw, tokens) {
     let s = escapeHtml(raw);
-    // Safe external links
+    const linkTokens = [];
+    const holdLink = (html) => {
+      const idx = linkTokens.length;
+      linkTokens.push(html);
+      return `\uE002LNK${idx}\uE003`;
+    };
+
+    // Safe external links — `s` is already HTML-escaped, so preserve &amp; as-is
     s = s.replace(/\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g, (_, label, url) => {
-      return `<a href="${escapeHtml(url)}" target="_blank" rel="noopener noreferrer" class="cc-ext-link">${label}</a>`;
+      return holdLink(`<a href="${url}" target="_blank" rel="noopener noreferrer" class="cc-ext-link">${formatInlineEmphasis(label)}</a>`);
     });
-    // Bare URLs
-    s = s.replace(/(^|[\s(])(https?:\/\/[^\s<)]+)/g, (_, pre, url) => {
-      return `${pre}<a href="${escapeHtml(url)}" target="_blank" rel="noopener noreferrer" class="cc-ext-link">${url}</a>`;
+    // Bare URLs — stop before whitespace or CJK / fullwidth punctuation
+    s = s.replace(/(^|[\s(>])(https?:\/\/[^\s<)\]}，。；：！？、》」』】）]+)/g, (m, pre, url) => {
+      let clean = url;
+      let trail = '';
+      while (/[.,;:!?'"`]+$/.test(clean)) {
+        trail = clean.slice(-1) + trail;
+        clean = clean.slice(0, -1);
+      }
+      if (!clean || /^https?:\/\/$/i.test(clean)) return m;
+      return `${pre}${holdLink(`<a href="${clean}" target="_blank" rel="noopener noreferrer" class="cc-ext-link">${clean}</a>`)}${trail}`;
     });
-    // Bold, italic, strikethrough
-    s = s.replace(/\*\*([^*\n]+)\*\*/g, '<strong>$1</strong>');
-    s = s.replace(/~~([^~\n]+)~~/g, '<del>$1</del>');
-    s = s.replace(/(^|[^*])\*([^*\n]+)\*(?!\*)/g, '$1<em>$2</em>');
+    s = formatInlineEmphasis(s);
+    s = s.replace(/\uE002LNK(\d+)\uE003/g, (_, idx) => linkTokens[Number(idx)] || '');
     return restoreTokens(s, tokens);
   }
 

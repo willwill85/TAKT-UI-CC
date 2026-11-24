@@ -335,8 +335,79 @@
     };
   }
 
+  function isPlanFileWrite(item) {
+    if (!item || item.kind !== 'tool' || item.toolName !== 'Write') return false;
+    const fp = String((item.input && item.input.file_path) || '');
+    return /\/\.claude\/plans\/[^/]+\.md$/i.test(fp);
+  }
+
   function isInteractiveCardTool(item) {
-    return item && item.kind === 'tool' && (item.toolName === 'AskUserQuestion' || item.toolName === 'ExitPlanMode');
+    return Boolean(item && item.kind === 'tool' && (
+      item.toolName === 'AskUserQuestion'
+      || item.toolName === 'ExitPlanMode'
+      || isPlanFileWrite(item)
+    ));
+  }
+
+  function normalizeTodoStatus(raw) {
+    const s = String(raw || '').toLowerCase();
+    if (s === 'completed' || s === 'done') return 'completed';
+    if (s === 'in_progress' || s === 'in-progress' || s === 'running') return 'in_progress';
+    if (s === 'deleted') return 'deleted';
+    return 'pending';
+  }
+
+  function extractTodos(items) {
+    let todos = [];
+    let taskSeq = 1;
+    for (const it of items) {
+      if (!it || it.kind !== 'tool') continue;
+      const inp = it.input && typeof it.input === 'object' ? it.input : {};
+      if (it.toolName === 'TodoWrite' && Array.isArray(inp.todos)) {
+        todos = inp.todos
+          .filter((x) => x && (x.content || x.step || x.title))
+          .map((x, idx) => ({
+            id: String(x.id || `td-${idx}`),
+            content: String(x.content || x.step || x.title || ''),
+            status: normalizeTodoStatus(x.status),
+            activeForm: String(x.activeForm || ''),
+          }))
+          .filter((x) => x.status !== 'deleted');
+      } else if (/(?:^|_)update_plan$/i.test(String(it.toolName || '')) && Array.isArray(inp.items)) {
+        todos = inp.items
+          .filter((x) => x && (x.content || x.step || x.title))
+          .map((x, idx) => ({
+            id: String(x.id || `plan-${idx}`),
+            content: String(x.content || x.step || x.title || ''),
+            status: normalizeTodoStatus(x.status),
+            activeForm: '',
+          }))
+          .filter((x) => x.status !== 'deleted');
+      } else if (it.toolName === 'TaskCreate') {
+        const content = String(inp.subject || inp.description || '').trim();
+        if (content) {
+          todos.push({
+            id: String(inp.taskId || taskSeq++),
+            content,
+            status: normalizeTodoStatus(inp.status),
+            activeForm: String(inp.activeForm || ''),
+          });
+        }
+      } else if (it.toolName === 'TaskUpdate') {
+        const tid = inp.taskId != null ? String(inp.taskId) : '';
+        const subj = inp.subject ? String(inp.subject) : '';
+        const target = todos.find((x) => (tid && x.id === tid) || (subj && x.content === subj));
+        if (target) {
+          if (inp.status) target.status = normalizeTodoStatus(inp.status);
+          if (inp.subject) target.content = String(inp.subject);
+          if (inp.activeForm) target.activeForm = String(inp.activeForm);
+          if (target.status === 'deleted') {
+            todos = todos.filter((x) => x !== target);
+          }
+        }
+      }
+    }
+    return todos;
   }
 
   function countWorkSteps(parts) {
@@ -415,15 +486,23 @@
       turn.active = Boolean(isLast && t.runState === 'running');
 
       const raw = turn.rawItems;
-      // Closing prose is only a trailing text block at the very end when the turn has no pending work/cards after it
+      // Closing prose is the trailing text block at the end (preserving any post-reply notices after it)
       let closing = null;
       let bodyEnd = raw.length;
-      if (raw.length > 0 && raw[raw.length - 1].kind === 'text') {
-        // Wait: if the ONLY thing the assistant produced is this closing text (no tools/thinking/cards), keep it as closing!
-        closing = raw[raw.length - 1];
-        bodyEnd = raw.length - 1;
+      const trailingNotices = [];
+      while (bodyEnd > 0 && raw[bodyEnd - 1].kind === 'notice') {
+        trailingNotices.unshift(raw[bodyEnd - 1]);
+        bodyEnd -= 1;
+      }
+      if (bodyEnd > 0 && raw[bodyEnd - 1].kind === 'text') {
+        closing = raw[bodyEnd - 1];
+        bodyEnd -= 1;
+      } else {
+        bodyEnd = raw.length;
+        trailingNotices.length = 0;
       }
       turn.closing = closing;
+      turn.trailingNotices = trailingNotices;
 
       // Segment body into process groups vs standalone QuestionCard / PlanCard / Compact / Notice
       const segments = [];
@@ -506,6 +585,7 @@
 
     return {
       turns,
+      todos: extractTodos(t.items),
       pendingApprovals: t.pendingApprovals,
       activeTasks: t.activeTasks,
       runState: t.runState,

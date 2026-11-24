@@ -6,12 +6,21 @@ const fs = require('node:fs');
 const path = require('node:path');
 const vm = require('node:vm');
 
-const { parseJsonlRecordsToEvents } = require('../server/claude-chat/terminal-transcript');
+const { execFileSync } = require('node:child_process');
+
+const {
+  parseJsonlRecordsToEvents,
+  buildContextUsage,
+  resolveMaxContextTokens,
+} = require('../server/claude-chat/terminal-transcript');
 const {
   classifyClaudeScreen,
+  extractLiveStreamText,
+  normalizeForStreamCompare,
   parseClaudeAsk,
   buildAskKeys,
 } = require('../server/claude-chat/tmux-bridge');
+const { REMOTE_JSONL_PY } = require('../server/claude-chat/remote-jsonl');
 
 function loadFrontendModules() {
   const ctx = {
@@ -129,7 +138,8 @@ test('terminal-transcript parses JSONL records, resolves cards, and derives cont
   assert.equal(meta.model, 'claude-opus-5-5');
   assert.ok(meta.contextUsage);
   assert.equal(meta.contextUsage.totalTokens, 50000);
-  assert.equal(meta.contextUsage.percentage, 25);
+  assert.equal(meta.contextUsage.rawMaxTokens, 1000000);
+  assert.equal(meta.contextUsage.percentage, 5);
   assert.ok(events.some((e) => e.type === 'approval.resolved' && e.payload.toolName === 'AskUserQuestion' && e.payload.answers['Pick?'] === 'A'));
   assert.equal(events.find((e) => e.type === 'turn.stats').payload.durationMs, 4200);
 
@@ -245,4 +255,195 @@ test('formatModelName preserves dotted versions and Markdown nests lists & ignor
   const nestedHtml = w.TaktChatMarkdown.renderMarkdown('1. One\n   - Sub A\n   - Sub B\n2. Two');
   assert.match(nestedHtml, /^<ol class="cc-ol"><li>One<ul class="cc-ul"><li>Sub A<\/li><li>Sub B<\/li><\/ul><\/li><li>Two<\/li><\/ol>$/);
   assert.ok(!w.TaktChatMarkdown.renderMarkdown('Code `01/02/03` here').includes('md-file-link'));
+});
+
+test('1M context window heuristic, Code Mode filtering, task-notification preservation, todos, plan writes, links & spinner', () => {
+  // Context window resolution
+  assert.equal(resolveMaxContextTokens('claude-opus-5-5', 83700), 1000000);
+  assert.equal(resolveMaxContextTokens('claude-sonnet-5-5', 50000), 1000000);
+  assert.equal(resolveMaxContextTokens('claude-opus-4-6[1m]', 50000), 1000000);
+  assert.equal(resolveMaxContextTokens('claude-haiku-4-5', 50000), 200000);
+  assert.equal(resolveMaxContextTokens('claude-opus-4-6', 250000), 1000000);
+
+  const haikuCtx = buildContextUsage({ input_tokens: 10000, cache_read_input_tokens: 40000 }, 'claude-haiku-4-5');
+  assert.equal(haikuCtx.rawMaxTokens, 200000);
+  assert.equal(haikuCtx.percentage, 25);
+
+  // Task notification inside type: "user" does NOT create a fake user bubble & preserves closing reply
+  const w = loadFrontendModules();
+  const taskRecords = [
+    { type: 'user', uuid: 'u1', timestamp: '2026-11-24T11:00:00Z', message: { role: 'user', content: 'Check 200k vs 1M' } },
+    {
+      type: 'assistant',
+      uuid: 'a1',
+      timestamp: '2026-11-24T11:00:05Z',
+      requestedModel: 'claude-opus-5-5',
+      message: {
+        id: 'm1',
+        usage: { input_tokens: 4, cache_read_input_tokens: 80600, cache_creation_input_tokens: 2200, output_tokens: 1100 },
+        content: [
+          { type: 'tool_use', id: 'tu-repl', name: 'REPL', input: { code: 'x' } },
+          { type: 'tool_use', id: 'tu-poll', name: 'Poll', input: {} },
+          { type: 'tool_use', id: 'tu-st', name: 'searchTools', input: { q: 'a' } },
+          { type: 'tool_use', id: 'tu-dt', name: 'describeTool', input: { name: 'a' } },
+          { type: 'tool_use', id: 'repl_5a77e6af', name: 'Agent', input: { description: 'Inspect CLI context' } },
+          { type: 'text', text: '应该是 1M 上下文。' },
+        ],
+      },
+    },
+    {
+      type: 'user',
+      uuid: 'u-notif',
+      timestamp: '2026-11-24T11:00:30Z',
+      message: {
+        role: 'user',
+        content: [
+          '<task-notification>',
+          '<task-id>aaec4e30574c15235</task-id>',
+          '<tool-use-id>repl_5a77e6af</tool-use-id>',
+          '<status>completed</status>',
+          '<summary>Agent "Claude Code context window" finished</summary>',
+          '<usage><subagent_tokens>72568</subagent_tokens><tool_uses>4</tool_uses><duration_ms>24897</duration_ms></usage>',
+          '</task-notification>',
+        ].join('\n'),
+      },
+    },
+  ];
+
+  const parsedTask = parseJsonlRecordsToEvents(taskRecords);
+  assert.equal(parsedTask.events.filter((e) => e.type === 'message.user').length, 1);
+  assert.equal(parsedTask.events.filter((e) => e.type === 'tool.requested').length, 1);
+  assert.equal(parsedTask.events.find((e) => e.type === 'tool.requested').payload.toolName, 'Agent');
+  const taskNotice = parsedTask.events.find((e) => e.type === 'native.notice' && e.payload.kind === 'task');
+  assert.ok(taskNotice);
+  assert.ok(taskNotice.payload.text.includes('子代理完成'));
+  assert.ok(taskNotice.payload.text.includes('Agent "Claude Code context window" finished'));
+  assert.ok(taskNotice.payload.text.includes('4 次工具'));
+  assert.ok(taskNotice.payload.text.includes('25s'));
+  assert.ok(parsedTask.events.some((e) => e.type === 'tool.task' && e.payload.toolUseId === 'repl_5a77e6af'));
+
+  const convTask = w.TaktChatTranscript.conversation(parsedTask.events);
+  assert.equal(convTask.turns.length, 1);
+  assert.equal(convTask.turns[0].closing.text, '应该是 1M 上下文。');
+  assert.equal(convTask.turns[0].trailingNotices.length, 1);
+  assert.equal(w.TaktChatActivity.formatTokens(1000000), '1M');
+
+  // Todos, plan Write promotion, link escaping & CJK boundary, spinner activity
+  const todoPlanConv = w.TaktChatTranscript.conversation([
+    { id: '1', type: 'message.user', ts: 1000, payload: { text: 'Plan and build' } },
+    {
+      id: '2',
+      type: 'tool.requested',
+      ts: 1100,
+      payload: { toolUseId: 'p1', toolName: 'Write', input: { file_path: '/root/.claude/plans/my-plan.md', content: '# My Plan\n1. Step 1' } },
+    },
+    { id: '3', type: 'tool.result', ts: 1200, payload: { toolUseId: 'p1', output: 'ok', isError: false } },
+    {
+      id: '4',
+      type: 'tool.requested',
+      ts: 1300,
+      payload: { toolUseId: 'td1', toolName: 'TodoWrite', input: { todos: [{ content: 'Read files', status: 'completed' }, { content: 'Write tests', status: 'in_progress' }] } },
+    },
+    {
+      id: '5',
+      type: 'tool.requested',
+      ts: 1400,
+      payload: { toolUseId: 'td2', toolName: 'TaskCreate', input: { taskId: '9', subject: 'Verify UI' } },
+    },
+    {
+      id: '6',
+      type: 'tool.requested',
+      ts: 1500,
+      payload: { toolUseId: 'td3', toolName: 'TaskUpdate', input: { taskId: '9', status: 'completed' } },
+    },
+  ]);
+  assert.equal(todoPlanConv.turns[0].segments[0].kind, 'plan');
+  assert.equal(todoPlanConv.todos.length, 3);
+  assert.equal(todoPlanConv.todos[1].status, 'in_progress');
+  assert.equal(todoPlanConv.todos[2].status, 'completed');
+
+  const linkHtml = w.TaktChatMarkdown.renderMarkdown('查看 https://example.com/a?x=1&y=2，说明 [文档](https://example.com/doc?k=v&z=1)。');
+  assert.ok(linkHtml.includes('href="https://example.com/a?x=1&amp;y=2"'));
+  assert.ok(!linkHtml.includes('&amp;amp;'));
+  assert.ok(linkHtml.includes('>https://example.com/a?x=1&amp;y=2</a>，说明'));
+  assert.ok(linkHtml.includes('href="https://example.com/doc?k=v&amp;z=1"'));
+
+  const spinner = classifyClaudeScreen('· Reading server/server.js…\n──────────────────────────\n❯ \n  default · esc to interrupt');
+  assert.equal(spinner.status, 'working');
+  assert.equal(spinner.activity, 'Reading server/server.js…');
+  assert.equal(spinner.liveText, '');
+});
+
+test('extractLiveStreamText extracts streaming pane prose cleanly and REMOTE_JSONL_PY compiles', () => {
+  // Active streaming prose with 2-space continuation lines + long wrapped CJK + spinner below
+  const wrappedCjkLine = '● 这是一段正在实时流式输出的长中文回答，用于测试前端和服务端在终端软换行发生时能否完整地拼接起来而不出现多';
+  const activePane = [
+    '❯ 请分析一下流式输出架构',
+    '',
+    wrappedCjkLine,
+    '  余的空格或折断。',
+    '',
+    '  - 保持单进程 tmux 共存',
+    '  - 降低延迟到 120ms',
+    '· Flowing… (esc to interrupt)',
+    '────────────────────────────────────────────────────────────',
+    '❯ ',
+    '────────────────────────────────────────────────────────────',
+    '  ⏵⏵ auto mode on (shift+tab to cycle)',
+  ].join('\n');
+
+  const extracted = extractLiveStreamText(activePane);
+  assert.ok(extracted.includes('完整地拼接起来而不出现多余的空格或折断。'));
+  assert.ok(extracted.includes('- 保持单进程 tmux 共存'));
+  assert.ok(!extracted.includes('Flowing'));
+  assert.ok(!extracted.includes('esc to interrupt'));
+
+  const scActive = classifyClaudeScreen(activePane);
+  assert.equal(scActive.status, 'working');
+  assert.equal(scActive.liveText, extracted);
+
+  // Completed turn must return ''
+  const donePane = [
+    '● 已经完成了全部修改。',
+    '✻ Cooked for 50s · done 9:18 PM',
+    '──────────────────────────',
+    '❯ ',
+  ].join('\n');
+  assert.equal(extractLiveStreamText(donePane), '');
+
+  // Tool bullet must return ''
+  const toolBulletPane = [
+    '● Bash(npm test)',
+    '  ⎿ Running suite...',
+    '· Running… (esc to interrupt)',
+  ].join('\n');
+  assert.equal(extractLiveStreamText(toolBulletPane), '');
+
+  // Un-bulleted Code Mode summary after prose must return ''
+  const codeModeSupersededPane = [
+    '● 我先检查设备列表：',
+    '  Called mac-industrial 2 times',
+    '· Thinking… (esc to interrupt)',
+  ].join('\n');
+  assert.equal(extractLiveStreamText(codeModeSupersededPane), '');
+
+  // Previous turn prose must never leak past a newer user prompt
+  const turnBoundaryPane = [
+    '● 上一轮的回答正文内容在这里。',
+    '❯ 请开始下一轮新的问题',
+    '· Thinking… (esc to interrupt)',
+  ].join('\n');
+  assert.equal(extractLiveStreamText(turnBoundaryPane), '');
+
+  // Markdown normalization for deduplication
+  assert.equal(
+    normalizeForStreamCompare('这是 **1M 上下文** 的 [详细说明](https://example.com/docs?a=1)'),
+    normalizeForStreamCompare('这是 1M 上下文 的 详细说明'),
+  );
+
+  // Ensure embedded Python watcher + chunk script has zero syntax errors
+  execFileSync('python3', ['-c', 'import sys; compile(sys.stdin.read(), "remote_jsonl.py", "exec")'], {
+    input: REMOTE_JSONL_PY,
+    encoding: 'utf8',
+  });
 });
