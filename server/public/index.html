@@ -6,6 +6,7 @@
   <meta name="color-scheme" content="dark light" />
   <title>TAKT Workbench — Codex Dark Edition</title>
   <link rel="stylesheet" href="/vendor/xterm.css" />
+  <link rel="stylesheet" href="/chat/chat.css" />
   <style>
         :root {
       /* MANDATORY per modern-web-guidance `dark-mode` & `animate-to-intrinsic-sizes` */
@@ -111,7 +112,7 @@
       transition-duration: 0.001ms !important; scroll-behavior: auto !important;
     }
     /* Chat area has its own text scale on top of the UI scale */
-    .reading, .composer { --fs: calc(var(--fs-ui) * var(--fs-chat)); }
+    .reading, .composer, .cc-chat { --fs: calc(var(--fs-ui) * var(--fs-chat)); }
 
 
     * {
@@ -1824,402 +1825,6 @@
       50% { opacity: 1; }
     }
 
-    .dockterm-panechat {
-      position: absolute;
-      inset: 0;
-      z-index: 20;
-      display: flex;
-      flex-direction: column;
-      background: var(--bg-app);
-      color: var(--text-primary);
-      overflow: hidden;
-    }
-    .dockterm-panechat[hidden] { display: none; }
-
-    .reading {
-      position: relative;
-      flex: 1;
-      min-height: 0;
-      display: flex;
-      flex-direction: column;
-    }
-
-    .reading__scroll {
-      flex: 1;
-      min-height: 0;
-      overflow-y: auto;
-      overflow-x: hidden;
-      overscroll-behavior: contain;
-      padding: 18px 24px 24px;
-    }
-
-    .reading__inner {
-      width: 100%;
-      max-width: var(--chat-width, 820px);
-      margin: 0 auto;
-      display: flex;
-      flex-direction: column;
-      gap: 14px;
-    }
-
-    .reading__messages {
-      display: flex;
-      flex-direction: column;
-      gap: 14px;
-      min-width: 0;
-    }
-    .reading__messages:empty { display: none; }
-    .reading__messages > * { min-width: 0; }
-    /* consecutive tool rows sit close together */
-    .reading__tool + .reading__tool { margin-top: -10px; }
-
-    .reading__older {
-      align-self: center;
-      height: 24px;
-      padding: 0 12px;
-      border-radius: 999px;
-      border: 1px solid var(--border-hairline);
-      background: var(--bg-surface);
-      color: var(--text-secondary);
-      font: inherit;
-      font-size: calc(11px * var(--fs, 1));
-      cursor: pointer;
-    }
-    .reading__older:hover:not(:disabled) { color: var(--text-primary); border-color: var(--border-strong); }
-    .reading__older:disabled { opacity: 0.6; cursor: progress; }
-    .reading__older[hidden] { display: none; }
-    .reading__begin {
-      align-self: center;
-      font-size: calc(10.5px * var(--fs, 1));
-      color: var(--text-muted);
-    }
-    .reading__begin[hidden] { display: none; }
-
-    .reading__empty {
-      margin: 48px auto 0;
-      padding: 24px 22px;
-      max-width: 440px;
-      text-align: center;
-      color: var(--text-secondary);
-      font-size: calc(12px * var(--fs, 1));
-      line-height: 1.6;
-      background: var(--bg-surface);
-      border: 1px solid var(--border-hairline);
-      border-radius: var(--radius-lg);
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      gap: 10px;
-    }
-    .reading__empty[hidden] { display: none; }
-    .reading__empty-title {
-      font-weight: 600;
-      color: var(--text-primary);
-      font-size: calc(13.5px * var(--fs, 1));
-    }
-
-    .reading__user {
-      display: flex;
-      justify-content: flex-end;
-      margin-top: 4px;
-    }
-    .reading__user-bubble {
-      position: relative;
-      max-width: 85%;
-      padding: 8px 13px;
-      border-radius: 12px;
-      background: var(--bg-surface);
-      border: 1px solid var(--border-hairline);
-      color: var(--text-primary);
-      font-size: calc(13px * var(--fs, 1));
-      line-height: 1.55;
-      white-space: pre-wrap;
-      overflow-wrap: anywhere;
-    }
-    .reading__user--pending .reading__user-bubble { opacity: 0.55; border-style: dashed; }
-    .reading__user--failed .reading__user-bubble { opacity: 0.8; border-color: var(--danger); }
-    .reading__user--failed .reading__meta { color: var(--danger); }
-    .reading__user-bubble.is-clamped {
-      max-height: 260px;
-      overflow: hidden;
-      -webkit-mask-image: linear-gradient(to bottom, #000 70%, transparent);
-      mask-image: linear-gradient(to bottom, #000 70%, transparent);
-    }
-    .reading__expand {
-      align-self: flex-end;
-      margin-top: 4px;
-      font-size: calc(10.5px * var(--fs, 1));
-    }
-    .reading__user-wrap {
-      display: flex;
-      flex-direction: column;
-      align-items: flex-end;
-      max-width: 100%;
-    }
-    .reading__meta {
-      font-size: calc(10px * var(--fs, 1));
-      color: var(--text-muted);
-      margin-top: 3px;
-      font-family: var(--font-mono);
-    }
-
-    .reading__assistant {
-      color: var(--text-primary);
-      font-size: calc(13px * var(--fs, 1));
-      line-height: 1.65;
-      min-width: 0;
-    }
-
-    /* Markdown inside assistant messages */
-    .reading__md {
-      display: flex;
-      flex-direction: column;
-      gap: 8px;
-      overflow-wrap: anywhere;
-      min-width: 0;
-    }
-    .reading__md > * { min-width: 0; }
-    .reading__md p { margin: 0; }
-    .reading__md h1, .reading__md h2, .reading__md h3, .reading__md h4, .reading__md h5, .reading__md h6 {
-      margin: 8px 0 0;
-      font-weight: 600;
-      color: var(--text-primary);
-      line-height: 1.35;
-    }
-    .reading__md h1 { font-size: calc(16px * var(--fs, 1)); }
-    .reading__md h2 { font-size: calc(14.5px * var(--fs, 1)); }
-    .reading__md h3 { font-size: calc(13.5px * var(--fs, 1)); }
-    .reading__md h4, .reading__md h5, .reading__md h6 { font-size: calc(13px * var(--fs, 1)); color: var(--text-secondary); }
-    .reading__md ul, .reading__md ol {
-      margin: 0;
-      padding-left: 22px;
-      display: flex;
-      flex-direction: column;
-      gap: 3px;
-    }
-    .reading__md li > ul, .reading__md li > ol { margin-top: 3px; }
-    .reading__md li.task { list-style: none; margin-left: -18px; }
-    .reading__md li.task .task-box { display: inline-block; width: 14px; color: var(--text-muted); font-family: var(--font-mono); }
-    .reading__md blockquote {
-      margin: 0;
-      padding: 2px 0 2px 12px;
-      border-left: 2px solid var(--border-strong);
-      color: var(--text-secondary);
-      display: flex;
-      flex-direction: column;
-      gap: 6px;
-    }
-    .reading__md hr {
-      border: none;
-      border-top: 1px solid var(--border-hairline);
-      margin: 4px 0;
-    }
-    .reading__md a.md-link {
-      color: var(--text-primary);
-      text-decoration: underline;
-      text-decoration-color: rgba(var(--ov), 0.35);
-      text-underline-offset: 2px;
-    }
-    .reading__md a.md-link:hover { text-decoration-color: var(--text-primary); }
-    .reading__md code.md-inline-code {
-      font-family: var(--font-mono);
-      font-size: calc(11.5px * var(--fs, 1));
-      padding: 1px 5px;
-      border-radius: 4px;
-      background: rgba(var(--ov), 0.06);
-      border: 1px solid var(--border-hairline);
-      color: var(--text-primary);
-    }
-    .reading__md .md-file-link {
-      font-family: var(--font-mono);
-      font-size: calc(11.5px * var(--fs, 1));
-      padding: 1px 5px;
-      border-radius: 4px;
-      background: rgba(var(--ov), 0.07);
-      border: 1px solid var(--border-strong);
-      color: var(--text-primary);
-      cursor: pointer;
-      text-decoration: underline;
-      text-decoration-color: rgba(var(--ov), 0.35);
-      text-underline-offset: 2px;
-    }
-    .reading__md .md-file-link:hover {
-      background: var(--bg-elevated);
-      border-color: var(--border-accent);
-    }
-    .md-code {
-      border-radius: var(--radius-sm);
-      background: var(--bg-input);
-      border: 1px solid var(--border-hairline);
-      overflow: hidden;
-      min-width: 0;
-    }
-    .md-code-head {
-      height: 26px;
-      padding: 0 6px 0 10px;
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      border-bottom: 1px solid var(--border-hairline);
-      font-family: var(--font-mono);
-      font-size: calc(10.5px * var(--fs, 1));
-      color: var(--text-muted);
-    }
-    .md-code-copy {
-      height: 19px;
-      padding: 0 7px;
-      border-radius: 4px;
-      border: 1px solid transparent;
-      background: transparent;
-      color: var(--text-muted);
-      font: inherit;
-      font-size: calc(10.5px * var(--fs, 1));
-      cursor: pointer;
-    }
-    .md-code-copy:hover { color: var(--text-primary); border-color: var(--border-strong); }
-    .md-code pre {
-      margin: 0;
-      padding: 10px 12px;
-      overflow-x: auto;
-      font-family: var(--font-mono);
-      font-size: calc(12px * var(--fs, 1));
-      line-height: 1.5;
-      color: var(--text-primary);
-      white-space: pre;
-      tab-size: 4;
-    }
-    .md-table-wrap {
-      overflow-x: auto;
-      max-width: 100%;
-    }
-    .reading__md table {
-      border-collapse: collapse;
-      font-size: calc(12px * var(--fs, 1));
-      margin: 2px 0;
-      min-width: 60%;
-    }
-    .reading__md th, .reading__md td {
-      border: 1px solid var(--border-hairline);
-      padding: 5px 9px;
-      text-align: left;
-      vertical-align: top;
-      overflow-wrap: normal;
-    }
-    .reading__md th {
-      background: rgba(var(--ov), 0.04);
-      font-weight: 600;
-    }
-
-    /* Compact tool row */
-    .reading__tool {
-      display: flex;
-      align-items: center;
-      gap: 7px;
-      padding: 3px 9px;
-      border-radius: var(--radius-xs);
-      background: rgba(var(--ov), 0.02);
-      border: 1px solid var(--border-hairline);
-      font-family: var(--font-mono);
-      font-size: calc(11px * var(--fs, 1));
-      color: var(--text-secondary);
-      min-width: 0;
-    }
-    .reading__tool-icon {
-      flex-shrink: 0;
-      width: 12px;
-      text-align: center;
-      font-size: calc(10px * var(--fs, 1));
-      color: var(--text-muted);
-    }
-    .reading__tool--ok .reading__tool-icon { color: var(--status-online); }
-    .reading__tool--err .reading__tool-icon { color: var(--danger); }
-    .dockterm-panechat.is-working .reading__messages > .reading__tool--pending:last-child .reading__tool-icon { color: var(--warning); animation: docktermPulse 1.2s infinite ease-in-out; }
-    .reading__tool-name {
-      flex-shrink: 0;
-      color: var(--text-secondary);
-      font-weight: 600;
-    }
-    .reading__tool-summary {
-      overflow: hidden;
-      text-overflow: ellipsis;
-      white-space: nowrap;
-      color: var(--text-muted);
-      min-width: 0;
-    }
-    .reading__tool:has(.reading__images) { flex-wrap: wrap; }
-    .reading__tool .md-file-link,
-    .reading__user-bubble .md-file-link {
-      color: inherit;
-      text-decoration: underline;
-      text-decoration-color: rgba(var(--ov), 0.3);
-      text-underline-offset: 2px;
-      cursor: pointer;
-    }
-    .reading__tool .md-file-link:hover,
-    .reading__user-bubble .md-file-link:hover {
-      color: var(--text-primary);
-      text-decoration-color: currentColor;
-    }
-
-    /* Images in the conversation — always loaded from the Mac (mirror, or a cached copy) */
-    .reading__images {
-      display: flex;
-      flex-wrap: wrap;
-      gap: 6px;
-      margin-top: 8px;
-      min-width: 0;
-    }
-    .reading__user .reading__images { justify-content: flex-end; margin: 0 0 6px; max-width: 85%; }
-    .reading__tool .reading__images { flex-basis: 100%; margin: 3px 0 3px 19px; }
-    .reading__thumb {
-      position: relative;
-      display: block;
-      padding: 0;
-      border: 1px solid var(--border-hairline);
-      border-radius: var(--radius-sm);
-      background: var(--bg-input);
-      overflow: hidden;
-      cursor: zoom-in;
-      max-width: min(320px, 100%);
-    }
-    .reading__thumb:hover { border-color: var(--border-accent); }
-    .reading__thumb img {
-      display: block;
-      max-width: 100%;
-      max-height: 200px;
-      object-fit: contain;
-    }
-    .reading__tool .reading__thumb img { max-height: 120px; }
-    .reading__thumb.is-loading { min-width: 96px; min-height: 64px; }
-    .reading__thumb.is-loading::after {
-      content: '加载中…';
-      position: absolute;
-      inset: 0;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      font-size: calc(10.5px * var(--fs, 1));
-      color: var(--text-muted);
-    }
-    .reading__thumb.is-broken { display: none; }
-    .reading__thumb-name {
-      position: absolute;
-      left: 0;
-      right: 0;
-      bottom: 0;
-      padding: 10px 6px 3px;
-      font-family: var(--font-mono);
-      font-size: calc(10px * var(--fs, 1));
-      color: #fff;
-      text-align: left;
-      white-space: nowrap;
-      overflow: hidden;
-      text-overflow: ellipsis;
-      background: linear-gradient(transparent, rgba(0, 0, 0, 0.7));
-      opacity: 0;
-      transition: opacity 0.12s ease;
-    }
-    .reading__thumb:hover .reading__thumb-name { opacity: 1; }
 
     /* Full-size image viewer */
     .dt-lightbox {
@@ -2257,554 +1862,6 @@
       text-overflow: ellipsis;
       white-space: nowrap;
     }
-
-    /* Live "working" card with the last lines of the terminal */
-    .reading__live {
-      padding: 10px 12px;
-      border-radius: var(--radius-md);
-      background: var(--bg-sidebar);
-      border: 1px solid var(--border-hairline);
-      display: flex;
-      flex-direction: column;
-      gap: 7px;
-    }
-    .reading__live[hidden] { display: none; }
-    .reading__live-head {
-      display: flex;
-      align-items: center;
-      gap: 8px;
-      font-size: calc(11.5px * var(--fs, 1));
-      font-weight: 500;
-      color: var(--text-secondary);
-    }
-    .reading__live-dot {
-      width: 6px;
-      height: 6px;
-      border-radius: 50%;
-      background: var(--warning);
-      animation: docktermPulse 1.2s infinite ease-in-out;
-    }
-    .reading__live-head .btn { margin-left: auto; height: 21px; font-size: calc(10.5px * var(--fs, 1)); padding: 0 8px; }
-    .reading__live-tail {
-      margin: 0;
-      padding: 7px 9px;
-      border-radius: var(--radius-xs);
-      background: var(--bg-app);
-      border: 1px solid var(--border-hairline);
-      font-family: var(--font-mono);
-      font-size: calc(11px * var(--fs, 1));
-      line-height: 1.45;
-      color: var(--text-secondary);
-      max-height: 150px;
-      overflow: auto;
-      white-space: pre-wrap;
-      overflow-wrap: anywhere;
-    }
-    .reading__live-tail:empty { display: none; }
-
-    /* Interactive prompt card (permission / question) */
-    .askcard {
-      padding: 12px 14px;
-      border-radius: var(--radius-md);
-      background: var(--bg-surface);
-      border: 1px solid rgba(56, 189, 248, 0.35);
-      box-shadow: var(--shadow-md);
-      display: flex;
-      flex-direction: column;
-      gap: 9px;
-    }
-    .askcard[hidden] { display: none; }
-    .askcard__head {
-      display: flex;
-      align-items: center;
-      gap: 7px;
-      font-size: calc(11.5px * var(--fs, 1));
-      font-weight: 600;
-      color: var(--text-primary);
-    }
-    .askcard__dot {
-      width: 6px;
-      height: 6px;
-      border-radius: 50%;
-      background: #38bdf8;
-    }
-    .askcard__head .btn { margin-left: auto; height: 21px; font-size: calc(10.5px * var(--fs, 1)); padding: 0 8px; }
-    .askcard__steps {
-      display: flex;
-      flex-wrap: wrap;
-      gap: 4px;
-    }
-    .askcard__step {
-      font-size: calc(10.5px * var(--fs, 1));
-      padding: 1px 6px;
-      border-radius: 4px;
-      border: 1px solid var(--border-hairline);
-      color: var(--text-muted);
-    }
-    .askcard__step.done { color: var(--text-secondary); border-color: var(--border-strong); }
-    .askcard__title {
-      margin: 0;
-      padding: 8px 10px;
-      border-radius: var(--radius-xs);
-      background: var(--bg-input);
-      border: 1px solid var(--border-hairline);
-      font-family: var(--font-mono);
-      font-size: calc(11.5px * var(--fs, 1));
-      line-height: 1.5;
-      color: var(--text-primary);
-      white-space: pre-wrap;
-      overflow-wrap: anywhere;
-      max-height: 280px;
-      overflow-y: auto;
-    }
-    .askcard__actions {
-      display: flex;
-      flex-direction: column;
-      gap: 5px;
-    }
-    .askcard__btn {
-      display: flex;
-      align-items: center;
-      gap: 8px;
-      width: 100%;
-      padding: 7px 11px;
-      border-radius: var(--radius-sm);
-      border: 1px solid var(--border-hairline);
-      background: var(--bg-input);
-      color: var(--text-primary);
-      font: inherit;
-      font-size: calc(12px * var(--fs, 1));
-      text-align: left;
-      cursor: pointer;
-      transition: background 0.12s ease, border-color 0.12s ease;
-    }
-    .askcard__btn:hover { background: var(--bg-elevated); border-color: var(--border-strong); }
-    .askcard__btn.is-cursor { border-color: var(--border-strong); }
-    .askcard__btn--allow { background: var(--bg-elevated); border-color: var(--border-accent); }
-    .askcard__btn--allow:hover { background: rgba(var(--ov), 0.16); border-color: var(--accent-hover); }
-    .askcard__btn--deny, .askcard__btn--cancel { color: var(--text-secondary); }
-    .askcard__btn--deny:hover, .askcard__btn--cancel:hover { background: var(--bg-hover); color: var(--text-primary); }
-    .askcard__btn input[type="checkbox"] { margin: 0; pointer-events: none; }
-    .askcard__key {
-      font-family: var(--font-mono);
-      font-size: calc(10.5px * var(--fs, 1));
-      padding: 1px 5px;
-      border-radius: 3px;
-      background: rgba(var(--ov), 0.07);
-      color: var(--text-secondary);
-      flex-shrink: 0;
-    }
-    .askcard__label { flex: 1; min-width: 0; }
-    .askcard__label b { display: block; font-weight: 500; }
-    .askcard__desc {
-      display: block;
-      font-size: calc(11px * var(--fs, 1));
-      color: var(--text-muted);
-      margin-top: 2px;
-    }
-    .askcard__free {
-      display: flex;
-      gap: 6px;
-    }
-    .askcard__free input {
-      flex: 1;
-      height: 30px;
-      padding: 0 10px;
-      border-radius: var(--radius-sm);
-      border: 1px solid var(--border-strong);
-      background: var(--bg-input);
-      color: var(--text-primary);
-      font: inherit;
-      font-size: calc(12px * var(--fs, 1));
-      outline: none;
-    }
-    .askcard__free input:focus { border-color: var(--border-accent); }
-    .askcard__free .btn { height: 30px; }
-
-    /* Jump to latest — anchored to the message area, never covers the composer */
-    .reading__jump {
-      position: absolute;
-      bottom: 12px;
-      left: 50%;
-      transform: translateX(-50%);
-      z-index: 5;
-      padding: 4px 12px;
-      border-radius: 999px;
-      border: 1px solid var(--border-strong);
-      background: var(--bg-elevated);
-      color: var(--text-primary);
-      font: inherit;
-      font-size: calc(11px * var(--fs, 1));
-      font-weight: 500;
-      cursor: pointer;
-      box-shadow: var(--shadow-md);
-    }
-    .reading__jump[hidden] { display: none; }
-
-    /* Composer */
-    .composer {
-      padding: 8px 20px 12px;
-      background: var(--bg-app);
-      border-top: 1px solid var(--border-hairline);
-      flex-shrink: 0;
-    }
-    .composer__inner {
-      max-width: var(--chat-width, 820px);
-      margin: 0 auto;
-      position: relative;
-    }
-    .composer__menu {
-      position: absolute;
-      bottom: calc(100% + 6px);
-      left: 0;
-      right: 0;
-      max-height: 240px;
-      overflow-y: auto;
-      background: var(--bg-surface);
-      border: 1px solid var(--border-strong);
-      border-radius: var(--radius-md);
-      box-shadow: var(--shadow-md);
-      padding: 4px;
-      z-index: 40;
-      display: none;
-    }
-    .composer__menu.open { display: block; }
-    .composer__menu-item {
-      display: flex;
-      align-items: center;
-      gap: 12px;
-      padding: 6px 10px;
-      border-radius: var(--radius-xs);
-      font-size: calc(12px * var(--fs, 1));
-      cursor: pointer;
-      color: var(--text-secondary);
-    }
-    .composer__menu-item.active, .composer__menu-item:hover {
-      background: var(--bg-active);
-      color: var(--text-primary);
-    }
-    .composer__menu-cmd {
-      font-family: var(--font-mono);
-      font-weight: 600;
-      color: var(--text-primary);
-      min-width: 96px;
-    }
-    .composer__box {
-      border-radius: var(--radius-md);
-      border: 1px solid var(--border-hairline);
-      background: var(--bg-sidebar);
-      padding: 8px 10px 7px 12px;
-      display: flex;
-      flex-direction: column;
-      gap: 6px;
-      transition: border-color 0.12s ease;
-    }
-    .composer__box:focus-within { border-color: var(--border-accent); }
-    .composer__input {
-      width: 100%;
-      min-height: 38px;
-      max-height: 240px;
-      border: none;
-      outline: none;
-      resize: none;
-      background: transparent;
-      color: var(--text-primary);
-      font-family: var(--font-sans);
-      font-size: calc(13px * var(--fs, 1));
-      line-height: 1.5;
-      overflow-y: auto;
-    }
-    .composer__input::placeholder { color: var(--text-muted); }
-    .composer__foot {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      gap: 8px;
-      font-size: calc(10.5px * var(--fs, 1));
-      color: var(--text-muted);
-      min-width: 0;
-    }
-    .composer__hints {
-      flex: 1 1 auto;
-      overflow: hidden;
-      text-overflow: ellipsis;
-      white-space: nowrap;
-      min-width: 0;
-    }
-    .composer__hints kbd {
-      font-family: var(--font-mono);
-      font-size: calc(10px * var(--fs, 1));
-      color: var(--text-secondary);
-    }
-    .composer__actions {
-      display: flex;
-      align-items: center;
-      gap: 6px;
-      flex-shrink: 0;
-    }
-    .composer__actions .btn { height: 24px; font-size: calc(11px * var(--fs, 1)); }
-    .composer__actions .btn[hidden] { display: none; }
-    .composer__send {
-      display: inline-flex;
-      align-items: center;
-      gap: 5px;
-      height: 24px;
-      padding: 0 10px;
-      border-radius: var(--radius-xs);
-      border: 1px solid var(--accent-hover);
-      background: var(--accent);
-      color: var(--accent-ink);
-      font: inherit;
-      font-size: calc(11.5px * var(--fs, 1));
-      font-weight: 600;
-      cursor: pointer;
-      transition: background 0.12s ease, opacity 0.12s ease;
-    }
-    .composer__send:hover:not(:disabled) { background: var(--accent-hover); }
-    .composer__send:disabled { opacity: 0.35; cursor: not-allowed; }
-
-    /* Attachments (pasted / dropped images and files) */
-    .composer__box.is-drop { border-color: var(--border-accent); background: var(--bg-elevated); }
-    .composer__attach {
-      display: flex;
-      flex-wrap: wrap;
-      gap: 6px;
-      padding-bottom: 2px;
-    }
-    .attach-chip {
-      position: relative;
-      display: inline-flex;
-      align-items: center;
-      gap: 7px;
-      height: 48px;
-      max-width: 240px;
-      padding: 0 26px 0 6px;
-      border-radius: var(--radius-sm);
-      border: 1px solid var(--border-hairline);
-      background: var(--bg-input);
-      font-size: calc(11px * var(--fs, 1));
-      color: var(--text-secondary);
-      min-width: 0;
-    }
-    .attach-chip--image { width: 48px; padding: 0; justify-content: center; overflow: hidden; }
-    .attach-chip--image img { width: 100%; height: 100%; object-fit: cover; display: block; }
-    .attach-chip__ext {
-      flex-shrink: 0;
-      width: 34px;
-      height: 34px;
-      border-radius: var(--radius-xs);
-      background: var(--bg-active);
-      color: var(--text-primary);
-      font-family: var(--font-mono);
-      font-size: calc(9.5px * var(--fs, 1));
-      font-weight: 600;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      text-transform: uppercase;
-      overflow: hidden;
-    }
-    .attach-chip__meta { display: flex; flex-direction: column; min-width: 0; line-height: 1.35; }
-    .attach-chip__name { color: var(--text-primary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-    .attach-chip__size { font-family: var(--font-mono); font-size: calc(10px * var(--fs, 1)); color: var(--text-muted); }
-    .attach-chip__x {
-      position: absolute;
-      top: 3px;
-      right: 3px;
-      width: 18px;
-      height: 18px;
-      border-radius: 50%;
-      border: none;
-      background: rgba(0, 0, 0, 0.6);
-      color: #fff;
-      font-size: calc(12px * var(--fs, 1));
-      line-height: 18px;
-      text-align: center;
-      cursor: pointer;
-      padding: 0;
-    }
-    .attach-chip__x:hover { background: rgba(0, 0, 0, 0.85); }
-    .attach-chip.is-uploading::after {
-      content: '';
-      position: absolute;
-      inset: 0;
-      border-radius: inherit;
-      background: rgba(13, 13, 13, 0.45) linear-gradient(90deg, transparent, rgba(var(--ov), 0.12), transparent) no-repeat;
-      background-size: 60% 100%;
-      animation: attachShimmer 1.1s infinite linear;
-      pointer-events: none;
-    }
-    @keyframes attachShimmer { from { background-position: -60% 0; } to { background-position: 160% 0; } }
-    .attach-chip.is-error { border-color: var(--danger); cursor: pointer; }
-    .attach-chip.is-error .attach-chip__size { color: var(--danger); }
-    /* attachments shown on sent messages */
-    .reading__files { display: flex; flex-wrap: wrap; gap: 6px; justify-content: flex-end; margin: 0 0 6px; max-width: 85%; }
-    .reading__file {
-      display: inline-flex;
-      align-items: center;
-      gap: 6px;
-      padding: 4px 9px;
-      border-radius: var(--radius-sm);
-      border: 1px solid var(--border-hairline);
-      background: var(--bg-surface);
-      font-size: calc(11px * var(--fs, 1));
-      color: var(--text-secondary);
-      text-decoration: none;
-      cursor: pointer;
-    }
-    .reading__file:hover { border-color: var(--border-accent); color: var(--text-primary); }
-    .reading__file b { font-family: var(--font-mono); font-size: calc(9.5px * var(--fs, 1)); color: var(--text-primary); text-transform: uppercase; }
-    .reading__thumb img.is-local { max-height: 200px; }
-
-    /* Usage meters inside the composer (5h session + weekly) */
-    .composer__usage {
-      display: inline-flex;
-      align-items: center;
-      gap: 10px;
-      flex-shrink: 0;
-      font-family: var(--font-mono);
-      font-size: calc(10.5px * var(--fs, 1));
-      color: var(--text-muted);
-      cursor: default;
-    }
-    .usage-meter { display: inline-flex; align-items: center; gap: 4px; }
-    .usage-ring {
-      position: relative;
-      width: 22px;
-      height: 22px;
-      flex-shrink: 0;
-    }
-    .usage-ring svg { display: block; width: 22px; height: 22px; transform: rotate(-90deg); }
-    .usage-ring__track { fill: none; stroke: var(--border-strong); stroke-width: 2.5; }
-    .usage-ring__value { fill: none; stroke: var(--text-secondary); stroke-width: 2.5; stroke-linecap: round; transition: stroke-dasharray 0.4s ease; }
-    .usage-ring__num {
-      position: absolute;
-      inset: 0;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      font-size: calc(8.5px * var(--fs, 1));
-      font-weight: 600;
-      letter-spacing: -0.3px;
-      color: var(--text-secondary);
-    }
-    .usage-ring__num.is-full { font-size: calc(7.5px * var(--fs, 1)); letter-spacing: -0.5px; }
-    .usage-meter.is-warn .usage-ring__value { stroke: var(--warning); }
-    .usage-meter.is-warn .usage-ring__num { color: var(--warning); }
-    .usage-meter.is-crit .usage-ring__value { stroke: var(--danger); }
-    .usage-meter.is-crit .usage-ring__num { color: var(--danger); }
-    .composer__usage.is-stale { opacity: 0.6; }
-
-    /* Under the composer: usage rings on the left, model / effort pickers on the right */
-    .composer__bar {
-      display: flex;
-      align-items: center;
-      gap: 4px;
-      margin-top: 6px;
-      padding: 0 2px;
-      min-width: 0;
-      font-size: calc(11px * var(--fs, 1));
-      color: var(--text-muted);
-    }
-    .composer__bar-note {
-      flex: 1 1 auto;
-      padding: 0 8px;
-      text-align: right;
-      overflow: hidden;
-      text-overflow: ellipsis;
-      white-space: nowrap;
-      min-width: 0;
-    }
-    .dt-pick { position: relative; flex-shrink: 0; min-width: 0; }
-    .dt-pick__btn {
-      display: inline-flex;
-      align-items: center;
-      gap: 5px;
-      height: 24px;
-      max-width: 200px;
-      padding: 0 7px 0 9px;
-      border-radius: var(--radius-xs);
-      border: 1px solid transparent;
-      background: transparent;
-      color: var(--text-secondary);
-      font: inherit;
-      font-size: calc(11.5px * var(--fs, 1));
-      cursor: pointer;
-    }
-    .dt-pick__btn:hover:not(:disabled),
-    .dt-pick__btn:focus-visible,
-    .dt-pick.is-open .dt-pick__btn {
-      border-color: var(--border-hairline);
-      background: var(--bg-hover);
-      color: var(--text-primary);
-      outline: none;
-    }
-    .dt-pick__btn:disabled { opacity: 0.5; cursor: not-allowed; }
-    .dt-pick__label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-    .dt-pick__chev {
-      width: 9px;
-      height: 9px;
-      flex-shrink: 0;
-      fill: none;
-      stroke: currentColor;
-      stroke-width: 3;
-      stroke-linecap: round;
-      stroke-linejoin: round;
-      opacity: 0.7;
-      transition: transform 0.12s ease;
-    }
-    .dt-pick.is-open .dt-pick__chev { transform: rotate(180deg); }
-    .dt-pick__menu {
-      position: absolute;
-      right: 0;
-      bottom: calc(100% + 6px);
-      z-index: 50;
-      min-width: 230px;
-      max-width: 320px;
-      max-height: min(360px, 60vh);
-      overflow-y: auto;
-      padding: 4px;
-      border-radius: var(--radius-md);
-      border: 1px solid var(--border-strong);
-      background: var(--bg-elevated);
-      box-shadow: var(--shadow-md);
-      font-size: calc(12px * var(--fs, 1));
-    }
-    .dt-pick--narrow .dt-pick__menu { min-width: 170px; }
-    .dt-pick__menu[hidden] { display: none; }
-    .dt-pick__title { padding: 6px 8px 4px; font-size: calc(10.5px * var(--fs, 1)); color: var(--text-muted); }
-    .dt-pick__title:not(:first-child) { margin-top: 4px; border-top: 1px solid var(--border-hairline); padding-top: 8px; }
-    .dt-pick__item {
-      display: flex;
-      align-items: center;
-      gap: 8px;
-      width: 100%;
-      min-height: 28px;
-      padding: 4px 8px;
-      border: none;
-      border-radius: var(--radius-xs);
-      background: transparent;
-      color: var(--text-secondary);
-      font: inherit;
-      text-align: left;
-      cursor: pointer;
-    }
-    .dt-pick__item:hover, .dt-pick__item.is-focus { background: var(--bg-hover); color: var(--text-primary); }
-    .dt-pick__item.is-current { color: var(--text-primary); }
-    .dt-pick__name { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-    .dt-pick__sub { flex-shrink: 0; font-family: var(--font-mono); font-size: calc(10px * var(--fs, 1)); color: var(--text-muted); }
-    .dt-pick__check {
-      width: 12px;
-      height: 12px;
-      flex-shrink: 0;
-      fill: none;
-      stroke: currentColor;
-      stroke-width: 2.5;
-      stroke-linecap: round;
-      stroke-linejoin: round;
-      visibility: hidden;
-    }
-    .dt-pick__item.is-current .dt-pick__check { visibility: visible; }
 
     /* Generic popover menu items reuse .tag-menu; "more" menu needs icons aligned */
     .tag-menu-item .icon { color: var(--text-muted); }
@@ -3066,7 +2123,7 @@
         <!-- Context bar: where this tab lives + what you can do in the current view -->
         <div class="context-bar" id="contextBar" hidden>
           <div class="context-left">
-            <span class="machine-badge" id="ctxBadge">KR-1</span>
+            <span class="machine-badge" id="ctxBadge">—</span>
             <span class="context-path" id="ctxPath">/root/work</span>
             <span class="status-chip" id="ctxStatus" hidden>
               <span class="term-tab-dot"></span>
@@ -3100,66 +2157,8 @@
             <span>松开即可把路径插入当前会话</span>
           </div>
 
-          <!-- DockTerm conversation view -->
-          <div class="dockterm-panechat" id="docktermChatStage" hidden>
-            <div class="reading">
-              <div class="reading__scroll scroller" id="docktermScroll">
-                <div class="reading__inner" id="docktermInner">
-                  <button type="button" class="reading__older" id="docktermOlderBtn" hidden>加载更早的消息</button>
-                  <div class="reading__begin" id="docktermBegin" hidden>— 对话开始 —</div>
-                  <div class="reading__messages" id="docktermMessages"></div>
-                  <div class="reading__empty" id="docktermEmpty" hidden></div>
-                  <div class="reading__live" id="docktermLive" hidden>
-                    <div class="reading__live-head">
-                      <span class="reading__live-dot"></span>
-                      <span id="docktermLiveText">Claude 正在执行…</span>
-                      <button type="button" class="btn" id="btnLiveInterrupt">中断 (Esc)</button>
-                    </div>
-                    <pre class="reading__live-tail" id="docktermLiveTail"></pre>
-                  </div>
-                  <div class="askcard" id="docktermAsk" hidden></div>
-                </div>
-              </div>
-              <button type="button" class="reading__jump" id="docktermJumpBtn" hidden>↓ 回到最新</button>
-            </div>
-
-            <div class="composer">
-              <div class="composer__inner">
-                <div class="composer__menu scroller" id="docktermSlashMenu"></div>
-                <div class="composer__box" id="docktermComposerBox">
-                  <div class="composer__attach" id="docktermAttachments" hidden></div>
-                  <textarea
-                    id="docktermComposerInput"
-                    class="composer__input"
-                    rows="1"
-                    placeholder="给 Claude 发消息… 输入 / 查看命令，可粘贴或拖入图片、文件"
-                  ></textarea>
-                  <div class="composer__foot">
-                    <span class="composer__hints"><kbd>↵</kbd> 发送 · <kbd>⇧↵</kbd> 换行 · <kbd>/</kbd> 命令 · <kbd>↑</kbd> 上一条 · <kbd>Esc</kbd> 中断</span>
-                    <div class="composer__actions">
-                      <button type="button" class="btn" id="btnDocktermInterrupt" hidden>■ 中断</button>
-                      <button type="button" class="composer__send" id="btnDocktermSend" disabled>
-                        <span>发送</span>
-                        <span>↵</span>
-                      </button>
-                    </div>
-                  </div>
-                </div>
-                <div class="composer__bar" id="docktermModelBar">
-                  <span class="composer__usage" id="docktermUsage" hidden></span>
-                  <span class="composer__bar-note" id="docktermModelNote"></span>
-                  <div class="dt-pick" id="docktermModelPick">
-                    <button type="button" class="dt-pick__btn" id="docktermModelBtn" aria-haspopup="listbox" aria-expanded="false" aria-label="模型"><span class="dt-pick__label" id="docktermModelLabel">模型</span><svg class="dt-pick__chev" viewBox="0 0 24 24" aria-hidden="true"><polyline points="6 9 12 15 18 9"/></svg></button>
-                    <div class="dt-pick__menu scroller" id="docktermModelMenu" role="listbox" aria-label="模型" hidden></div>
-                  </div>
-                  <div class="dt-pick dt-pick--narrow" id="docktermEffortPick">
-                    <button type="button" class="dt-pick__btn" id="docktermEffortBtn" aria-haspopup="listbox" aria-expanded="false" aria-label="Effort"><span class="dt-pick__label" id="docktermEffortLabel">effort</span><svg class="dt-pick__chev" viewBox="0 0 24 24" aria-hidden="true"><polyline points="6 9 12 15 18 9"/></svg></button>
-                    <div class="dt-pick__menu scroller" id="docktermEffortMenu" role="listbox" aria-label="Effort" hidden></div>
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>
+          <!-- Conversation view (cc-desk-tunnel UI + stream-json engine) -->
+          <div class="dockterm-panechat cc-chat" id="docktermChatStage" hidden></div>
 
           <div class="dt-lightbox" id="docktermLightbox" hidden>
             <img id="docktermLightboxImg" alt="" />
@@ -3230,8 +2229,8 @@
             </div>
 
             <div class="file-path-bar" id="rootDropBar" title="把文件拖到这里可移回项目根目录">
-              <span class="file-path-text" id="currentSessionCwdLabel">/Users/will/.takt-ai/work</span>
-              <span class="machine-badge" id="rightNodeBadge">KR-1 · work</span>
+              <span class="file-path-text" id="currentSessionCwdLabel">加载中...</span>
+              <span class="machine-badge" id="rightNodeBadge">—</span>
             </div>
 
             <div class="search-wrap">
@@ -3474,6 +2473,12 @@
   <script src="/vendor/xterm.js"></script>
   <script src="/vendor/addon-fit.js"></script>
   <script src="/vendor/addon-web-links.js"></script>
+  <script src="/chat/activity.js"></script>
+  <script src="/chat/transcript.js"></script>
+  <script src="/chat/markdown.js"></script>
+  <script src="/chat/conversation.js"></script>
+  <script src="/chat/composer.js"></script>
+  <script src="/chat/chat-controller.js"></script>
   <script>
     (() => {
       // ============================================================================
@@ -3550,12 +2555,12 @@
       let foldersData = [];
       let activeTabId = null;
       let currentFilesCwd = '/root/work';
-      let currentFilesNodeId = 'korea-claude';
+      let currentFilesNodeId = '';
       let currentFileTree = [];
       let selectedFilePath = '';
       let modalMode = 'project'; // 'project' | 'subfolder' | 'rename-session'
       let renamingSessionId = '';
-      let renamingSessionNodeId = 'korea-claude';
+      let renamingSessionNodeId = '';
       let isDraggingFile = false;
 
       // Persistent Collapsible States & Startup Non-Empty Project Filter
@@ -3589,19 +2594,19 @@
       }
 
       function getFolderKey(folder) {
-        return folder.key || `${folder.nodeId || 'korea-claude'}::${folder.path}`;
+        return folder.key || `${folder.nodeId || (nodesData[0] && nodesData[0].id) || 'default'}::${folder.path}`;
       }
 
       function getNodeInfo(nodeId) {
         return (
           nodesData.find((n) => n.id === nodeId || n.sshHost === nodeId || n.localWorkAlias === nodeId) ||
           nodesData[0] || {
-            id: 'korea-claude',
-            name: '韩国首尔主节点',
-            badge: 'KR-1',
-            sshHost: 'korea-claude',
+            id: '',
+            name: '',
+            badge: '',
+            sshHost: '',
             remoteWorkDir: '/root/work',
-            localWorkDir: '/Users/will/.takt-ai/work',
+            localWorkDir: '',
             localWorkAlias: 'work',
             enabled: true,
           }
@@ -3906,9 +2911,11 @@
               }
             }
             if (Array.isArray(data.openTabs)) {
+              const firstNode = nodesData[0] || {};
               for (const ot of data.openTabs) {
+                const resolvedOtNodeId = ot.nodeId || firstNode.id || '';
                 if (ot.cwd) {
-                  visibleProjectKeys.add(`${ot.nodeId || 'korea-claude'}::${ot.cwd}`);
+                  visibleProjectKeys.add(`${resolvedOtNodeId || 'default'}::${ot.cwd}`);
                 }
                 if (!tabs.has(ot.tabId)) {
                   openOrSwitchTerminalTab({
@@ -3916,10 +2923,10 @@
                     sessionId: ot.sessionId,
                     title: ot.title,
                     cwd: ot.cwd,
-                    nodeId: ot.nodeId || 'korea-claude',
-                    nodeBadge: ot.nodeBadge || 'KR-1',
-                    sshHost: ot.sshHost || 'korea-claude',
-                    localWorkAlias: ot.localWorkAlias || 'work',
+                    nodeId: resolvedOtNodeId,
+                    nodeBadge: ot.nodeBadge || firstNode.badge || '',
+                    sshHost: ot.sshHost || firstNode.sshHost || '',
+                    localWorkAlias: ot.localWorkAlias || firstNode.localWorkAlias || 'work',
                     resume: true,
                     mode: ot.mode || 'claude',
                   });
@@ -4528,7 +3535,7 @@
         });
       }
 
-      function startNewConversationInProject(projectPath = '/root/work', projectName = 'work', nodeId = 'korea-claude') {
+      function startNewConversationInProject(projectPath = '/root/work', projectName = 'work', nodeId = '') {
         const node = getNodeInfo(nodeId);
         if (!node.sshHost) {
           openNodeManagerModal(node.id);
@@ -4572,7 +3579,7 @@
         sessionId,
         title,
         cwd,
-        nodeId = 'korea-claude',
+        nodeId = '',
         nodeBadge = '',
         sshHost = '',
         localWorkAlias = '',
@@ -4586,8 +3593,8 @@
 
         const node = getNodeInfo(nodeId);
         const resolvedNodeId = node.id;
-        const resolvedBadge = nodeBadge || node.badge || 'KR-1';
-        const resolvedSshHost = sshHost || node.sshHost || 'korea-claude';
+        const resolvedBadge = nodeBadge || node.badge || '';
+        const resolvedSshHost = sshHost || node.sshHost || '';
         const resolvedAlias = localWorkAlias || node.localWorkAlias || 'work';
 
         const stage = document.getElementById('terminalStage');
@@ -4662,8 +3669,8 @@
           tabId: tabObj.tabId,
           sessionId: tabObj.sessionId,
           cwd: tabObj.cwd,
-          nodeId: tabObj.nodeId || 'korea-claude',
-          sshHost: tabObj.sshHost || 'korea-claude',
+          nodeId: tabObj.nodeId || '',
+          sshHost: tabObj.sshHost || '',
           title: tabObj.title,
           resume: tabObj.resume ? '1' : '0',
           mode: tabObj.mode,
@@ -4773,7 +3780,7 @@
                 tabId: t.tabId,
                 sessionId: t.sessionId,
                 cwd: t.cwd,
-                sshHost: t.sshHost || 'korea-claude',
+                sshHost: t.sshHost || '',
                 title: t.title,
                 resume: t.resume,
               });
@@ -4819,6 +3826,7 @@
         } catch {}
         await fetch(`/api/tabs?tabId=${encodeURIComponent(tabId)}&nodeId=${encodeURIComponent(tabObj.nodeId || '')}`, { method: 'DELETE' }).catch(() => {});
 
+        if (window.TaktChat) window.TaktChat.closeTab(tabId);
         try { tabObj.term.dispose(); } catch {}
         try { tabObj.wrapEl.remove(); } catch {}
         tabs.delete(tabId);
@@ -4860,9 +3868,11 @@
           btn.className = `term-tab${tabId === activeTabId ? ' active' : ''}`;
           btn.dataset.tabId = tabId;
           const isChat = t.viewMode === 'chat';
-          const connected = terminalEngine === 'native' || (t.ws && t.ws.readyState === WebSocket.OPEN);
+          const termConnected = terminalEngine === 'native' || (t.ws && t.ws.readyState === WebSocket.OPEN);
+          const chatConnected = Boolean(t.chat && t.chat.connected);
           const chatStatus = t.chat && t.chat.status;
-          const dotClass = !connected || t.exited ? ' off' : chatStatus === 'working' ? ' working' : chatStatus === 'asking' ? ' asking' : '';
+          const isOnline = isChat ? chatConnected : (termConnected && !t.exited);
+          const dotClass = !isOnline ? ' off' : chatStatus === 'working' ? ' working' : chatStatus === 'asking' ? ' asking' : '';
           btn.title = `${t.title}\n[${t.nodeBadge || ''} · ${t.sshHost}] ${t.cwd}\n双击重命名 · 中键关闭`;
           btn.innerHTML = `
             <span class="term-tab-dot${dotClass}"></span>
@@ -4953,13 +3963,14 @@
       async function loadSessionFiles(cwd = currentFilesCwd, nodeId = currentFilesNodeId, opts = {}) {
         const silent = !!(opts && opts.silent);
         currentFilesCwd = cwd || '/root/work';
-        currentFilesNodeId = nodeId || currentFilesNodeId || 'korea-claude';
-        const activeNode = getNodeInfo(currentFilesNodeId);
+        const activeNode = getNodeInfo(nodeId || currentFilesNodeId);
+        currentFilesNodeId = activeNode.id || '';
         document.getElementById('currentSessionCwdLabel').textContent = toLocalMacPath(currentFilesCwd, currentFilesNodeId);
         const badgeEl = document.getElementById('rightNodeBadge');
         if (badgeEl && activeNode) {
           badgeEl.textContent = `${activeNode.badge} · ${activeNode.localWorkAlias}`;
-          badgeEl.className = activeNode.id === 'korea-claude' ? 'machine-badge' : 'machine-badge secondary';
+          const firstNodeId = (nodesData[0] && nodesData[0].id) || activeNode.id;
+          badgeEl.className = activeNode.id === firstNodeId ? 'machine-badge' : 'machine-badge secondary';
         }
         try {
           const res = await fetch(`/api/files?cwd=${encodeURIComponent(currentFilesCwd)}&nodeId=${encodeURIComponent(currentFilesNodeId)}`);
@@ -6361,962 +5372,70 @@
       });
 
       // ============================================================================
-      // 12. DockTerm — conversation view of the Claude session in the active tab
-      //
-      //  * /api/chat-view returns deltas (epoch + ver); each tab keeps its own message
-      //    list, so switching tabs renders instantly from memory.
-      //  * Messages are rendered once and updated by id — no full re-render per poll,
-      //    so selection, scroll position and expanded blocks survive updates.
-      //  * Scrolling up stops auto-follow; older history pages in at the top.
+      // 12. Conversation Mode (cc-desk-tunnel UI + stream-json WebSocket bridge)
       // ============================================================================
-      const DOCKTERM_SLASH_COMMANDS = [
-        { name: '/clear', desc: '清空当前对话上下文（开始新会话）' },
-        { name: '/compact', desc: '压缩对话上下文，节省 Token' },
-        { name: '/resume', desc: '恢复历史会话（会切回终端选择）' },
-        { name: '/model', desc: '切换模型（会切回终端选择）' },
-        { name: '/status', desc: '查看会话与账户状态' },
-        { name: '/cost', desc: '查看本次会话的 Token 与费用' },
-        { name: '/context', desc: '查看上下文占用' },
-        { name: '/diff', desc: '查看未提交的 Git 变更' },
-        { name: '/review', desc: '审查当前代码变更' },
-        { name: '/init', desc: '为项目生成 / 更新 CLAUDE.md' },
-        { name: '/memory', desc: '编辑 CLAUDE.md 记忆' },
-        { name: '/permissions', desc: '查看或修改工具权限（会切回终端）' },
-        { name: '/mcp', desc: '管理 MCP 服务（会切回终端）' },
-        { name: '/doctor', desc: '诊断 Claude Code 环境' },
-        { name: '/help', desc: '显示内置命令帮助' },
-      ];
-      const DOCKTERM_PICKER_SLASH_RE = /^\/(resume|model|permissions|theme|config|mcp|agents|hooks|vim|login|logout|rewind|export)\b/i;
-
       const dtStage = document.getElementById('docktermChatStage');
-      const dtScroll = document.getElementById('docktermScroll');
-      const dtMessagesEl = document.getElementById('docktermMessages');
-      const dtPendingEl = document.createElement('div');
-      dtPendingEl.className = 'reading__messages';
-      dtMessagesEl.after(dtPendingEl);
-      const dtEmptyEl = document.getElementById('docktermEmpty');
-      const dtLiveEl = document.getElementById('docktermLive');
-      const dtLiveText = document.getElementById('docktermLiveText');
-      const dtLiveTail = document.getElementById('docktermLiveTail');
-      const dtAskEl = document.getElementById('docktermAsk');
-      const dtJumpBtn = document.getElementById('docktermJumpBtn');
-      const dtOlderBtn = document.getElementById('docktermOlderBtn');
-      const dtBeginEl = document.getElementById('docktermBegin');
-      const dtInput = document.getElementById('docktermComposerInput');
-      const dtSlashMenu = document.getElementById('docktermSlashMenu');
-      const dtSendBtn = document.getElementById('btnDocktermSend');
-      const dtInterruptBtn = document.getElementById('btnDocktermInterrupt');
-      const dtStartBtn = document.getElementById('btnDocktermStartClaude');
-      const dtStartBtnLabel = document.getElementById('btnDocktermStartClaudeLabel');
       const dtStatusChip = document.getElementById('ctxStatus');
       const dtStatusText = document.getElementById('ctxStatusText');
       const btnViewTerminal = document.getElementById('btnViewTerminal');
       const btnViewChat = document.getElementById('btnViewChat');
-
-      let dtPinned = true; // follow new output while the reader is at the bottom
-      let dtUnseen = 0;
-      let dtRenderedTabId = null;
-      let dtRenderedEpoch = null;
-      const dtElById = new Map();
-      let dtPollTimer = null;
-      let dtPollBusy = false;
-      let dtPollAgain = false;
-      let dtAskSig = '';
-      let dtAskCoreSig = '';
-      let dtAskLocalChecks = [];
+      const dtLightbox = document.getElementById('docktermLightbox');
+      const dtLightboxImg = document.getElementById('docktermLightboxImg');
+      const dtLightboxName = document.getElementById('docktermLightboxName');
+      const dtLightboxOpenBtn = document.getElementById('btnLightboxOpen');
+      const dtLightboxRevealBtn = document.getElementById('btnLightboxReveal');
+      let dtLightboxItem = null;
       let dtLastToggleAt = 0;
-      let dtSlashIndex = 0;
-      let dtSlashItems = [];
-      const dtDrafts = new Map();
-      const dtHistory = new Map();
-      const dtHistCursor = new Map();
-      const DT_PLACEHOLDER = dtInput.placeholder;
-      // Attachments are sent as "[附件] <path>" lines. A bare image path on a line of its own makes Claude Code
-      // inline the image (clipboard lookup + resize) and throw away the Enter that follows; older messages
-      // still have bare paths.
-      const DT_ATTACH_LABEL = '[附件] ';
-      const DT_PENDING_IDLE_MS = 8000; // a sent message not in the transcript after Claude was idle this long is gone
-      const DT_UPLOAD_LINE_RE = /^(?:\[附件\]\s*)?((?:\/|~\/)\S*\/\.takt\/uploads\/\S+)$/;
-      const dtAttachEl = document.getElementById('docktermAttachments');
-      const dtAttachments = new Map(); // tabId -> [{ id, name, size, isImage, url, file, status, remotePath, error, promise }]
-      let dtSubmitting = false;
+
+      document.body.appendChild(dtLightbox);
+
+      function dtStripLine(p) {
+        return String(p || '').replace(/(?::\d+){1,2}$/, '');
+      }
+
+      function dtChatImageRef(t, ref) {
+        if (ref && String(ref).trim().startsWith('{')) {
+          try {
+            const p = JSON.parse(ref);
+            return { nodeId: t.nodeId, path: (t.chat && t.chat.jsonlPath) || '', off: Number(p.off), idx: Number(p.idx), u: String(p.u || '') };
+          } catch {}
+        }
+        const [off, idx, ...rest] = String(ref || '').split(':');
+        return { nodeId: t.nodeId, path: (t.chat && t.chat.jsonlPath) || '', off: Number(off), idx: Number(idx), u: rest.join(':') };
+      }
 
       function activeChatTab() {
         const t = activeTabId && tabs.has(activeTabId) ? tabs.get(activeTabId) : null;
         return t && t.viewMode === 'chat' ? t : null;
       }
 
-      function ensureChatState(t) {
-        if (!t.chat) {
-          t.chat = {
-            epoch: '',
-            ver: 0,
-            messages: [],
-            byId: new Map(),
-            pending: [],
-            hasOlder: false,
-            loadingOlder: false,
-            loaded: false,
-            status: 'idle',
-            ask: null,
-            tail: '',
-            claudeRunning: false,
-            resolvedSessionId: '',
-            jsonlPath: '',
-            stale: false,
-            model: null, // { model, effort, ts } of the latest reply
-            launch: null, // --model / --effort of the running claude process
-            modelOverride: null, // what the user just switched to (until a reply confirms it)
-            settings: null, // model / effortLevel / modelSettings from the node's settings files
-            settingsLoaded: false,
-            modelNote: '',
-          };
-        }
-        return t.chat;
+      function insertIntoDocktermComposer(text) {
+        if (window.TaktChat) window.TaktChat.insertText(text);
       }
 
-      // ---------------------------------------------------------------- input to the remote TUI
-      function docktermMoveKeys(delta) {
-        if (delta === 0) return '';
-        return (delta > 0 ? '\x1b[B' : '\x1b[A').repeat(Math.abs(delta));
-      }
-      function docktermPickKeys(ask, i) {
-        if (!ask || ask.numbered !== false) return String(i + 1);
-        return `${docktermMoveKeys(i - (ask.cursorRow || 0))}\r`;
-      }
-      function docktermSubmitKeys(ask, desiredChecked) {
-        if (!ask) return '\r';
-        let pos = ask.cursorRow || 0;
-        let out = '';
-        for (let i = 0; i < ask.options.length; i++) {
-          if (!ask.checkable[i]) continue;
-          if (Boolean(desiredChecked[i]) !== Boolean(ask.checked[i])) {
-            out += `${docktermMoveKeys(i - pos)} `;
-            pos = i;
-          }
-        }
-        if (ask.submitIndex !== null && ask.submitIndex !== undefined) {
-          out += `${docktermMoveKeys(ask.submitIndex - pos)}\r`;
-        } else {
-          out += '\r';
-        }
-        return out;
-      }
-      function docktermTextKeys(ask, i, text) {
-        const clean = String(text || '').replace(/[\r\n]+/g, ' ').trim();
-        if (!clean) return '';
-        if (!ask || ask.numbered !== false) return `${i + 1}${clean}\r`;
-        return `${docktermMoveKeys(i - (ask.cursorRow || 0))}${clean}\r`;
+      function addDocktermAttachments(files) {
+        if (window.TaktChat && window.TaktChat.uploadFiles) window.TaktChat.uploadFiles(files);
       }
 
-      async function sendDocktermRawInput(tabObj, rawText, submitEnter = false) {
-        if (!tabObj) return;
-        const text = String(rawText || '');
-        // Long or multi-line text goes in as one bracketed paste; Enter follows once Claude Code
-        // has ingested it (too early and the Enter becomes part of the paste = never submitted).
-        const usePaste = text.includes('\n') || text.length > 400;
-        const payload = usePaste ? `\x1b[200~${text}\x1b[201~` : text;
-        const enterDelayMs = Math.min(1500, 90 + Math.ceil(text.length / 20));
-
-        // In the conversation view the native SwiftTerm view is hidden; feeding it would also make it
-        // the first responder and the composer would stop receiving keystrokes -> go through tmux instead
-        if (terminalEngine === 'native' && hasNativeHost && tabObj.viewMode !== 'chat') {
-          if (payload) postNativeMessage({ action: 'sendInput', tabId: tabObj.tabId, text: payload });
-          if (submitEnter) setTimeout(() => postNativeMessage({ action: 'sendInput', tabId: tabObj.tabId, text: '\r' }), enterDelayMs);
-          return { ok: true };
-        }
-        // An ended local pty (ssh dropped) would swallow the input: go through tmux on the node instead.
-        // A submitted paste always goes through the node, which holds Enter back until Claude Code is done pasting.
-        if (!(usePaste && submitEnter) && tabObj.ws && tabObj.ws.readyState === WebSocket.OPEN && !tabObj.exited) {
-          if (payload) tabObj.ws.send(JSON.stringify({ type: 'input', data: payload }));
-          if (submitEnter) {
-            setTimeout(() => {
-              if (tabObj.ws && tabObj.ws.readyState === WebSocket.OPEN) tabObj.ws.send(JSON.stringify({ type: 'input', data: '\r' }));
-            }, enterDelayMs);
-          }
-          return { ok: true };
-        }
-        try {
-          const res = await fetch('/api/chat-input', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ tabId: tabObj.tabId, nodeId: tabObj.nodeId, sshHost: tabObj.sshHost, text: payload, submitEnter, enterDelayMs }),
-          });
-          return await res.json();
-        } catch {
-          return { ok: false };
-        }
-      }
-
-      function sendDocktermInterrupt() {
-        const t = activeChatTab() || (activeTabId && tabs.get(activeTabId));
-        if (!t) return;
-        sendDocktermRawInput(t, '\x1b', false);
-        showToast('已发送 Esc 中断');
-        kickDocktermPoll(300);
-      }
-
-      // ---------------------------------------------------------------- markdown
-      const MD_LIST_RE = /^(\s*)([-*+•]|\d{1,3}[.)])\s+(.*)$/;
-      const MD_FENCE_RE = /^(\s*)(`{3,}|~{3,})\s*([^\s`]*)[^`]*$/;
-      const MD_TABLE_SEP_RE = /^\s*\|?\s*:?-{2,}:?\s*(\|\s*:?-{2,}:?\s*)*\|?\s*$/;
-
-      // ---------------------------------------------------------------- files & images in messages
-      // Paths in the conversation become links: click previews on the right (from the Mac's disk),
-      // ⌘-click opens with the Mac app, ⌥-click reveals in Finder. Images also get thumbnails.
-      const DT_FILE_EXTS = 'py|js|mjs|cjs|ts|tsx|jsx|md|markdown|json|jsonl|ya?ml|toml|sh|bash|zsh|html?|css|scss|less|swift|rs|go|c|cc|cpp|h|hpp|m|mm|java|kt|rb|php|lua|vue|svelte|txt|log|ini|cfg|conf|env|sql|lock|xml|csv|ipynb|png|jpe?g|gif|webp|svg|bmp|ico|pdf|glb|gltf|stl|obj|fbx|3mf|ply|usdz|step|stp|iges|igs|fcstd|blend|dxf|dwg|epro2?|kicad_pcb|kicad_sch|kicad_pro|bin|hex|elf|uf2|docx?|xlsx?|pptx?|key|pages|numbers|mp4|mov|webm|mp3|wav|m4a|zip|tgz|gz';
-      const DT_SEG = '[\\w.@+\\-\\u4e00-\\u9fa5]';
-      const DT_LINE_SUFFIX = '(?::\\d+(?::\\d+)?)?';
-      const DT_REL_FILE_RE = new RegExp(`^${DT_SEG}+(?:\\/${DT_SEG}+)*\\.(?:${DT_FILE_EXTS})${DT_LINE_SUFFIX}$`, 'i');
-      const DT_ABS_FILE_RE = new RegExp(`^(?:~|\\.{1,2})?(?:\\/${DT_SEG}+)+\\.[a-zA-Z0-9_]{1,10}${DT_LINE_SUFFIX}$`);
-      // Paths in running text need a directory part ("a/b.png", "/x/y.py:12") to avoid false hits
-      const DT_BARE_PATH_RE = new RegExp(`(^|[\\s(（\\[「“'：:，,;*])((?:~|\\.{1,2})?\\/?(?:${DT_SEG}+\\/)+[\\w@+\\-\\u4e00-\\u9fa5]${DT_SEG}*\\.(?:${DT_FILE_EXTS})${DT_LINE_SUFFIX})(?=$|[\\s)）\\]」”'，。、,;；:：!?！？*&])`, 'gi');
-      const DT_IMAGE_EXT_RE = /\.(?:png|jpe?g|gif|webp|svg|bmp)$/i;
-      let mdImageSink = null; // collects image paths while one message renders (gallery below it)
-
-      function dtUnescape(s) {
-        return s.replace(/&quot;/g, '"').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&amp;/g, '&');
-      }
-      function dtStripLine(p) {
-        return p.replace(/(?::\d+){1,2}$/, '');
-      }
-      function dtFileLinkHtml(rawPath, labelHtml) {
-        const clean = dtStripLine(rawPath);
-        if (mdImageSink && DT_IMAGE_EXT_RE.test(clean)) mdImageSink.push(clean);
-        return `<a href="#" class="md-file-link" data-file-path="${escapeHtml(rawPath)}" title="${escapeHtml(clean)}\n点击预览 · ⌘点击用 Mac 应用打开 · ⌥点击在 Finder 中显示">${labelHtml}</a>`;
-      }
-      function dtThumbHtml({ path: p, ref, name }) {
-        const attr = p ? `data-thumb-path="${escapeHtml(p)}"` : `data-thumb-ref="${escapeHtml(ref)}"`;
-        return `<button type="button" class="reading__thumb is-loading" ${attr} title="${escapeHtml(name || p || '图片')}"><img alt="${escapeHtml(name || '')}" loading="lazy" data-src-pending="1"><span class="reading__thumb-name">${escapeHtml(name || '')}</span></button>`;
-      }
-      function dtLinkifyBarePaths(escaped) {
-        return escaped.replace(DT_BARE_PATH_RE, (m, pre, p) => `${pre}${dtFileLinkHtml(dtUnescape(p), p)}`);
-      }
-
-      function mdInline(raw) {
-        const tokens = [];
-        const stash = (html) => `\x00${tokens.push(html) - 1}\x00`;
-        let s = escapeHtml(raw);
-        // code spans (file paths become preview links)
-        s = s.replace(/`([^`\n]+)`/g, (_, code) => {
-          const rawCode = dtUnescape(code);
-          if (DT_ABS_FILE_RE.test(rawCode) || DT_REL_FILE_RE.test(rawCode)) return stash(dtFileLinkHtml(rawCode, code));
-          return stash(`<code class="md-inline-code">${code}</code>`);
-        });
-        // ![alt](local/image.png) — local images render inline; remote ones stay links
-        s = s.replace(/!\[([^\]\n]*)\]\(([^)\s]+)\)/g, (m, alt, src) => {
-          const p = dtUnescape(src);
-          if (/^https?:\/\//i.test(p)) return stash(`<a class="md-link" href="${src}" target="_blank" rel="noopener noreferrer">${alt || src}</a>`);
-          if (!DT_IMAGE_EXT_RE.test(p)) return m;
-          return stash(`<span class="reading__images md-img">${dtThumbHtml({ path: p, name: dtUnescape(alt) || p.split('/').pop() })}</span>`);
-        });
-        // [text](url) and [text](path/to/file)
-        s = s.replace(/\[([^\]\n]+)\]\(([^)\s]+)\)/g, (m, label, url) => {
-          if (/^https?:\/\//i.test(url)) return stash(`<a class="md-link" href="${url}" target="_blank" rel="noopener noreferrer">${label}</a>`);
-          const p = dtUnescape(url).replace(/^file:\/\//, '');
-          if (DT_ABS_FILE_RE.test(p) || DT_REL_FILE_RE.test(p)) return stash(dtFileLinkHtml(p, label));
-          return m;
-        });
-        // bare URLs
-        s = s.replace(/\bhttps?:\/\/[^\s<\x00]+[^\s<\x00.,;:!?)\]'"]/g, (url) => stash(`<a class="md-link" href="${url}" target="_blank" rel="noopener noreferrer">${url}</a>`));
-        // bare file paths
-        s = s.replace(DT_BARE_PATH_RE, (m, pre, p) => `${pre}${stash(dtFileLinkHtml(dtUnescape(p), p))}`);
-        s = s.replace(/\*\*([^*\n]+)\*\*/g, '<strong>$1</strong>');
-        s = s.replace(/(^|[\s(（])\*([^*\s][^*\n]*?)\*(?=[\s.,!?:;)）。，]|$)/g, '$1<em>$2</em>');
-        s = s.replace(/~~([^~\n]+)~~/g, '<del>$1</del>');
-        return s.replace(/\x00(\d+)\x00/g, (_, i) => tokens[Number(i)]);
-      }
-
-      function mdCodeBlock(code, lang) {
-        return `<div class="md-code"><div class="md-code-head"><span>${escapeHtml(lang || 'text')}</span><button type="button" class="md-code-copy">复制</button></div><pre><code>${escapeHtml(code)}</code></pre></div>`;
-      }
-
-      function mdTable(head, rows) {
-        const cells = (row) => row.trim().replace(/^\|/, '').replace(/\|$/, '').split('|').map((c) => mdInline(c.trim()));
-        const h = cells(head);
-        return `<div class="md-table-wrap"><table><thead><tr>${h.map((c) => `<th>${c}</th>`).join('')}</tr></thead><tbody>${rows.map((r) => `<tr>${cells(r).map((c) => `<td>${c}</td>`).join('')}</tr>`).join('')}</tbody></table></div>`;
-      }
-
-      function mdList(lines) {
-        const items = [];
-        for (const l of lines) {
-          const m = l.match(MD_LIST_RE);
-          if (m) {
-            items.push({ indent: m[1].replace(/\t/g, '    ').length, ordered: /\d/.test(m[2]), start: parseInt(m[2], 10) || 1, text: m[3] });
-          } else if (items.length && l.trim()) {
-            items[items.length - 1].text += `\n${l.trim()}`;
-          }
-        }
-        let pos = 0;
-        const build = (level) => {
-          const first = items[pos];
-          let html = first.ordered ? `<ol${first.start > 1 ? ` start="${first.start}"` : ''}>` : '<ul>';
-          while (pos < items.length && items[pos].indent >= level) {
-            const it = items[pos++];
-            let text = it.text;
-            let cls = '';
-            const task = text.match(/^\[( |x|X)\]\s+/);
-            if (task) {
-              cls = ' class="task"';
-              text = text.slice(task[0].length);
-            }
-            let inner = (task ? `<span class="task-box">${task[1] === ' ' ? '☐' : '☑'}</span>` : '') + text.split('\n').map(mdInline).join('<br>');
-            if (pos < items.length && items[pos].indent > it.indent) inner += build(items[pos].indent);
-            html += `<li${cls}>${inner}</li>`;
-          }
-          return html + (first.ordered ? '</ol>' : '</ul>');
-        };
-        let out = '';
-        while (pos < items.length) out += build(items[pos].indent);
-        return out;
-      }
-
-      function mdIsBlockStart(line, next) {
-        return MD_FENCE_RE.test(line) || /^\s{0,3}#{1,6}\s/.test(line) || /^\s{0,3}>/.test(line) ||
-          MD_LIST_RE.test(line) || /^\s{0,3}([-*_])(\s*\1){2,}\s*$/.test(line) ||
-          (line.includes('|') && next !== undefined && MD_TABLE_SEP_RE.test(next));
-      }
-
-      function renderMarkdownBlocks(src) {
-        const lines = String(src || '').replace(/\r\n?/g, '\n').split('\n');
-        const out = [];
-        let i = 0;
-        while (i < lines.length) {
-          const line = lines[i];
-          let m = line.match(MD_FENCE_RE);
-          if (m) {
-            const fenceCh = m[2][0];
-            const fenceLen = m[2].length;
-            const indent = m[1].length;
-            const closeRe = new RegExp(`^\\s*\\${fenceCh}{${fenceLen},}\\s*$`);
-            const buf = [];
-            i++;
-            while (i < lines.length && !closeRe.test(lines[i])) {
-              buf.push(indent ? lines[i].replace(new RegExp(`^ {0,${indent}}`), '') : lines[i]);
-              i++;
-            }
-            i++;
-            out.push(mdCodeBlock(buf.join('\n'), m[3]));
-            continue;
-          }
-          if (!line.trim()) { i++; continue; }
-          m = line.match(/^\s{0,3}(#{1,6})\s+(.*?)(?:\s+#+)?\s*$/);
-          if (m) {
-            out.push(`<h${m[1].length}>${mdInline(m[2])}</h${m[1].length}>`);
-            i++;
-            continue;
-          }
-          if (/^\s{0,3}([-*_])(\s*\1){2,}\s*$/.test(line)) {
-            out.push('<hr>');
-            i++;
-            continue;
-          }
-          if (line.includes('|') && i + 1 < lines.length && MD_TABLE_SEP_RE.test(lines[i + 1])) {
-            const head = line;
-            const rows = [];
-            i += 2;
-            while (i < lines.length && lines[i].includes('|') && lines[i].trim()) rows.push(lines[i++]);
-            out.push(mdTable(head, rows));
-            continue;
-          }
-          if (/^\s{0,3}>/.test(line)) {
-            const buf = [];
-            while (i < lines.length && /^\s{0,3}>/.test(lines[i])) buf.push(lines[i++].replace(/^\s{0,3}>\s?/, ''));
-            out.push(`<blockquote>${renderMarkdownBlocks(buf.join('\n'))}</blockquote>`);
-            continue;
-          }
-          if (MD_LIST_RE.test(line)) {
-            const buf = [];
-            while (i < lines.length) {
-              const l = lines[i];
-              if (MD_LIST_RE.test(l) || (buf.length && /^\s{2,}\S/.test(l) && !MD_FENCE_RE.test(l))) {
-                buf.push(l);
-                i++;
-                continue;
-              }
-              if (!l.trim() && i + 1 < lines.length && (MD_LIST_RE.test(lines[i + 1]) || /^\s{2,}\S/.test(lines[i + 1]))) {
-                i++;
-                continue;
-              }
-              break;
-            }
-            out.push(mdList(buf));
-            continue;
-          }
-          const buf = [line];
-          i++;
-          while (i < lines.length && lines[i].trim() && !mdIsBlockStart(lines[i], lines[i + 1])) buf.push(lines[i++]);
-          out.push(`<p>${buf.map((l) => mdInline(l.trim())).join('<br>')}</p>`);
-        }
-        return out.join('');
-      }
-
-      function renderDocktermMarkdown(mdText) {
-        const sink = [];
-        mdImageSink = sink;
-        let html;
-        try {
-          html = renderMarkdownBlocks(mdText);
-        } finally {
-          mdImageSink = null;
-        }
-        // Images mentioned in the text get a thumbnail strip (inline ![]() images are already shown)
-        const inline = new Set();
-        html.replace(/data-thumb-path="([^"]+)"/g, (_, p) => inline.add(dtUnescape(p)));
-        const gallery = [...new Set(sink)].filter((p) => !inline.has(p)).slice(0, 8);
-        const strip = gallery.length
-          ? `<div class="reading__images">${gallery.map((p) => dtThumbHtml({ path: p, name: p.split('/').pop() })).join('')}</div>`
-          : '';
-        return `<div class="reading__md">${html}</div>${strip}`;
-      }
-
-      // ---------------------------------------------------------------- message elements
-      function formatClock(ts) {
-        if (!ts) return '';
-        const d = new Date(ts);
-        return d.toLocaleString('zh-CN', { hour12: false });
-      }
-
-      function dtChatImageThumbs(images, label) {
-        if (!Array.isArray(images) || !images.length) return '';
-        return `<div class="reading__images">${images.map((im, i) => dtThumbHtml({
-          ref: `${im.off}:${im.idx}:${im.u || ''}`,
-          name: images.length > 1 ? `${label} ${i + 1}` : label,
-        })).join('')}</div>`;
-      }
-
-      function dtRawFileUrl(t, p) {
-        return `/api/raw-file?path=${encodeURIComponent(p)}&cwd=${encodeURIComponent((t && t.cwd) || currentFilesCwd)}&nodeId=${encodeURIComponent((t && t.nodeId) || currentFilesNodeId)}`;
-      }
-      function dtChatImageRef(t, ref) {
-        const [off, idx, ...rest] = String(ref || '').split(':');
-        return { nodeId: t.nodeId, path: (t.chat && t.chat.jsonlPath) || '', off: Number(off), idx: Number(idx), u: rest.join(':') };
-      }
-      function dtChatImageUrl(t, ref) {
-        const r = dtChatImageRef(t, ref);
-        return `/api/chat-image?nodeId=${encodeURIComponent(r.nodeId)}&path=${encodeURIComponent(r.path)}&off=${r.off}&idx=${r.idx}&u=${encodeURIComponent(r.u)}`;
-      }
-
-      // Thumbnails get their URL at render time (they depend on the tab's node / cwd / transcript)
-      function hydrateDocktermThumbs(root, t) {
-        if (!t) return;
-        for (const img of root.querySelectorAll('img[data-src-pending]')) {
-          const btn = img.closest('.reading__thumb');
-          img.removeAttribute('data-src-pending');
-          if (!btn) continue;
-          img.addEventListener('load', () => {
-            btn.classList.remove('is-loading');
-            if (dtPinned && !dtStage.hidden) dtScroll.scrollTop = dtScroll.scrollHeight;
-          }, { once: true });
-          img.addEventListener('error', () => {
-            btn.classList.remove('is-loading');
-            btn.classList.add('is-broken');
-          }, { once: true });
-          img.src = btn.dataset.thumbPath ? dtRawFileUrl(t, btn.dataset.thumbPath) : dtChatImageUrl(t, btn.dataset.thumbRef);
-        }
-      }
-
-      function createDocktermMessageEl(m) {
-        const el = document.createElement('div');
-        el.dataset.id = m.id;
-        el.dataset.seq = String(m.seq);
-        if (m.role === 'user') {
-          el.className = 'reading__user';
-          const split = dtSplitAttachmentLines(m.text || '');
-          const text = split.text;
-          const long = text.length > 1400 || text.split('\n').length > 18;
-          const bubble = text
-            ? `<div class="reading__user-bubble${long ? ' is-clamped' : ''}" title="${escapeHtml(formatClock(m.ts))}">${dtLinkifyBarePaths(escapeHtml(text))}</div>${long ? '<button type="button" class="link-btn reading__expand">展开全部</button>' : ''}`
-            : '';
-          const upImgs = split.files.filter((p) => DT_IMAGE_EXT_RE.test(p));
-          const upFiles = split.files.filter((p) => !DT_IMAGE_EXT_RE.test(p));
-          const uploads = (upImgs.length ? `<div class="reading__images">${upImgs.map((p) => dtThumbHtml({ path: p, name: dtUploadDisplayName(p) })).join('')}</div>` : '')
-            + (upFiles.length ? `<div class="reading__files">${upFiles.map((p) => `<a href="#" class="reading__file md-file-link" data-file-path="${escapeHtml(p)}" title="${escapeHtml(p)}"><b>${escapeHtml(dtExtLabel(p))}</b>${escapeHtml(dtUploadDisplayName(p))}</a>`).join('')}</div>` : '');
-          el.innerHTML = `<div class="reading__user-wrap">${dtChatImageThumbs(m.images, '图片')}${uploads}${bubble}</div>`;
-        } else if (m.role === 'assistant') {
-          el.className = 'reading__assistant';
-          if (!m._html) m._html = renderDocktermMarkdown(m.text || '');
-          el.innerHTML = m._html;
-        } else if (m.role === 'tool' && m.tool) {
-          const ok = m.tool.ok;
-          el.className = `reading__tool${ok === false ? ' reading__tool--err' : ok === true ? ' reading__tool--ok' : ' reading__tool--pending'}`;
-          el.title = `${m.tool.name}${m.tool.path ? `: ${m.tool.path}` : m.tool.summary ? `: ${m.tool.summary}` : ''}`;
-          const summary = !m.tool.summary ? ''
-            : m.tool.path
-              ? `<a href="#" class="reading__tool-summary md-file-link" data-file-path="${escapeHtml(m.tool.path)}" title="${escapeHtml(m.tool.path)}\n点击预览 · ⌘点击用 Mac 应用打开 · ⌥点击在 Finder 中显示">${escapeHtml(m.tool.summary)}</a>`
-              : `<span class="reading__tool-summary">${escapeHtml(m.tool.summary)}</span>`;
-          el.innerHTML = `
-            <span class="reading__tool-icon">${ok === false ? '✕' : ok === true ? '✓' : '●'}</span>
-            <span class="reading__tool-name">${escapeHtml(m.tool.name)}</span>
-            ${summary}
-            ${dtChatImageThumbs(m.tool.images, m.tool.path ? m.tool.path.split('/').pop() : `${m.tool.name} 图片`)}
-          `;
-        } else {
-          el.hidden = true;
-        }
-        hydrateDocktermThumbs(el, activeChatTab() || tabs.get(dtRenderedTabId));
-        return el;
-      }
-
-      function insertDocktermElBySeq(el, seq) {
-        // Walk back from the end (new messages are almost always appended)
-        let ref = dtMessagesEl.lastElementChild;
-        while (ref && Number(ref.dataset.seq) > seq) ref = ref.previousElementSibling;
-        if (ref) ref.after(el);
-        else dtMessagesEl.prepend(el);
-      }
-
-      function mergeDocktermMessages(c, incoming) {
-        const added = [];
-        const updated = [];
-        for (const m of incoming) {
-          const existing = c.byId.get(m.id);
-          if (existing) {
-            Object.assign(existing, m);
-            existing._html = undefined;
-            updated.push(existing);
-            continue;
-          }
-          const msgs = c.messages;
-          if (!msgs.length || msgs[msgs.length - 1].seq < m.seq) msgs.push(m);
-          else if (msgs[0].seq > m.seq) msgs.unshift(m);
-          else {
-            let lo = 0;
-            let hi = msgs.length;
-            while (lo < hi) {
-              const mid = (lo + hi) >> 1;
-              if (msgs[mid].seq < m.seq) lo = mid + 1;
-              else hi = mid;
-            }
-            msgs.splice(lo, 0, m);
-          }
-          c.byId.set(m.id, m);
-          added.push(m);
-        }
-        return { added, updated };
-      }
-
-      // ---------------------------------------------------------------- rendering
-      function scrollDocktermToBottom() {
-        dtScroll.scrollTop = dtScroll.scrollHeight;
-        dtPinned = true;
-        dtUnseen = 0;
-        updateDocktermJump();
-      }
-
-      function updateDocktermJump() {
-        dtJumpBtn.hidden = dtPinned;
-        dtJumpBtn.textContent = dtUnseen > 0 ? `↓ ${dtUnseen} 条新消息` : '↓ 回到最新';
-      }
-
-      function renderDocktermFull(t) {
-        const c = t.chat;
-        dtMessagesEl.innerHTML = '';
-        dtElById.clear();
-        const frag = document.createDocumentFragment();
-        for (const m of c.messages) {
-          const el = createDocktermMessageEl(m);
-          dtElById.set(m.id, el);
-          frag.appendChild(el);
-        }
-        dtMessagesEl.appendChild(frag);
-        dtRenderedTabId = t.tabId;
-        dtRenderedEpoch = c.epoch;
-        dtAskSig = '';
-      }
-
-      function renderDocktermPending(t) {
-        const c = t.chat;
-        dtPendingEl.innerHTML = c.pending.map((p) => {
-          const atts = p.atts || [];
-          const imgs = atts.filter((a) => a.isImage && a.url);
-          const files = atts.filter((a) => !(a.isImage && a.url));
-          return `
-          <div class="reading__user reading__user--pending${p.failed ? ' reading__user--failed' : ''}">
-            <div class="reading__user-wrap">
-              ${imgs.length ? `<div class="reading__images">${imgs.map((a) => `<span class="reading__thumb"><img class="is-local" src="${escapeHtml(a.url)}" alt=""></span>`).join('')}</div>` : ''}
-              ${files.length ? `<div class="reading__files">${files.map((a) => `<span class="reading__file"><b>${escapeHtml(dtExtLabel(a.name))}</b>${escapeHtml(a.name)}</span>`).join('')}</div>` : ''}
-              ${(p.display ?? p.text) ? `<div class="reading__user-bubble">${escapeHtml(p.display ?? p.text)}</div>` : ''}
-              <span class="reading__meta">${p.failed ? '没有提交 · Claude Code 停在「Pasting…」，切到终端看看输入框'
-                : p.queued ? '排队中 · Claude 完成当前步骤后处理' : '发送中…'}</span>
-            </div>
-          </div>`;
-        }).join('');
-      }
-
-      function renderDocktermChrome(t) {
-        const c = t.chat;
-        const busy = c.status === 'working' || c.status === 'asking';
-        dtStage.classList.toggle('is-working', c.status === 'working');
-        dtInput.placeholder = c.status === 'working' ? 'Claude 正在执行… 可以继续输入，消息会排队发送'
-          : c.status === 'asking' ? 'Claude 在等你确认上面的操作'
-            : DT_PLACEHOLDER;
-
-        // load-earlier / beginning marker
-        dtOlderBtn.hidden = !(c.hasOlder && c.messages.length > 0);
-        dtBeginEl.hidden = !(c.loaded && !c.hasOlder && c.messages.length > 0);
-
-        // empty state
-        if (c.messages.length === 0 && c.pending.length === 0 && !busy) {
-          let title;
-          let body;
-          let cta = '';
-          if (!c.loaded) {
-            title = '正在读取对话记录…';
-            body = `${escapeHtml(t.sshHost)}:${escapeHtml(t.cwd)}`;
-          } else if (c.stale) {
-            title = `暂时连不上 ${escapeHtml(t.sshHost)}`;
-            body = '会自动重试。也可以切回终端查看连接情况。';
-          } else if (c.claudeRunning) {
-            title = 'Claude 已就绪';
-            body = '在下方输入消息开始对话。回复、工具调用和权限确认都会显示在这里。';
-          } else {
-            title = '这个标签页还没有运行 Claude';
-            body = '点击下面的按钮在远端 tmux 会话里启动 Claude Code，或按 ⌘E 切回终端手动操作。';
-            cta = `<button type="button" class="btn btn-primary" data-dt-action="launch">${c.messages.length ? '恢复 Claude' : '启动 Claude'}</button>`;
-          }
-          dtEmptyEl.innerHTML = `
-            <div class="reading__empty-title">${title}</div>
-            <div>${body}</div>
-            ${cta}
-            ${c.loaded && !c.claudeRunning && c.tail ? `<pre class="reading__live-tail" style="width:100%; text-align:left;">${escapeHtml(c.tail)}</pre>` : ''}
-          `;
-          dtEmptyEl.hidden = false;
-        } else {
-          dtEmptyEl.hidden = true;
-        }
-
-        // live working card
-        if (c.status === 'working') {
-          dtLiveEl.hidden = false;
-          const spinner = (c.tail || '').split('\n').reverse().find((l) => /…/.test(l) && /^\s*[·✢✳✶✻✽∗*]/.test(l));
-          dtLiveText.textContent = spinner ? spinner.replace(/^\s*[·✢✳✶✻✽∗*]\s*/, '') : 'Claude 正在执行…';
-          dtLiveTail.textContent = (c.tail || '').split('\n').filter((l) => l !== spinner).join('\n');
-        } else {
-          dtLiveEl.hidden = true;
-        }
-
-        // permission / question card
-        if (c.status === 'asking' && c.ask) {
-          const sig = JSON.stringify(c.ask);
-          if (sig !== dtAskSig || dtAskEl.hidden) {
-            buildDocktermAskCard(t, c.ask);
-            dtAskSig = sig;
-          }
-          dtAskEl.hidden = false;
-        } else {
-          dtAskEl.hidden = true;
-          dtAskEl.innerHTML = '';
-          dtAskSig = '';
-        }
-
-        // context bar status + actions
-        if (t.tabId === activeTabId) {
-          let cls = '';
-          let text;
-          if (c.stale) { cls = 'stale'; text = '连接中断 · 显示缓存'; }
-          else if (!c.loaded) text = '读取中…';
-          else if (c.status === 'working') { cls = 'working'; text = '执行中'; }
-          else if (c.status === 'asking') { cls = 'asking'; text = '等待你确认'; }
-          else if (c.claudeRunning) { cls = 'ready'; text = 'Claude 就绪'; }
-          else if (c.messages.length) text = 'Claude 未运行';
-          else text = 'Shell';
+      function updateChatContextStatus() {
+        const t = activeChatTab();
+        if (!t || !dtStatusChip || !dtStatusText) return;
+        const st = t.chat && t.chat.status;
+        if (st === 'working') {
           dtStatusChip.hidden = false;
-          dtStatusChip.className = `status-chip ${cls}`;
-          dtStatusText.textContent = text;
-          dtStatusChip.title = c.resolvedSessionId && c.jsonlPath ? `会话 ${c.resolvedSessionId}\n${c.jsonlPath}` : '';
-          dtStartBtn.hidden = !c.loaded || c.claudeRunning || c.stale;
-          dtStartBtnLabel.textContent = c.messages.length ? '恢复 Claude' : '启动 Claude';
-          dtInterruptBtn.hidden = !busy;
-        }
-      }
-
-      function renderDocktermView(t, { full = false, added = [], updated = [] } = {}) {
-        const c = t.chat;
-        const wasPinned = dtPinned;
-        if (full || dtRenderedTabId !== t.tabId || dtRenderedEpoch !== c.epoch) {
-          renderDocktermFull(t);
+          dtStatusChip.className = 'status-chip working';
+          dtStatusText.textContent = '执行中';
+        } else if (st === 'asking') {
+          dtStatusChip.hidden = false;
+          dtStatusChip.className = 'status-chip asking';
+          dtStatusText.textContent = '等待确认';
         } else {
-          for (const m of updated) {
-            const old = dtElById.get(m.id);
-            const el = createDocktermMessageEl(m);
-            if (old) old.replaceWith(el);
-            else insertDocktermElBySeq(el, m.seq);
-            dtElById.set(m.id, el);
-          }
-          let appended = 0;
-          for (const m of added) {
-            const el = createDocktermMessageEl(m);
-            insertDocktermElBySeq(el, m.seq);
-            dtElById.set(m.id, el);
-            if (m.role !== 'tool') appended += 1;
-          }
-          if (!wasPinned && appended) {
-            dtUnseen += appended;
-            updateDocktermJump();
-          }
-        }
-        renderDocktermPending(t);
-        renderDocktermChrome(t);
-        if (wasPinned) requestAnimationFrame(scrollDocktermToBottom);
-      }
-
-      function buildDocktermAskCard(t, ask) {
-        const coreSig = JSON.stringify([ask.title, ask.options]);
-        if (coreSig !== dtAskCoreSig) {
-          dtAskCoreSig = coreSig;
-          dtAskLocalChecks = ask.checked.slice();
-        }
-        const send = (keys) => {
-          if (!keys) return;
-          sendDocktermRawInput(t, keys, false);
-          kickDocktermPoll(250);
-        };
-        const optionHtml = (opt, idx, { checkbox = false } = {}) => {
-          const desc = ask.descriptions && ask.descriptions[idx] ? `<span class="askcard__desc">${escapeHtml(ask.descriptions[idx])}</span>` : '';
-          const isAllow = ask.binary && idx === 0;
-          const isDeny = ask.binary && idx === ask.options.length - 1;
-          const cls = `${isAllow ? ' askcard__btn--allow' : isDeny ? ' askcard__btn--deny' : ''}${idx === ask.cursorRow ? ' is-cursor' : ''}`;
-          const lead = checkbox
-            ? `<input type="checkbox" tabindex="-1" ${dtAskLocalChecks[idx] ? 'checked' : ''}>`
-            : `<span class="askcard__key">${ask.numbered === false ? '›' : idx + 1}</span>`;
-          return `<button type="button" class="askcard__btn${cls}" data-ask-idx="${idx}"${checkbox ? ' data-ask-check="1"' : ''}>${lead}<span class="askcard__label"><b>${escapeHtml(opt)}</b>${desc}</span></button>`;
-        };
-
-        const rows = [];
-        ask.options.forEach((opt, idx) => {
-          if (ask.multiSelect && idx === ask.submitIndex) return;
-          if (idx === ask.freeTextIndex) {
-            rows.push(`<div class="askcard__free"><input type="text" data-ask-free="${idx}" placeholder="${escapeHtml(opt.replace(/\.$/, ''))}…"><button type="button" class="btn" data-ask-free-send="${idx}">发送</button></div>`);
-            return;
-          }
-          rows.push(optionHtml(opt, idx, { checkbox: ask.multiSelect && ask.checkable[idx] }));
-        });
-        if (ask.multiSelect) rows.push('<button type="button" class="btn btn-primary" data-ask-submit="1" style="align-self:flex-start;">提交选择</button>');
-        rows.push('<button type="button" class="askcard__btn askcard__btn--cancel" data-ask-cancel="1"><span class="askcard__key">Esc</span><span class="askcard__label"><b>取消</b></span></button>');
-
-        dtAskEl.innerHTML = `
-          <div class="askcard__head">
-            <span class="askcard__dot"></span>
-            <span>${ask.binary ? '需要你的许可' : 'Claude 在等你回答'}</span>
-            <button type="button" class="btn" data-ask-term="1">在终端中处理</button>
-          </div>
-          ${ask.steps && ask.steps.length ? `<div class="askcard__steps">${ask.steps.map((st) => `<span class="askcard__step${st.done ? ' done' : ''}">${st.done ? '✓ ' : ''}${escapeHtml(st.label)}</span>`).join('')}</div>` : ''}
-          <pre class="askcard__title">${escapeHtml(ask.title)}</pre>
-          <div class="askcard__actions">${rows.join('')}</div>
-        `;
-
-        dtAskEl.querySelectorAll('[data-ask-idx]').forEach((btn) => {
-          btn.addEventListener('click', () => {
-            const idx = Number(btn.dataset.askIdx);
-            if (btn.dataset.askCheck) {
-              dtAskLocalChecks[idx] = !dtAskLocalChecks[idx];
-              const cb = btn.querySelector('input[type="checkbox"]');
-              if (cb) cb.checked = dtAskLocalChecks[idx];
-              return;
-            }
-            send(docktermPickKeys(ask, idx));
-          });
-        });
-        dtAskEl.querySelectorAll('[data-ask-free]').forEach((inp) => {
-          const idx = Number(inp.dataset.askFree);
-          const go = () => {
-            const v = inp.value.trim();
-            if (!v) { inp.focus(); return; }
-            send(docktermTextKeys(ask, idx, v));
-            inp.value = '';
-          };
-          inp.addEventListener('keydown', (e) => {
-            if (e.isComposing || e.keyCode === 229) return;
-            if (e.key === 'Enter') { e.preventDefault(); go(); }
-          });
-          const btn = dtAskEl.querySelector(`[data-ask-free-send="${idx}"]`);
-          if (btn) btn.addEventListener('click', go);
-        });
-        const submit = dtAskEl.querySelector('[data-ask-submit]');
-        if (submit) submit.addEventListener('click', () => send(docktermSubmitKeys(ask, dtAskLocalChecks)));
-        dtAskEl.querySelector('[data-ask-cancel]').addEventListener('click', () => send('\x1b'));
-        dtAskEl.querySelector('[data-ask-term]').addEventListener('click', () => toggleDocktermChatMode(t.tabId, 'terminal'));
-      }
-
-      // ---------------------------------------------------------------- data flow
-      function chatQuery(t, extra = {}) {
-        return new URLSearchParams({
-          tabId: t.tabId,
-          sessionId: t.sessionId || t.tabId,
-          cwd: t.cwd || '/root/work',
-          nodeId: t.nodeId || '',
-          sshHost: t.sshHost || '',
-          ...extra,
-        }).toString();
-      }
-
-      function applyDocktermData(t, data) {
-        const c = ensureChatState(t);
-        const prevStatus = c.status;
-        const prevCmd = claudeLaunchCommand(t);
-        let added = [];
-        let updated = [];
-        let full = false;
-        if (data.reset || data.epoch !== c.epoch) {
-          c.epoch = data.epoch;
-          c.messages = [];
-          c.byId = new Map();
-          ({ added } = mergeDocktermMessages(c, data.messages || []));
-          c.ver = Number(data.ver) || 0;
-          full = true;
-        } else {
-          ({ added, updated } = mergeDocktermMessages(c, data.messages || []));
-          c.ver = Math.max(c.ver, Number(data.ver) || 0);
-        }
-        c.hasOlder = Boolean(data.hasOlder);
-        c.status = data.status || 'idle';
-        c.ask = data.ask || null;
-        c.tail = data.tail || '';
-        c.claudeRunning = Boolean(data.claudeRunning);
-        c.resolvedSessionId = data.resolvedSessionId || '';
-        c.jsonlPath = data.jsonlPath || '';
-        c.stale = Boolean(data.stale);
-        c.loaded = true;
-        c.model = data.model || null;
-        c.launch = data.launch || null;
-        c.claudeCwd = data.claudeCwd || '';
-        if (c.modelOverride && c.model && c.model.ts > c.modelOverride.at) c.modelOverride = null;
-
-        // Optimistic bubbles disappear once the transcript has the real message (a message typed while
-        // Claude works shows up when Claude picks it up mid-turn, as a queued_command record)
-        const now = Date.now();
-        if (c.status === 'working' || c.status === 'asking') c.lastBusyAt = now;
-        if (c.pending.length) {
-          const newUsers = added.filter((m) => m.role === 'user');
-          const norm = (x) => String(x || '').replace(/\s+/g, ' ').trim();
-          for (const u of newUsers) {
-            const i = c.pending.findIndex((p) => norm(p.text) === norm(u.text) || (u.ts && u.ts >= p.at - 3000));
-            if (i >= 0) c.pending.splice(i, 1);
-          }
-          // Claude takes queued messages as soon as it is idle: one that is still missing from the transcript
-          // after Claude has been idle for a while never arrived (or is still sitting in Claude's input box)
-          let lost = 0;
-          c.pending = c.pending.filter((p) => {
-            if (p.failed) return now - p.failedAt < 120000;
-            if (p.inflight) return true; // the node is still waiting for Claude Code to finish the paste
-            if (!c.stale && now - Math.max(p.sentAt || p.at, c.lastBusyAt || 0) > DT_PENDING_IDLE_MS) {
-              if (c.claudeRunning) lost += 1;
-              return false;
-            }
-            return now - p.at < (p.queued ? 15 * 60000 : 60000);
-          });
-          if (lost && activeChatTab() === t) showToast(lost === 1 ? '有一条消息没有出现在对话记录里，可能还停在 Claude 的输入框（切到终端看看）'
-            : `有 ${lost} 条消息没有出现在对话记录里，可能还停在 Claude 的输入框（切到终端看看）`, 6000);
-        }
-        // Once Claude has written this tab's own session, later launches must resume it
-        if (c.jsonlPath && c.resolvedSessionId === t.sessionId) t.resume = true;
-
-        if (activeChatTab() === t) {
-          renderDocktermView(t, { full, added, updated });
-          renderDocktermModelBar(t);
-        }
-        if (prevStatus !== c.status) renderTabBar();
-        if (prevCmd !== claudeLaunchCommand(t) && t.tabId === activeTabId) renderContextBar();
-      }
-
-      async function pollDockterm() {
-        const t = activeChatTab();
-        if (!t) return;
-        if (dtPollBusy) {
-          dtPollAgain = true;
-          return;
-        }
-        dtPollBusy = true;
-        clearTimeout(dtPollTimer);
-        const c = ensureChatState(t);
-        try {
-          const res = await fetch(`/api/chat-view?${chatQuery(t, { epoch: c.epoch, ver: String(c.ver) })}`, { cache: 'no-store' });
-          const data = await res.json();
-          if (data && data.ok && tabs.has(t.tabId)) applyDocktermData(t, data);
-        } catch {
-          c.stale = true;
-          if (activeChatTab() === t) renderDocktermChrome(t);
-        } finally {
-          dtPollBusy = false;
-          if (dtPollAgain) {
-            dtPollAgain = false;
-            kickDocktermPoll(0);
-          } else {
-            scheduleDocktermPoll();
-          }
+          dtStatusChip.hidden = false;
+          dtStatusChip.className = 'status-chip idle';
+          dtStatusText.textContent = (t.chat && t.chat.connected) ? '已就绪' : '连接中';
         }
       }
 
-      function scheduleDocktermPoll(delay) {
-        clearTimeout(dtPollTimer);
-        const t = activeChatTab();
-        if (!t) return;
-        const c = t.chat;
-        const busy = c && (c.status === 'working' || c.status === 'asking' || c.pending.length > 0);
-        const d = delay !== undefined ? delay
-          : document.hidden ? 8000
-          : busy ? 1000
-          : c && c.stale ? 4000
-          : 2000;
-        dtPollTimer = setTimeout(pollDockterm, d);
-      }
-
-      function kickDocktermPoll(ms = 0) {
-        if (dtPollBusy) {
-          dtPollAgain = true;
-          return;
-        }
-        scheduleDocktermPoll(ms);
-      }
-
-      document.addEventListener('visibilitychange', () => {
-        if (!document.hidden) kickDocktermPoll(0);
-      });
-
-      async function loadOlderDockterm() {
-        const t = activeChatTab();
-        if (!t || !t.chat) return;
-        const c = t.chat;
-        if (c.loadingOlder || !c.hasOlder) return;
-        c.loadingOlder = true;
-        dtOlderBtn.disabled = true;
-        dtOlderBtn.textContent = '加载中…';
-        try {
-          const res = await fetch(`/api/chat-history?${chatQuery(t, { epoch: c.epoch })}`, { cache: 'no-store' });
-          const data = await res.json();
-          if (data && data.ok && data.epoch === c.epoch) {
-            const { added } = mergeDocktermMessages(c, data.messages || []);
-            c.hasOlder = Boolean(data.hasOlder);
-            if (activeChatTab() === t && dtRenderedTabId === t.tabId && added.length) {
-              // keep the reader's position while content grows above them
-              const prevHeight = dtScroll.scrollHeight;
-              const prevTop = dtScroll.scrollTop;
-              const frag = document.createDocumentFragment();
-              for (const m of added.sort((a, b) => a.seq - b.seq)) {
-                const el = createDocktermMessageEl(m);
-                dtElById.set(m.id, el);
-                frag.appendChild(el);
-              }
-              dtMessagesEl.prepend(frag);
-              dtScroll.scrollTop = prevTop + (dtScroll.scrollHeight - prevHeight);
-            }
-          } else if (data && data.error === 'epoch-mismatch') {
-            kickDocktermPoll(0);
-          } else if (data && data.error) {
-            showToast(data.error);
-          }
-        } catch {
-          showToast('加载更早的消息失败');
-        } finally {
-          c.loadingOlder = false;
-          dtOlderBtn.disabled = false;
-          dtOlderBtn.textContent = '加载更早的消息';
-          if (activeChatTab() === t) renderDocktermChrome(t);
-        }
-      }
-
-      // ---------------------------------------------------------------- view switching
       function syncDocktermViewUI() {
         const t = activeTabId && tabs.has(activeTabId) ? tabs.get(activeTabId) : null;
         const inChat = Boolean(t && t.viewMode === 'chat');
@@ -7329,22 +5448,10 @@
         renderContextBar();
 
         if (inChat) {
-          ensureChatState(t);
-          dtInput.value = dtDrafts.get(t.tabId) || '';
-          renderDocktermAttachments(t);
-          autoGrowDocktermComposer();
-          updateDocktermSendState();
-          dtPinned = true;
-          dtUnseen = 0;
-          renderDocktermView(t, { full: true });
-          kickDocktermPoll(0);
-          renderDocktermUsage(t);
-          renderDocktermModelBar(t, true);
-          ensureDocktermMeta(t);
-          setTimeout(() => dtInput.focus(), 30);
+          if (window.TaktChat) window.TaktChat.activateTab(t);
+          updateChatContextStatus();
         } else {
-          clearTimeout(dtPollTimer);
-          dtSlashMenu.classList.remove('open');
+          if (window.TaktChat) window.TaktChat.deactivate();
           if (t && terminalEngine === 'web') {
             setTimeout(() => {
               try {
@@ -7361,7 +5468,6 @@
           showToast('请先打开一个终端标签页');
           return;
         }
-        // The macOS menu shortcut and the page's own ⌘E handler can both fire for one key press
         const now = Date.now();
         if (!explicitMode && now - dtLastToggleAt < 300) return;
         dtLastToggleAt = now;
@@ -7379,755 +5485,6 @@
         }
       }
 
-      // ---------------------------------------------------------------- usage + model / effort
-      // Usage: fetched by the node from Anthropic's usage endpoint (what /usage shows) when the
-      // conversation view opens and every 10 minutes while it is open — nothing is typed into
-      // the terminal. Models: listed once per node. /model and /effort only run when you switch.
-      const DT_USAGE_EVERY_MS = 10 * 60 * 1000;
-      const DT_EFFORTS = ['low', 'medium', 'high', 'xhigh', 'max'];
-      const DT_LINE_ORDER = ['fable', 'opus', 'sonnet', 'haiku'];
-      const dtUsageEl = document.getElementById('docktermUsage');
-      const dtPicks = {
-        model: { wrap: document.getElementById('docktermModelPick'), btn: document.getElementById('docktermModelBtn'), label: document.getElementById('docktermModelLabel'), menu: document.getElementById('docktermModelMenu'), title: '模型', cmd: '/model' },
-        effort: { wrap: document.getElementById('docktermEffortPick'), btn: document.getElementById('docktermEffortBtn'), label: document.getElementById('docktermEffortLabel'), menu: document.getElementById('docktermEffortMenu'), title: 'Effort', cmd: '/effort' },
-      };
-      let dtOpenPick = ''; // 'model' | 'effort' | ''
-      const dtModelNote = document.getElementById('docktermModelNote');
-      const dtNodeMeta = new Map(); // nodeId -> { usage, usageError, plan, usageAt, models, extraModels, modelsLoaded }
-      let dtModelBarSig = '';
-
-      function dtMetaFor(t) {
-        const id = (t && t.nodeId) || '';
-        if (!dtNodeMeta.has(id)) dtNodeMeta.set(id, { usage: null, usageAt: 0, models: [], extraModels: [], modelsLoaded: false, inflight: null });
-        return dtNodeMeta.get(id);
-      }
-
-      async function loadDocktermMeta(t, parts, { force = false } = {}) {
-        const meta = dtMetaFor(t);
-        const c = ensureChatState(t);
-        try {
-          const q = new URLSearchParams({ nodeId: t.nodeId || '', cwd: t.cwd || '', parts: parts.join(',') });
-          if (force) q.set('force', '1');
-          const res = await fetch(`/api/claude-meta?${q}`, { cache: 'no-store' });
-          const data = await res.json();
-          if (parts.includes('usage')) {
-            meta.usageAt = Date.now();
-            if (data.usage) meta.usage = data.usage;
-            meta.usageError = data.usageError || data.error || '';
-            meta.plan = data.plan || meta.plan || '';
-          }
-          if (parts.includes('models') && Array.isArray(data.models)) {
-            meta.models = data.models;
-            meta.extraModels = Array.isArray(data.extraModels) ? data.extraModels : [];
-            meta.modelsLoaded = data.models.length > 0 || meta.extraModels.length > 0;
-          }
-          if (parts.includes('current') && data.settings) {
-            c.settings = data.settings;
-            c.settingsLoaded = true;
-          }
-        } catch {
-          if (parts.includes('usage')) meta.usageAt = Date.now() - DT_USAGE_EVERY_MS + 60 * 1000; // retry in a minute
-        }
-        if (activeChatTab() === t) {
-          renderDocktermUsage(t);
-          renderDocktermModelBar(t, true);
-        }
-      }
-
-      function ensureDocktermMeta(t) {
-        const meta = dtMetaFor(t);
-        const parts = [];
-        if (!meta.modelsLoaded) parts.push('models');
-        if (!t.chat.settingsLoaded) parts.push('current');
-        if (Date.now() - meta.usageAt >= DT_USAGE_EVERY_MS) parts.push('usage');
-        if (parts.length) loadDocktermMeta(t, parts);
-      }
-
-      setInterval(() => {
-        const t = activeChatTab();
-        if (!t || document.hidden) return;
-        if (Date.now() - dtMetaFor(t).usageAt >= DT_USAGE_EVERY_MS) loadDocktermMeta(t, ['usage']);
-      }, 30 * 1000);
-
-      function dtResetText(iso) {
-        const at = Date.parse(iso || '');
-        if (!Number.isFinite(at)) return '';
-        const d = new Date(at);
-        const left = at - Date.now();
-        const hm = d.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit', hour12: false });
-        if (left <= 0) return '即将重置';
-        if (left < 24 * 3600 * 1000) {
-          const h = Math.floor(left / 3600000);
-          const m = Math.round((left % 3600000) / 60000);
-          return `${hm} 重置（${h ? `${h} 小时 ` : ''}${m} 分钟后）`;
-        }
-        return `${d.getMonth() + 1}月${d.getDate()}日 ${hm} 重置`;
-      }
-
-      function renderDocktermUsage(t) {
-        const meta = t ? dtMetaFor(t) : null;
-        const u = meta && meta.usage;
-        if (!u || (!u.fiveHour && !u.week)) {
-          dtUsageEl.hidden = true;
-          return;
-        }
-        const meter = (label, x) => {
-          if (!x) return '';
-          const pct = Math.max(0, Math.min(100, Math.round(Number(x.pct) || 0)));
-          const cls = pct >= 90 ? ' is-crit' : pct >= 75 ? ' is-warn' : '';
-          const r = 9;
-          const len = 2 * Math.PI * r;
-          const arc = pct > 0 ? Math.max(1.5, (len * pct) / 100) : 0;
-          return `<span class="usage-meter${cls}"><span>${label}</span><span class="usage-ring"><svg viewBox="0 0 22 22" aria-hidden="true"><circle class="usage-ring__track" cx="11" cy="11" r="${r}"/>${arc ? `<circle class="usage-ring__value" cx="11" cy="11" r="${r}" stroke-dasharray="${arc.toFixed(2)} ${len.toFixed(2)}"/>` : ''}</svg><span class="usage-ring__num${pct >= 100 ? ' is-full' : ''}">${pct}</span></span></span>`;
-        };
-        dtUsageEl.innerHTML = meter('5h', u.fiveHour) + meter('周', u.week);
-        const lines = [];
-        const withReset = (text, iso) => {
-          const r = dtResetText(iso);
-          return r ? `${text} · ${r}` : text;
-        };
-        if (u.fiveHour) lines.push(withReset(`5 小时用量 ${Math.round(u.fiveHour.pct)}%`, u.fiveHour.resetsAt));
-        if (u.week) lines.push(withReset(`本周用量 ${Math.round(u.week.pct)}%`, u.week.resetsAt));
-        if (u.weekOpus) lines.push(`本周 Opus ${Math.round(u.weekOpus.pct)}%`);
-        if (u.weekSonnet) lines.push(`本周 Sonnet ${Math.round(u.weekSonnet.pct)}%`);
-        const when = u.fetchedAt ? new Date(u.fetchedAt).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit', hour12: false }) : '';
-        lines.push(u.source === 'cache'
-          ? `来自 Claude Code 的缓存（${when}）· 实时查询失败：${meta.usageError || '未知原因'}`
-          : `更新于 ${when} · 每 10 分钟刷新${meta.plan ? ` · ${meta.plan}` : ''}`);
-        dtUsageEl.title = lines.join('\n');
-        dtUsageEl.classList.toggle('is-stale', u.source === 'cache');
-        dtUsageEl.hidden = false;
-      }
-
-      function dtModelLabel(m) {
-        return String((m && m.name) || '').replace(/^Claude\s+/i, '') || (m && m.id) || '';
-      }
-
-      function dtModelOptions(t) {
-        const meta = dtMetaFor(t);
-        const models = (meta.models || []).filter((m) => !m.deprecated);
-        const latest = new Map();
-        for (const m of models) if (m.line && !latest.has(m.line)) latest.set(m.line, m); // API lists newest first
-        const lines = [...DT_LINE_ORDER.filter((l) => latest.has(l)), ...[...latest.keys()].filter((l) => !DT_LINE_ORDER.includes(l))];
-        const primary = lines.map((l) => latest.get(l));
-        const ids = new Set(primary.map((m) => m.id));
-        const extra = (meta.extraModels || []).filter((m) => m.id && !ids.has(m.id));
-        extra.forEach((m) => ids.add(m.id));
-        const others = models.filter((m) => !ids.has(m.id));
-        return { models, primary, extra, others };
-      }
-
-      // Aliases (opus / sonnet / default …) map to the newest model of that line
-      function dtResolveModelId(name, models) {
-        const v = String(name || '').trim();
-        if (!v) return '';
-        if (models.some((m) => m.id === v)) return v;
-        const base = v.replace(/\[.*\]$/, '');
-        if (models.some((m) => m.id === base)) return base;
-        const alias = base.toLowerCase();
-        const hit = models.find((m) => m.line === alias && !m.deprecated);
-        return hit ? hit.id : v;
-      }
-
-      function dtCurrentModel(t) {
-        const c = t.chat;
-        const o = c.modelOverride;
-        const tr = c.model;
-        const st = c.settings || {};
-        const launch = c.launch || {};
-        const models = dtMetaFor(t).models || [];
-        let model = (o && o.model) || (tr && tr.model) || launch.model || st.model || '';
-        let source = o && o.model ? 'pending' : tr && tr.model ? 'reply' : launch.model ? 'launch' : st.model ? 'settings' : '';
-        const id = dtResolveModelId(model, models);
-        const perModel = (st.modelSettings && (st.modelSettings[id] || st.modelSettings[model])) || {};
-        const effort = (o && o.effort) || (!(o && o.model) && tr && tr.effort) || launch.effort || perModel.effortLevel || st.effortLevel || '';
-        if (!model) source = '';
-        return { model: id || model, raw: model, effort, source };
-      }
-
-      function renderDocktermModelBar(t, force = false) {
-        if (!t || !t.chat) return;
-        const c = t.chat;
-        const cur = dtCurrentModel(t);
-        const opts = dtModelOptions(t);
-        const busy = c.status === 'working' || c.status === 'asking';
-        const sig = JSON.stringify([t.tabId, cur, opts.models.length, opts.extra.length, c.claudeRunning, busy, c.modelNote]);
-        if (!force && sig === dtModelBarSig) return;
-        dtModelBarSig = sig;
-
-        const m = opts.models.find((x) => x.id === cur.model) || opts.extra.find((x) => x.id === cur.model);
-        const modelName = !cur.model ? (opts.models.length ? '模型' : '模型（载入中…）') : m ? (m.name ? dtModelLabel(m) : m.id) : cur.model;
-        dtPicks.model.label.textContent = modelName;
-        dtPicks.effort.label.textContent = cur.effort || 'effort';
-
-        const disabled = !c.claudeRunning;
-        dtPicks.model.btn.disabled = disabled;
-        dtPicks.effort.btn.disabled = disabled;
-        if (disabled && dtOpenPick) closeDocktermPick();
-        const srcText = { reply: '当前对话正在使用', pending: '刚切换，等下一条回复确认', launch: '启动参数', settings: '来自 Claude 设置' }[cur.source] || '';
-        dtPicks.model.btn.title = disabled ? 'Claude 未运行' : `模型${srcText ? ` · ${srcText}` : ''}\n切换时会在这个会话里执行 /model`;
-        dtPicks.effort.btn.title = disabled ? 'Claude 未运行' : `Effort${srcText ? ` · ${srcText}` : ''}\n切换时会在这个会话里执行 /effort`;
-        dtModelNote.textContent = c.modelNote || (disabled ? 'Claude 未运行' : busy ? 'Claude 正在执行，空闲后可切换' : '');
-        if (dtOpenPick) buildDocktermPickMenu(dtOpenPick, t);
-      }
-
-      // ---- Codex-style option menus for model / effort (open upward from the buttons)
-      const DT_CHECK_SVG = '<svg class="dt-pick__check" viewBox="0 0 24 24" aria-hidden="true"><polyline points="20 6 9 17 4 12"/></svg>';
-
-      function dtPickGroups(kind, t) {
-        const cur = dtCurrentModel(t);
-        if (kind === 'effort') {
-          const m = dtModelOptions(t).models.find((x) => x.id === cur.model);
-          const levels = m && m.efforts && m.efforts.length ? m.efforts : DT_EFFORTS;
-          const items = levels.map((lv) => ({ value: lv, label: lv }));
-          items.push({ value: 'auto', label: 'auto', sub: '自动' });
-          if (cur.effort && !items.some((i) => i.value === cur.effort)) items.unshift({ value: cur.effort, label: cur.effort });
-          return { current: cur.effort, groups: [{ title: '', items }] };
-        }
-        const opts = dtModelOptions(t);
-        const groups = [{ title: '', items: [{ value: 'default', label: '默认（账号推荐）' }] }];
-        const latest = [
-          ...opts.primary.map((m) => ({ value: m.id, label: dtModelLabel(m), sub: m.id })),
-          ...opts.extra.map((m) => ({ value: m.id, label: m.name || m.id, sub: m.description ? '' : m.id })),
-        ];
-        if (latest.length) groups.push({ title: '最新', items: latest });
-        if (opts.others.length) groups.push({ title: '其他版本', items: opts.others.map((m) => ({ value: m.id, label: dtModelLabel(m), sub: m.id })) });
-        const known = new Set(groups.flatMap((g) => g.items.map((i) => i.value)));
-        if (cur.model && !known.has(cur.model)) groups[0].items.unshift({ value: cur.model, label: cur.model });
-        return { current: cur.model, groups };
-      }
-
-      function buildDocktermPickMenu(kind, t) {
-        const { current, groups } = dtPickGroups(kind, t);
-        const pick = dtPicks[kind];
-        let html = `<div class="dt-pick__title">${escapeHtml(pick.title)}</div>`;
-        for (const g of groups) {
-          if (g.title) html += `<div class="dt-pick__title">${escapeHtml(g.title)}</div>`;
-          for (const it of g.items) {
-            html += `<button type="button" class="dt-pick__item${it.value === current ? ' is-current' : ''}" role="option" aria-selected="${it.value === current}" data-value="${escapeHtml(it.value)}"><span class="dt-pick__name">${escapeHtml(it.label)}</span>${it.sub ? `<span class="dt-pick__sub">${escapeHtml(it.sub)}</span>` : ''}${DT_CHECK_SVG}</button>`;
-          }
-        }
-        pick.menu.innerHTML = html;
-      }
-
-      function openDocktermPick(kind) {
-        const t = activeChatTab();
-        if (!t || !t.chat || !t.chat.claudeRunning) return;
-        closeDocktermPick();
-        dtOpenPick = kind;
-        const pick = dtPicks[kind];
-        buildDocktermPickMenu(kind, t);
-        pick.menu.hidden = false;
-        pick.wrap.classList.add('is-open');
-        pick.btn.setAttribute('aria-expanded', 'true');
-        const cur = pick.menu.querySelector('.is-current');
-        if (cur) cur.scrollIntoView({ block: 'nearest' });
-      }
-
-      function closeDocktermPick() {
-        if (!dtOpenPick) return;
-        const pick = dtPicks[dtOpenPick];
-        pick.menu.hidden = true;
-        pick.wrap.classList.remove('is-open');
-        pick.btn.setAttribute('aria-expanded', 'false');
-        dtOpenPick = '';
-      }
-
-      function switchDocktermModel(kind, value) {
-        const t = activeChatTab();
-        if (!t || !value) return;
-        const c = t.chat;
-        const cur = dtCurrentModel(t);
-        if (!c.claudeRunning) {
-          showToast('Claude 未运行，无法切换');
-          renderDocktermModelBar(t, true);
-          return;
-        }
-        if (c.status === 'working' || c.status === 'asking') {
-          showToast(`Claude 正在执行，等它空闲后再切换${kind === 'model' ? '模型' : ' effort'}`);
-          renderDocktermModelBar(t, true);
-          return;
-        }
-        if ((kind === 'model' && value === cur.model) || (kind === 'effort' && value === cur.effort)) return;
-        const cmd = kind === 'model' ? `/model ${value}` : `/effort ${value}`;
-        sendDocktermRawInput(t, cmd, true);
-        const o = { ...(c.modelOverride || {}), at: Date.now() };
-        if (kind === 'model') {
-          o.model = value;
-          // Claude Code keeps an effort per model; show that one until the next reply confirms
-          const st = c.settings || {};
-          const id = dtResolveModelId(value, dtMetaFor(t).models || []);
-          const per = st.modelSettings && st.modelSettings[id];
-          o.effort = (per && per.effortLevel) || o.effort || '';
-        } else {
-          o.effort = value;
-          if (!o.model) o.model = cur.raw || cur.model;
-        }
-        c.modelOverride = o;
-        c.modelNote = `已执行 ${cmd}`;
-        renderDocktermModelBar(t, true);
-        setTimeout(() => {
-          if (c.modelNote === `已执行 ${cmd}`) c.modelNote = '';
-          if (activeChatTab() === t) renderDocktermModelBar(t, true);
-        }, 4000);
-        // settings may have changed (Claude Code saves /model as the default)
-        setTimeout(() => loadDocktermMeta(t, ['current']), 2500);
-        kickDocktermPoll(800);
-      }
-
-      for (const kind of Object.keys(dtPicks)) {
-        const pick = dtPicks[kind];
-        pick.btn.addEventListener('click', () => (dtOpenPick === kind ? closeDocktermPick() : openDocktermPick(kind)));
-        pick.menu.addEventListener('click', (e) => {
-          const item = e.target.closest('.dt-pick__item');
-          if (!item) return;
-          const v = item.dataset.value;
-          closeDocktermPick();
-          switchDocktermModel(kind, v);
-        });
-        pick.menu.addEventListener('mousemove', (e) => {
-          const item = e.target.closest('.dt-pick__item');
-          if (item) pick.menu.querySelectorAll('.is-focus').forEach((x) => x !== item && x.classList.remove('is-focus'));
-        });
-      }
-      document.addEventListener('mousedown', (e) => {
-        if (dtOpenPick && !dtPicks[dtOpenPick].wrap.contains(e.target)) closeDocktermPick();
-      });
-      document.addEventListener('keydown', (e) => {
-        if (!dtOpenPick) return;
-        const menu = dtPicks[dtOpenPick].menu;
-        if (e.key === 'Escape') {
-          e.preventDefault();
-          e.stopPropagation();
-          const btn = dtPicks[dtOpenPick].btn;
-          closeDocktermPick();
-          btn.focus();
-          return;
-        }
-        if (e.key === 'ArrowDown' || e.key === 'ArrowUp' || e.key === 'Enter') {
-          const items = [...menu.querySelectorAll('.dt-pick__item')];
-          if (!items.length) return;
-          let i = items.findIndex((x) => x.classList.contains('is-focus'));
-          if (e.key === 'Enter') {
-            if (i < 0) return;
-            e.preventDefault();
-            e.stopPropagation();
-            items[i].click();
-            return;
-          }
-          e.preventDefault();
-          e.stopPropagation();
-          if (i < 0) i = items.findIndex((x) => x.classList.contains('is-current'));
-          i = e.key === 'ArrowDown' ? (i + 1) % items.length : (i <= 0 ? items.length - 1 : i - 1);
-          items.forEach((x) => x.classList.remove('is-focus'));
-          items[i].classList.add('is-focus');
-          items[i].scrollIntoView({ block: 'nearest' });
-        }
-      }, true);
-
-      function launchClaudeInActiveTab() {
-        if (!activeTabId || !tabs.has(activeTabId)) return;
-        const t = tabs.get(activeTabId);
-        const cmd = claudeLaunchCommand(t, { forShell: true });
-        sendDocktermRawInput(t, cmd, true);
-        showToast(`已在远端运行：${cmd}`);
-        kickDocktermPoll(1200);
-      }
-
-      // ---------------------------------------------------------------- composer
-      function autoGrowDocktermComposer() {
-        dtInput.style.height = 'auto';
-        dtInput.style.height = `${Math.min(240, Math.max(38, dtInput.scrollHeight))}px`;
-      }
-
-      function updateDocktermSendState() {
-        const t = activeChatTab();
-        const atts = t ? dtAttachList(t) : [];
-        dtSendBtn.disabled = dtSubmitting || (!dtInput.value.trim() && !atts.length);
-        const label = dtSendBtn.querySelector('span');
-        if (label) label.textContent = dtSubmitting ? '上传中…' : '发送';
-      }
-
-      function insertIntoDocktermComposer(text) {
-        const start = dtInput.selectionStart ?? dtInput.value.length;
-        const end = dtInput.selectionEnd ?? dtInput.value.length;
-        const prefix = start > 0 && !/\s$/.test(dtInput.value.slice(0, start)) ? ' ' : '';
-        dtInput.value = dtInput.value.slice(0, start) + prefix + text + dtInput.value.slice(end);
-        dtInput.focus();
-        const caret = start + prefix.length + text.length;
-        dtInput.setSelectionRange(caret, caret);
-        dtInput.dispatchEvent(new Event('input'));
-      }
-
-      function updateDocktermSlashMenu() {
-        const m = dtInput.value.match(/^(\/[a-zA-Z0-9_-]*)$/);
-        if (!m) {
-          dtSlashMenu.classList.remove('open');
-          dtSlashItems = [];
-          return;
-        }
-        const q = m[1].toLowerCase();
-        dtSlashItems = DOCKTERM_SLASH_COMMANDS.filter((c) => c.name.startsWith(q));
-        if (dtSlashItems.length === 0) {
-          dtSlashMenu.classList.remove('open');
-          return;
-        }
-        dtSlashIndex = Math.min(dtSlashIndex, dtSlashItems.length - 1);
-        dtSlashMenu.innerHTML = dtSlashItems.map((item, idx) => `
-          <div class="composer__menu-item${idx === dtSlashIndex ? ' active' : ''}" data-slash-idx="${idx}">
-            <span class="composer__menu-cmd">${escapeHtml(item.name)}</span>
-            <span>${escapeHtml(item.desc)}</span>
-          </div>
-        `).join('');
-        dtSlashMenu.classList.add('open');
-        const activeItem = dtSlashMenu.querySelector('.composer__menu-item.active');
-        if (activeItem) activeItem.scrollIntoView({ block: 'nearest' });
-      }
-
-      function chooseDocktermSlash(i) {
-        const chosen = dtSlashItems[i];
-        if (!chosen) return;
-        dtInput.value = `${chosen.name} `;
-        dtDrafts.set(activeTabId, dtInput.value);
-        dtSlashMenu.classList.remove('open');
-        updateDocktermSendState();
-        dtInput.focus();
-      }
-
-      dtSlashMenu.addEventListener('mousedown', (ev) => {
-        const item = ev.target.closest('[data-slash-idx]');
-        if (!item) return;
-        ev.preventDefault();
-        chooseDocktermSlash(Number(item.dataset.slashIdx));
-      });
-
-      // ---------------------------------------------------------------- attachments (paste / drop)
-      // Files go straight to the node (<cwd>/.takt/uploads) as soon as they are added; sending appends
-      // their paths to the prompt so Claude reads them (images included).
-      const DT_ATTACH_MAX = 10;
-      const DT_ATTACH_MAX_BYTES = 50 * 1024 * 1024;
-
-      function dtExtLabel(name) {
-        const m = String(name || '').match(/\.([a-z0-9]{1,6})$/i);
-        return m ? m[1] : 'file';
-      }
-      function dtUploadDisplayName(p) {
-        return String(p).split('/').pop().replace(/^\d{8}-\d{6}-[0-9a-f]{4}-/, '');
-      }
-      function dtSplitAttachmentLines(text) {
-        const files = [];
-        const kept = [];
-        for (const line of String(text || '').split('\n')) {
-          const m = DT_UPLOAD_LINE_RE.exec(line.trim());
-          if (m) files.push(m[1]);
-          else kept.push(line);
-        }
-        return { text: files.length ? kept.join('\n').replace(/\s+$/, '') : text, files };
-      }
-      function dtAttachList(t) {
-        if (!dtAttachments.has(t.tabId)) dtAttachments.set(t.tabId, []);
-        return dtAttachments.get(t.tabId);
-      }
-      function dtFormatSize(n) {
-        return n < 1024 ? `${n} B` : n < 1048576 ? `${(n / 1024).toFixed(0)} KB` : `${(n / 1048576).toFixed(1)} MB`;
-      }
-
-      function renderDocktermAttachments(t) {
-        const list = t ? dtAttachList(t) : [];
-        dtAttachEl.hidden = list.length === 0;
-        dtAttachEl.innerHTML = list.map((a) => {
-          const state = a.status === 'uploading' ? ' is-uploading' : a.status === 'error' ? ' is-error' : '';
-          const tip = `${a.name} · ${dtFormatSize(a.size)}${a.status === 'uploading' ? ' · 上传中…' : a.status === 'error' ? ` · 上传失败：${a.error}（点击重试）` : ` · 已上传到 ${a.remotePath}`}`;
-          const x = '<button type="button" class="attach-chip__x" data-attach-remove aria-label="移除">×</button>';
-          if (a.isImage) {
-            return `<div class="attach-chip attach-chip--image${state}" data-attach-id="${a.id}" title="${escapeHtml(tip)}"><img src="${escapeHtml(a.url)}" alt="">${x}</div>`;
-          }
-          return `<div class="attach-chip${state}" data-attach-id="${a.id}" title="${escapeHtml(tip)}"><span class="attach-chip__ext">${escapeHtml(dtExtLabel(a.name))}</span><span class="attach-chip__meta"><span class="attach-chip__name">${escapeHtml(a.name)}</span><span class="attach-chip__size">${a.status === 'error' ? '上传失败 · 点击重试' : dtFormatSize(a.size)}</span></span>${x}</div>`;
-        }).join('');
-      }
-
-      async function uploadDocktermAttachment(t, a) {
-        a.status = 'uploading';
-        a.error = '';
-        try {
-          // into the folder Claude actually runs in, so it can read the file without a permission prompt
-          const cwd = (t.chat && t.chat.claudeRunning && t.chat.claudeCwd) || t.cwd || '';
-          const q = new URLSearchParams({ nodeId: t.nodeId || '', cwd, name: a.name });
-          const res = await fetch(`/api/chat-upload?${q}`, { method: 'POST', headers: { 'Content-Type': 'application/octet-stream' }, body: a.file });
-          const data = await res.json().catch(() => ({}));
-          if (!data.ok) throw new Error(data.error || `HTTP ${res.status}`);
-          a.status = 'done';
-          a.remotePath = data.remotePath;
-        } catch (err) {
-          a.status = 'error';
-          a.error = (err && err.message) || '上传失败';
-        }
-        if (activeChatTab() === t) {
-          renderDocktermAttachments(t);
-          updateDocktermSendState();
-        }
-      }
-
-      function addDocktermAttachments(files) {
-        const t = activeChatTab();
-        if (!t || !files || !files.length) return;
-        const list = dtAttachList(t);
-        for (const f of files) {
-          if (list.length >= DT_ATTACH_MAX) {
-            showToast(`一条消息最多附加 ${DT_ATTACH_MAX} 个文件`);
-            break;
-          }
-          if (f.size > DT_ATTACH_MAX_BYTES) {
-            showToast(`${f.name} 超过 50 MB，未添加`);
-            continue;
-          }
-          if (!f.size) {
-            showToast(`${f.name || '该项'} 是空文件或文件夹，未添加`);
-            continue;
-          }
-          const isImage = /^image\/(png|jpe?g|gif|webp|bmp|svg\+xml)$/i.test(f.type);
-          const ext = (f.type.split('/')[1] || 'png').replace('jpeg', 'jpg').replace('svg+xml', 'svg');
-          const generic = !f.name || /^image\.\w+$/i.test(f.name);
-          const a = {
-            id: `a${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`,
-            name: generic && isImage ? `pasted-image.${ext}` : f.name,
-            size: f.size,
-            isImage,
-            url: isImage ? URL.createObjectURL(f) : '',
-            file: f,
-            status: 'uploading',
-            remotePath: '',
-            error: '',
-          };
-          a.promise = uploadDocktermAttachment(t, a);
-          list.push(a);
-        }
-        renderDocktermAttachments(t);
-        updateDocktermSendState();
-        dtInput.focus();
-      }
-
-      dtAttachEl.addEventListener('click', (e) => {
-        const t = activeChatTab();
-        const chip = e.target.closest('[data-attach-id]');
-        if (!t || !chip) return;
-        const list = dtAttachList(t);
-        const i = list.findIndex((a) => a.id === chip.dataset.attachId);
-        if (i < 0) return;
-        if (e.target.closest('[data-attach-remove]')) {
-          const [a] = list.splice(i, 1);
-          if (a.url) URL.revokeObjectURL(a.url);
-        } else if (list[i].status === 'error') {
-          list[i].promise = uploadDocktermAttachment(t, list[i]);
-        }
-        renderDocktermAttachments(t);
-        updateDocktermSendState();
-      });
-
-      // Paste: images / files from the clipboard become attachments. Rich text that merely carries a
-      // rendered picture (Excel, Word …) still pastes as text.
-      dtInput.addEventListener('paste', (e) => {
-        const cd = e.clipboardData;
-        const files = cd ? Array.from(cd.files || []) : [];
-        if (!files.length) return;
-        const text = (cd.getData('text/plain') || '').trim();
-        const names = new Set(files.map((f) => f.name));
-        const textIsNames = !text || /^(https?|file):\/\//i.test(text) || text.split(/\r?\n/).every((l) => !l.trim() || names.has(l.trim()) || names.has(l.trim().split('/').pop()));
-        if (!textIsNames && files.every((f) => /^image\//.test(f.type))) return;
-        e.preventDefault();
-        addDocktermAttachments(files);
-      });
-
-      async function submitDocktermComposerPrompt() {
-        const t = activeChatTab();
-        if (!t || dtSubmitting) return;
-        const c = ensureChatState(t);
-        const typed = dtInput.value.replace(/\r\n?/g, '\n').replace(/\s+$/, '');
-        const isCommand = typed.startsWith('/');
-        const atts = isCommand ? [] : dtAttachList(t).slice();
-        if (!typed.trim() && !atts.length) return;
-        if (c.status === 'asking' && !isCommand) {
-          // keystrokes would land in Claude's permission dialog
-          showToast('Claude 在等你确认上面的操作，先在确认卡片里选择');
-          return;
-        }
-        if (atts.some((a) => a.status === 'uploading')) {
-          dtSubmitting = true;
-          updateDocktermSendState();
-          await Promise.all(atts.map((a) => a.promise));
-          dtSubmitting = false;
-          updateDocktermSendState();
-          if (activeChatTab() !== t) return;
-        }
-        const failed = atts.filter((a) => a.status !== 'done');
-        if (failed.length) {
-          showToast(`${failed.length} 个附件上传失败：点击它重试，或移除后再发送`);
-          renderDocktermAttachments(t);
-          return;
-        }
-        const paths = atts.map((a) => a.remotePath);
-        const text = paths.length ? `${typed}${typed ? '\n\n' : ''}${paths.map((p) => DT_ATTACH_LABEL + p).join('\n')}` : typed;
-        if (c.loaded && !c.claudeRunning && !c.stale) {
-          // Without Claude the text would be executed by the shell
-          if (!confirm('这个标签页里似乎没有运行 Claude，消息会直接输入到 shell。\n\n仍然发送吗？（建议先点「启动 Claude」）')) return;
-        }
-
-        if (typed.trim()) {
-          const hist = dtHistory.get(t.tabId) || [];
-          if (hist[hist.length - 1] !== typed) hist.push(typed);
-          if (hist.length > 100) hist.shift();
-          dtHistory.set(t.tabId, hist);
-        }
-        dtHistCursor.delete(t.tabId);
-
-        dtInput.value = '';
-        dtDrafts.set(t.tabId, '');
-        if (atts.length) dtAttachments.set(t.tabId, dtAttachList(t).filter((a) => !atts.includes(a)));
-        renderDocktermAttachments(t);
-        dtSlashMenu.classList.remove('open');
-        autoGrowDocktermComposer();
-        updateDocktermSendState();
-
-        const isPicker = DOCKTERM_PICKER_SLASH_RE.test(text);
-        const pendingId = `p${Date.now()}`;
-        if (!isCommand) {
-          c.pending.push({
-            id: pendingId,
-            text,
-            display: typed,
-            atts: atts.map((a) => ({ name: a.name, isImage: a.isImage, url: a.url })),
-            queued: c.status === 'working',
-            inflight: true,
-            at: Date.now(),
-          });
-          renderDocktermPending(t);
-          renderDocktermChrome(t);
-        }
-        dtPinned = true;
-        requestAnimationFrame(scrollDocktermToBottom);
-
-        const sent = await sendDocktermRawInput(t, text, true);
-        const sentEntry = c.pending.find((x) => x.id === pendingId);
-        if (sentEntry) Object.assign(sentEntry, { inflight: false, sentAt: Date.now() });
-        if (sent && sent.stuck) {
-          if (sentEntry) Object.assign(sentEntry, { failed: 'pasting', failedAt: Date.now() });
-          if (activeChatTab() === t) renderDocktermPending(t);
-          showToast('Claude Code 一直显示「Pasting…」，消息没有提交。切到终端看看它的输入框', 6000);
-        }
-
-        if (isPicker) {
-          // interactive TUI pickers (/model, /resume …) only work in the terminal
-          toggleDocktermChatMode(t.tabId, 'terminal');
-          return;
-        }
-        kickDocktermPoll(350);
-      }
-
-      dtInput.addEventListener('input', () => {
-        if (activeTabId) dtDrafts.set(activeTabId, dtInput.value);
-        if (activeTabId && dtHistCursor.has(activeTabId)) {
-          const hist = dtHistory.get(activeTabId) || [];
-          if (dtInput.value !== hist[dtHistCursor.get(activeTabId)]) dtHistCursor.delete(activeTabId);
-        }
-        autoGrowDocktermComposer();
-        updateDocktermSendState();
-        updateDocktermSlashMenu();
-      });
-
-      dtInput.addEventListener('keydown', (e) => {
-        if (e.isComposing || e.keyCode === 229) return;
-        const t = activeChatTab();
-
-        if (dtSlashMenu.classList.contains('open') && dtSlashItems.length > 0) {
-          if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
-            e.preventDefault();
-            const d = e.key === 'ArrowDown' ? 1 : -1;
-            dtSlashIndex = (dtSlashIndex + d + dtSlashItems.length) % dtSlashItems.length;
-            updateDocktermSlashMenu();
-            return;
-          }
-          if (e.key === 'Tab') {
-            e.preventDefault();
-            chooseDocktermSlash(dtSlashIndex);
-            return;
-          }
-          if (e.key === 'Escape') {
-            e.preventDefault();
-            dtSlashMenu.classList.remove('open');
-            return;
-          }
-        }
-
-        // Answer a permission prompt with its number key while the composer is empty
-        if (t && t.chat && t.chat.status === 'asking' && t.chat.ask && !dtInput.value && /^[1-9]$/.test(e.key) && !e.metaKey && !e.ctrlKey && !e.altKey) {
-          const idx = Number(e.key) - 1;
-          const ask = t.chat.ask;
-          if (idx < ask.options.length && !ask.multiSelect && idx !== ask.freeTextIndex) {
-            e.preventDefault();
-            sendDocktermRawInput(t, docktermPickKeys(ask, idx), false);
-            kickDocktermPoll(250);
-            return;
-          }
-        }
-
-        if (e.key === 'Enter' && !e.shiftKey && !e.altKey) {
-          e.preventDefault();
-          submitDocktermComposerPrompt();
-          return;
-        }
-
-        if (e.key === 'Escape') {
-          e.preventDefault();
-          // Only interrupt when something is running — a stray double Esc on an idle Claude opens its rewind menu
-          if (t && t.chat && (t.chat.status === 'working' || t.chat.status === 'asking')) sendDocktermInterrupt();
-          return;
-        }
-
-        // ↑ / ↓ recall earlier prompts — only from an empty box (or while browsing), never over a draft
-        if ((e.key === 'ArrowUp' || e.key === 'ArrowDown') && t && !e.shiftKey && !e.metaKey && !e.altKey) {
-          const hist = dtHistory.get(t.tabId) || [];
-          if (!hist.length) return;
-          const browsing = dtHistCursor.has(t.tabId);
-          if (!browsing && dtInput.value !== '') return;
-          let cur = browsing ? dtHistCursor.get(t.tabId) : hist.length;
-          if (e.key === 'ArrowUp' && cur > 0) cur -= 1;
-          else if (e.key === 'ArrowDown' && browsing) cur += 1;
-          else return;
-          e.preventDefault();
-          if (cur >= hist.length) {
-            dtHistCursor.delete(t.tabId);
-            dtInput.value = '';
-          } else {
-            dtHistCursor.set(t.tabId, cur);
-            dtInput.value = hist[cur];
-          }
-          dtDrafts.set(t.tabId, dtInput.value);
-          autoGrowDocktermComposer();
-          updateDocktermSendState();
-        }
-      });
-
-      // ---------------------------------------------------------------- events
-      dtScroll.addEventListener('scroll', () => {
-        const gap = dtScroll.scrollHeight - dtScroll.scrollTop - dtScroll.clientHeight;
-        dtPinned = gap < 40;
-        if (dtPinned) dtUnseen = 0;
-        updateDocktermJump();
-        const t = activeChatTab();
-        if (t && t.chat && t.chat.hasOlder && !t.chat.loadingOlder && dtScroll.scrollTop < 120 && t.chat.messages.length > 0) {
-          loadOlderDockterm();
-        }
-      }, { passive: true });
-
-      // Keep following the bottom when the viewport changes size (composer grows, window resizes)
-      new ResizeObserver(() => {
-        if (dtPinned && !dtStage.hidden) dtScroll.scrollTop = dtScroll.scrollHeight;
-      }).observe(dtScroll);
-
-      dtJumpBtn.addEventListener('click', scrollDocktermToBottom);
-      dtOlderBtn.addEventListener('click', loadOlderDockterm);
-
-      // ---------------------------------------------------------------- files & images: open on the Mac
       async function openDocktermFileOnMac(t, { path: p, chatImage, reveal = false, label = '' } = {}) {
         const name = label || (p ? dtStripLine(p).split('/').pop() : '图片');
         try {
@@ -8155,7 +5512,6 @@
         const base = clean.split('/').pop();
         const extMatch = base.toLowerCase().match(/(\.[a-z0-9_-]+)$/);
         const ext = extMatch ? extMatch[1] : '';
-        // Previewable (code, images, web) -> right pane; CAD / EDA / office / media -> its Mac app
         if (checkClientPreviewEligibility({ name: base, ext, size: 0 }).allowed) {
           previewFileInRightPane(p, (t && t.cwd) || currentFilesCwd, false, (t && t.nodeId) || currentFilesNodeId);
         } else {
@@ -8163,35 +5519,35 @@
         }
       }
 
-      const dtLightbox = document.getElementById('docktermLightbox');
-      const dtLightboxImg = document.getElementById('docktermLightboxImg');
-      const dtLightboxName = document.getElementById('docktermLightboxName');
-      let dtLightboxItem = null;
-      document.body.appendChild(dtLightbox); // fixed overlay above everything
-
       function openDocktermLightbox(t, thumb) {
         const img = thumb.querySelector('img');
         if (!img || !img.src) return;
         const p = thumb.dataset.thumbPath || '';
-        dtLightboxItem = p ? { t, path: p } : { t, chatImage: dtChatImageRef(t, thumb.dataset.thumbRef) };
+        dtLightboxItem = p
+          ? { t, path: p }
+          : (thumb.dataset.thumbRef ? { t, chatImage: dtChatImageRef(t, thumb.dataset.thumbRef) } : null);
         dtLightboxImg.src = img.src;
         dtLightboxName.textContent = p || thumb.title || '图片';
         dtLightboxName.title = p || '';
+        if (dtLightboxOpenBtn) dtLightboxOpenBtn.hidden = !dtLightboxItem;
+        if (dtLightboxRevealBtn) dtLightboxRevealBtn.hidden = !dtLightboxItem;
         dtLightbox.hidden = false;
       }
+
       function closeDocktermLightbox() {
         dtLightbox.hidden = true;
         dtLightboxImg.removeAttribute('src');
         dtLightboxItem = null;
       }
+
       dtLightbox.addEventListener('click', (e) => {
         if (e.target === dtLightbox) closeDocktermLightbox();
       });
       document.getElementById('btnLightboxClose').addEventListener('click', closeDocktermLightbox);
-      document.getElementById('btnLightboxOpen').addEventListener('click', () => {
+      dtLightboxOpenBtn.addEventListener('click', () => {
         if (dtLightboxItem) openDocktermFileOnMac(dtLightboxItem.t, { ...dtLightboxItem, label: dtLightboxName.textContent.split('/').pop() });
       });
-      document.getElementById('btnLightboxReveal').addEventListener('click', () => {
+      dtLightboxRevealBtn.addEventListener('click', () => {
         if (dtLightboxItem) openDocktermFileOnMac(dtLightboxItem.t, { ...dtLightboxItem, reveal: true, label: dtLightboxName.textContent.split('/').pop() });
       });
       document.addEventListener('keydown', (e) => {
@@ -8227,40 +5583,22 @@
         }
         const copyBtn = e.target.closest('.md-code-copy');
         if (copyBtn) {
-          const code = copyBtn.closest('.md-code').querySelector('pre').textContent;
-          navigator.clipboard.writeText(code).then(() => {
+          const block = copyBtn.closest('.md-code, .cc-svg-card');
+          const pre = block ? block.querySelector('pre') : null;
+          if (!pre) return;
+          navigator.clipboard.writeText(pre.textContent).then(() => {
             copyBtn.textContent = '已复制';
             setTimeout(() => { copyBtn.textContent = '复制'; }, 1200);
           }, () => showToast('复制失败'));
-          return;
         }
-        const expand = e.target.closest('.reading__expand');
-        if (expand) {
-          const bubble = expand.parentElement.querySelector('.reading__user-bubble');
-          const clamped = bubble.classList.toggle('is-clamped');
-          expand.textContent = clamped ? '展开全部' : '收起';
-          return;
-        }
-        if (e.target.closest('[data-dt-action="launch"]')) launchClaudeInActiveTab();
       });
 
       btnViewTerminal.addEventListener('click', () => toggleDocktermChatMode(activeTabId, 'terminal'));
       btnViewChat.addEventListener('click', () => toggleDocktermChatMode(activeTabId, 'chat'));
-      dtStartBtn.addEventListener('click', () => launchClaudeInActiveTab());
       document.getElementById('btnDocktermRefreshNow').addEventListener('click', () => {
-        const t = activeChatTab();
-        if (!t) return;
-        t.chat = null; // drop local state: next poll does a full reload
-        dtRenderedTabId = null;
-        ensureChatState(t);
-        renderDocktermView(t, { full: true });
-        kickDocktermPoll(0);
+        if (window.TaktChat) window.TaktChat.refreshActiveTab();
       });
-      dtSendBtn.addEventListener('click', () => submitDocktermComposerPrompt());
-      dtInterruptBtn.addEventListener('click', sendDocktermInterrupt);
-      document.getElementById('btnLiveInterrupt').addEventListener('click', sendDocktermInterrupt);
 
-      // ⌘E (or Ctrl+Shift+E) toggles the active tab between terminal and conversation view
       window.toggleDocktermChatMode = toggleDocktermChatMode;
       window.addEventListener('keydown', (e) => {
         if ((e.metaKey && !e.shiftKey && !e.altKey && e.key.toLowerCase() === 'e') ||
@@ -8269,14 +5607,39 @@
             e.preventDefault();
             toggleDocktermChatMode(activeTabId);
           }
+          return;
+        }
+        if ((e.metaKey || e.ctrlKey) && !e.shiftKey && !e.altKey && e.key.toLowerCase() === 'f') {
+          if (activeChatTab() && window.TaktChat) {
+            e.preventDefault();
+            window.TaktChat.toggleFind();
+          }
         }
       });
+
+      if (window.TaktChat) {
+        window.TaktChat.init({
+          mountEl: dtStage,
+          onTabMetaChange: () => {
+            renderTabBar();
+            updateChatContextStatus();
+          },
+          onSwitchToTerminal: (tid) => toggleDocktermChatMode(tid, 'terminal'),
+          onSessionActivity: () => setTimeout(() => loadProjectTree(), 1500),
+          showToast,
+        });
+      }
 
       syncDocktermViewUI();
 
       // Initial Boot
-      loadProjectTree();
-      loadSessionFiles('/root/work', 'korea-claude');
+      loadProjectTree().then(() => {
+        const firstNode = nodesData[0];
+        loadSessionFiles(
+          (firstNode && firstNode.remoteWorkDir) || '/root/work',
+          (firstNode && firstNode.id) || ''
+        );
+      });
       pollStatusBar();
       setInterval(pollStatusBar, 4000);
       setInterval(loadProjectTree, 12000);
