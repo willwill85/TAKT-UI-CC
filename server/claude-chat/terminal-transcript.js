@@ -1,6 +1,6 @@
 'use strict';
 
-const MAX_TOOL_RESULT_CHARS = 60000;
+const MAX_TOOL_RESULT_CHARS = 16000;
 
 function clipText(str, max = MAX_TOOL_RESULT_CHARS) {
   const s = typeof str === 'string' ? str : String(str == null ? '' : str);

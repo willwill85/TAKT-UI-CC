@@ -235,6 +235,19 @@ html[data-theme="paper"] .dockterm-panechat.cc-chat {
   flex-direction: column;
   gap: 12px;
 }
+.cc-turn:not(:nth-last-child(-n+3)) {
+  content-visibility: auto;
+  contain-intrinsic-size: auto none auto 220px;
+}
+@supports not (content-visibility: auto) {
+  .cc-turn:not(:nth-last-child(-n+3)) {
+    contain: layout style paint;
+  }
+}
+.cc-turn:nth-last-child(-n+3),
+.cc-live-stream {
+  contain: layout style;
+}
 
 /* ---- User message bubble (Claude Desktop style) ---- */
 .cc-user {
@@ -1132,6 +1145,10 @@ html[data-theme="paper"] .dockterm-panechat.cc-chat {
   word-break: break-word;
   margin-bottom: 6px;
 }
+.cc-live-committed > *:first-child { margin-top: 0; }
+.cc-live-committed > *:last-child { margin-bottom: 11px; }
+.cc-live-tail > *:first-child { margin-top: 0; }
+.cc-live-tail > *:last-child { margin-bottom: 0; }
 .cc-stream-caret {
   display: inline-block;
   width: 2px;

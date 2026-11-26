@@ -28,6 +28,7 @@
         <div class="cc-scroll scroller">
           <div class="cc-inner">
             <button type="button" class="cc-older-btn" hidden>加载更早的对话</button>
+            <button type="button" class="cc-older-btn cc-window-btn" hidden></button>
             <div class="cc-begin" hidden>— 对话开始 —</div>
             <div class="cc-empty" hidden>
               <div class="cc-empty-title">准备就绪</div>
@@ -35,7 +36,7 @@
             </div>
             <div class="cc-turns"></div>
             <div class="cc-pending-users" hidden></div>
-            <div class="cc-live-stream cc-md" hidden></div>
+            <div class="cc-live-stream cc-md" hidden><div class="cc-live-committed"></div><div class="cc-live-tail"></div></div>
             <div class="cc-run-status" hidden>
               <span class="cc-claude-burst" aria-hidden="true">
                 <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
@@ -71,11 +72,14 @@
     const findCount = mountEl.querySelector('.cc-find-count');
     const scrollEl = mountEl.querySelector('.cc-scroll');
     const olderBtn = mountEl.querySelector('.cc-older-btn');
+    const windowBtn = mountEl.querySelector('.cc-window-btn');
     const beginEl = mountEl.querySelector('.cc-begin');
     const emptyEl = mountEl.querySelector('.cc-empty');
     const turnsEl = mountEl.querySelector('.cc-turns');
     const pendingEl = mountEl.querySelector('.cc-pending-users');
     const liveStreamEl = mountEl.querySelector('.cc-live-stream');
+    const liveCommittedEl = liveStreamEl.querySelector('.cc-live-committed');
+    const liveTailEl = liveStreamEl.querySelector('.cc-live-tail');
     const runStatusEl = mountEl.querySelector('.cc-run-status');
     const runStatusText = mountEl.querySelector('.cc-run-status-text');
     const runStatusTimer = mountEl.querySelector('.cc-run-status-timer');
@@ -87,9 +91,14 @@
 
     let currentTab = null;
     let lastConversation = null;
+    let cachedConvTab = null;
+    let cachedConvVer = -1;
+    let cachedConv = null;
+    let lastTurnsUiSig = '';
     let pinnedToBottom = true;
     let openStatsTurnId = '';
     const turnSigs = new Map();
+    const lazyBodies = new Map();
     let lastPendingSig = '';
     let lastTodoSig = '';
     let lastAskSig = '';
@@ -99,6 +108,8 @@
     const CARET_HTML = '<span class="cc-stream-caret" aria-hidden="true"></span>';
     let streamTarget = '';
     let streamShown = 0;
+    let streamCommittedLen = 0;
+    let streamLastRenderTs = 0;
     let streamRaf = 0;
     let streamLastTs = 0;
     let streamPeakChars = 0;
@@ -111,6 +122,7 @@
     let revealLastTs = 0;
 
     let statusTickTimer = 0;
+    let findTimer = 0;
 
     // Find bar state
     let findRanges = [];
@@ -132,6 +144,12 @@
       const q = findInput.value.trim().toLowerCase();
       clearFindHighlights();
       if (!q) return;
+
+      if (currentTab && lastConversation && Number(currentTab.visibleTurnLimit || 24) < lastConversation.turns.length) {
+        currentTab.visibleTurnLimit = lastConversation.turns.length;
+        render(currentTab);
+        return;
+      }
 
       const walker = document.createTreeWalker(turnsEl, NodeFilter.SHOW_TEXT);
       let node;
@@ -215,7 +233,13 @@
       }
     }
 
-    findInput.addEventListener('input', runFind);
+    findInput.addEventListener('input', () => {
+      if (findTimer) clearTimeout(findTimer);
+      findTimer = setTimeout(() => {
+        findTimer = 0;
+        runFind();
+      }, 120);
+    });
     findInput.addEventListener('keydown', (e) => {
       if (e.key === 'Enter') {
         e.preventDefault();
@@ -239,6 +263,18 @@
     });
 
     olderBtn.addEventListener('click', () => actions.onLoadOlder());
+    windowBtn.addEventListener('click', () => {
+      if (!currentTab) return;
+      const prevH = scrollEl.scrollHeight;
+      const prevTop = scrollEl.scrollTop;
+      currentTab.visibleTurnLimit = Math.max(24, Number(currentTab.visibleTurnLimit || 24)) + 24;
+      render(currentTab);
+      const delta = scrollEl.scrollHeight - prevH;
+      if (delta > 0) {
+        pinnedToBottom = false;
+        scrollEl.scrollTop = prevTop + delta;
+      }
+    });
     jumpBtn.addEventListener('click', () => scrollToBottom(true));
 
     planModal.addEventListener('click', (e) => {
@@ -489,13 +525,46 @@
       return chunks.join('');
     }
 
+    function hasToolBody(tool) {
+      if (!tool) return false;
+      const inp = tool.input && typeof tool.input === 'object' ? tool.input : {};
+      const name = String(tool.toolName || '');
+      if (tool.output && tool.output.trim()) return true;
+      if (Array.isArray(tool.images) && tool.images.length > 0) return true;
+      if (
+        ['Bash', 'bash', 'mcp__magpie__Bash', 'mcp__mac-industrial__mac_host_exec'].includes(name)
+        && inp.command
+      ) {
+        return true;
+      }
+      if (
+        ['Edit', 'MultiEdit', 'Write'].includes(name)
+        && (inp.file_path || inp.old_string || inp.new_string || inp.content || (Array.isArray(inp.edits) && inp.edits.length))
+      ) {
+        return true;
+      }
+      if (name === 'WebFetch' && inp.url) return true;
+      if (name === 'TodoWrite' && Array.isArray(inp.todos) && inp.todos.length) return true;
+      if (/(?:^|_)update_plan$/i.test(name) && Array.isArray(inp.items) && inp.items.length) return true;
+      if (!['Read', 'Grep', 'Glob', 'Skill', 'WebSearch'].includes(name) && Object.keys(inp).length > 0) return true;
+      return false;
+    }
+
     function renderToolRowHtml(tool) {
       const active = tool.status === 'running';
       const d = Act.describe(tool, active);
       const detailKey = `tool:${tool.id}`;
-      const bodyHtml = renderToolBodyHtml(tool);
-      const hasBody = Boolean(bodyHtml);
+      const hasBody = hasToolBody(tool);
       const open = hasBody && isDetailsOpen(detailKey, false);
+      let bodyInner = '';
+      if (hasBody) {
+        if (open) {
+          lazyBodies.delete(detailKey);
+          bodyInner = renderToolBodyHtml(tool);
+        } else {
+          lazyBodies.set(detailKey, () => renderToolBodyHtml(tool));
+        }
+      }
 
       const statusCls = tool.status === 'running'
         ? 'is-running'
@@ -521,7 +590,7 @@
       const elapsedStr = elapsedMs >= 500 ? Act.duration(elapsedMs) : '';
 
       return `
-        <details class="cc-tool ${statusCls}${hasBody ? ' is-expandable' : ' is-static'}" data-key="${Md.escapeHtml(detailKey)}"${open ? ' open' : ''}>
+        <details class="cc-tool ${statusCls}${hasBody ? ' is-expandable' : ' is-static'}" data-key="${Md.escapeHtml(detailKey)}"${hasBody && !open ? ' data-lazy="1"' : ''}${open ? ' open' : ''}>
           <summary class="cc-tool-head">
             ${iconHtml}
             <span class="cc-tool-verb">${Md.escapeHtml(d.verb)}</span>
@@ -531,7 +600,7 @@
             <span class="cc-tool-elapsed">${Md.escapeHtml(elapsedStr)}</span>
             ${hasBody ? '<span class="cc-tool-chev" aria-hidden="true">▸</span>' : ''}
           </summary>
-          ${hasBody ? `<div class="cc-tool-body">${bodyHtml}</div>` : ''}
+          ${hasBody ? `<div class="cc-tool-body">${bodyInner}</div>` : ''}
         </details>
       `;
     }
@@ -586,6 +655,39 @@
       `;
     }
 
+    function renderProcessInnerHtml(seg) {
+      return seg.parts.map((part) => {
+        if (part.kind === 'thinking') {
+          const thinkKey = `think:${part.id}`;
+          const firstLine = (part.text.split('\n').find((l) => l.trim()) || '思考过程').trim().slice(0, 72);
+          const thinkOpen = isDetailsOpen(thinkKey, Boolean(part.active));
+          let thinkBody = '';
+          if (thinkOpen) {
+            lazyBodies.delete(thinkKey);
+            thinkBody = Md.renderMarkdown(part.text);
+          } else {
+            lazyBodies.set(thinkKey, () => Md.renderMarkdown(part.text));
+          }
+          return `
+            <details class="cc-thinking" data-key="${Md.escapeHtml(thinkKey)}"${thinkOpen ? ' open' : ' data-lazy="1"'}>
+              <summary class="cc-thinking-sum">
+                <span class="cc-think-tag">思考</span>
+                <span class="cc-think-preview">${Md.escapeHtml(firstLine)}</span>
+              </summary>
+              <div class="cc-thinking-body">${thinkBody}</div>
+            </details>
+          `;
+        }
+        if (part.kind === 'text') {
+          return `<div class="cc-mid-text cc-md">${Md.renderMarkdown(part.text)}</div>`;
+        }
+        if (part.kind === 'work') {
+          return part.tools.map(renderToolRowHtml).join('');
+        }
+        return '';
+      }).join('');
+    }
+
     function renderSegmentHtml(seg, turn) {
       if (seg.kind === 'compact') {
         const lbl = seg.status === 'compacting'
@@ -620,36 +722,21 @@
           ? (durPart ? `${toolSum} · ${durPart}` : toolSum)
           : `${durPart || '执行过程'}${seg.notes ? ` · ${seg.notes} 条思考与说明` : ''}`;
 
-        const innerHtml = seg.parts.map((part) => {
-          if (part.kind === 'thinking') {
-            const firstLine = (part.text.split('\n').find((l) => l.trim()) || '思考过程').trim().slice(0, 72);
-            const thinkOpen = isDetailsOpen(`think:${part.id}`, Boolean(part.active));
-            return `
-              <details class="cc-thinking" data-key="think:${Md.escapeHtml(part.id)}"${thinkOpen ? ' open' : ''}>
-                <summary class="cc-thinking-sum">
-                  <span class="cc-think-tag">思考</span>
-                  <span class="cc-think-preview">${Md.escapeHtml(firstLine)}</span>
-                </summary>
-                <div class="cc-thinking-body">${Md.renderMarkdown(part.text)}</div>
-              </details>
-            `;
-          }
-          if (part.kind === 'text') {
-            return `<div class="cc-mid-text cc-md">${Md.renderMarkdown(part.text)}</div>`;
-          }
-          if (part.kind === 'work') {
-            return part.tools.map(renderToolRowHtml).join('');
-          }
-          return '';
-        }).join('');
+        let processBody = '';
+        if (open) {
+          lazyBodies.delete(seg.id);
+          processBody = renderProcessInnerHtml(seg);
+        } else {
+          lazyBodies.set(seg.id, () => renderProcessInnerHtml(seg));
+        }
 
         return `
-          <details class="cc-process${seg.hasPendingTool && turn.active ? ' is-running' : ''}" data-key="${Md.escapeHtml(seg.id)}"${open ? ' open' : ''}>
+          <details class="cc-process${seg.hasPendingTool && turn.active ? ' is-running' : ''}" data-key="${Md.escapeHtml(seg.id)}"${open ? ' open' : ' data-lazy="1"'}>
             <summary class="cc-process-sum">
               <span class="cc-process-label">${Md.escapeHtml(procLabel)}</span>
               <svg class="cc-process-chev" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="4 6 8 10 12 6"/></svg>
             </summary>
-            <div class="cc-process-body">${innerHtml}</div>
+            <div class="cc-process-body">${processBody}</div>
           </details>
         `;
       }
@@ -762,7 +849,10 @@
         }
         if (s.kind === 'plan' || s.kind === 'question') {
           const exp = currentTab && currentTab.planExpanded && currentTab.planExpanded.has(s.tool.id) ? 1 : 0;
-          return `${s.kind}:${s.tool.id}:${s.tool.status}:${exp}:${JSON.stringify(s.tool.input || {}).length}`;
+          const inp = s.tool.input || {};
+          const inpLen = String(inp.plan || inp.content || inp.file_path || '').length;
+          const appStat = (s.tool.approval && s.tool.approval.status) || '';
+          return `${s.kind}:${s.tool.id}:${s.tool.status}:${exp}:${appStat}:${inpLen}`;
         }
         return `${s.kind}:${s.id}:${s.status || ''}:${s.text || ''}`;
       }).join(';');
@@ -977,9 +1067,32 @@
       return `${html}${CARET_HTML}`;
     }
 
+    function findSafeCommitIndex(text) {
+      const lines = text.split('\n');
+      let pos = 0;
+      let inFence = false;
+      let safeIdx = 0;
+      for (let i = 0; i < lines.length; i++) {
+        const line = lines[i];
+        if (/^\s*```/.test(line)) inFence = !inFence;
+        pos += line.length + (i < lines.length - 1 ? 1 : 0);
+        if (!inFence && i < lines.length - 1 && line === '' && i > 0) {
+          safeIdx = pos;
+        }
+      }
+      return safeIdx;
+    }
+
     function renderLiveStreamFrame() {
       const slice = streamTarget.slice(0, streamShown);
-      liveStreamEl.innerHTML = injectCaretHtml(Md.renderMarkdown(slice));
+      const commitIdx = findSafeCommitIndex(slice);
+      if (commitIdx > streamCommittedLen) {
+        const chunkHtml = Md.renderMarkdown(slice.slice(streamCommittedLen, commitIdx));
+        if (chunkHtml) liveCommittedEl.insertAdjacentHTML('beforeend', chunkHtml);
+        streamCommittedLen = commitIdx;
+      }
+      const tail = slice.slice(streamCommittedLen);
+      liveTailEl.innerHTML = injectCaretHtml(tail ? Md.renderMarkdown(tail) : '');
       liveStreamEl.hidden = false;
       if (pinnedToBottom) scrollEl.scrollTop = scrollEl.scrollHeight;
     }
@@ -991,10 +1104,13 @@
       }
       streamTarget = '';
       streamShown = 0;
+      streamCommittedLen = 0;
+      streamLastRenderTs = 0;
       streamLastTs = 0;
       if (resetPeak) streamPeakChars = 0;
       liveStreamEl.hidden = true;
-      liveStreamEl.innerHTML = '';
+      liveCommittedEl.innerHTML = '';
+      liveTailEl.innerHTML = '';
     }
 
     function updateLiveStream(tabView, isWorking, liveText) {
@@ -1010,8 +1126,14 @@
       );
       if (!sameBlock) {
         streamShown = 0;
+        streamCommittedLen = 0;
+        streamLastRenderTs = 0;
+        liveCommittedEl.innerHTML = '';
+        liveTailEl.innerHTML = '';
       } else if (streamShown > liveText.length) {
         streamShown = liveText.length;
+        streamCommittedLen = 0;
+        liveCommittedEl.innerHTML = '';
       }
       streamTarget = liveText;
       streamPeakChars = Math.max(streamPeakChars, liveText.length);
@@ -1024,12 +1146,17 @@
         const tickStream = (now) => {
           streamRaf = 0;
           if (!currentTab || currentTab !== tabView || !streamTarget) return;
+          if (streamLastRenderTs && (now - streamLastRenderTs) < 32 && streamShown < streamTarget.length) {
+            streamRaf = requestAnimationFrame(tickStream);
+            return;
+          }
           const dt = streamLastTs ? Math.min(48, Math.max(8, now - streamLastTs)) : 16;
           streamLastTs = now;
           const backlog = streamTarget.length - streamShown;
           if (backlog > 0) {
             const step = Math.max(2, Math.ceil((backlog * dt) / 130));
             streamShown = Math.min(streamTarget.length, streamShown + step);
+            streamLastRenderTs = now;
             renderLiveStreamFrame();
           }
           if (streamShown < streamTarget.length) {
@@ -1138,6 +1265,8 @@
         tabView._revealedTextSeq = Number(tabView.liveTextEventSeq || 0);
         turnsEl.innerHTML = '';
         turnSigs.clear();
+        lazyBodies.clear();
+        lastTurnsUiSig = '';
         lastPendingSig = '';
         lastTodoSig = '';
         lastAskSig = '';
@@ -1145,7 +1274,16 @@
         openStatsTurnId = '';
       }
 
-      const conv = Tr.conversation(tabView.events);
+      const evVer = Number(tabView.eventsVersion || 0);
+      let conv;
+      if (full || cachedConvTab !== tabView || cachedConvVer !== evVer || !cachedConv) {
+        conv = Tr.conversation(tabView.events);
+        cachedConvTab = tabView;
+        cachedConvVer = evVer;
+        cachedConv = conv;
+      } else {
+        conv = cachedConv;
+      }
       lastConversation = conv;
       const st = tabView.state || {};
       const isWorking = st.status === 'working';
@@ -1158,19 +1296,43 @@
         streamPeakChars = 0;
       }
 
-      launchBanner.hidden = Boolean(st.claudeRunning);
-      olderBtn.hidden = !st.hasOlder;
-      olderBtn.disabled = Boolean(st.loadingOlder);
-      olderBtn.textContent = st.loadingOlder ? '加载中…' : '加载更早的对话';
-      beginEl.hidden = Boolean(st.hasOlder || conv.turns.length === 0);
-      emptyEl.hidden = conv.turns.length > 0 || (st.pendingUsers && st.pendingUsers.length > 0);
+      const limit = Math.max(24, Number(tabView.visibleTurnLimit || 24));
+      const hiddenTurns = Math.max(0, conv.turns.length - limit);
+      const visibleTurns = hiddenTurns > 0 ? conv.turns.slice(hiddenTurns) : conv.turns;
+      const expUsersCount = tabView.expandedUsers ? tabView.expandedUsers.size : 0;
+      const expPlansCount = tabView.planExpanded ? tabView.planExpanded.size : 0;
+      const turnsUiSig = `${evVer}|${isWorking ? 1 : 0}|${tabView.globalExpand ? 1 : 0}|${openStatsTurnId}|${expUsersCount}|${expPlansCount}|${limit}|${tabView.tabId}|${st.hasOlder ? 1 : 0}|${st.loadingOlder ? 1 : 0}|${st.claudeRunning ? 1 : 0}`;
 
-      renderTurns(conv.turns, isWorking);
-      if (revealRaf && lastTurn && lastTurn.id === revealTurnId) {
-        applyCurrentRevealSlice(lastTurn);
+      if (prevTab !== tabView || full || turnsUiSig !== lastTurnsUiSig) {
+        lastTurnsUiSig = turnsUiSig;
+        launchBanner.hidden = Boolean(st.claudeRunning);
+        if (hiddenTurns > 0) {
+          windowBtn.hidden = false;
+          windowBtn.textContent = `显示更早的 ${hiddenTurns} 轮对话（每次展开 ${Math.min(24, hiddenTurns)} 轮）`;
+          olderBtn.hidden = true;
+        } else {
+          windowBtn.hidden = true;
+          olderBtn.hidden = !st.hasOlder;
+          olderBtn.disabled = Boolean(st.loadingOlder);
+          olderBtn.textContent = st.loadingOlder ? '加载中…' : '加载更早的对话';
+        }
+        beginEl.hidden = Boolean(hiddenTurns > 0 || st.hasOlder || conv.turns.length === 0);
+        emptyEl.hidden = conv.turns.length > 0 || (st.pendingUsers && st.pendingUsers.length > 0);
+
+        renderTurns(visibleTurns, isWorking);
+        if (revealRaf && lastTurn && lastTurn.id === revealTurnId) {
+          applyCurrentRevealSlice(lastTurn);
+        }
+        renderTodoDock(conv.todos);
+
+        if (!findBar.hidden && findInput.value.trim()) {
+          runFind();
+        }
+      } else {
+        emptyEl.hidden = conv.turns.length > 0 || (st.pendingUsers && st.pendingUsers.length > 0);
       }
+
       renderPendingUsers(st.pendingUsers);
-      renderTodoDock(conv.todos);
 
       const curTextSeq = Number(tabView.liveTextEventSeq || 0);
       const prevTextSeq = Number(tabView._revealedTextSeq || 0);
@@ -1219,9 +1381,6 @@
         scrollEl.scrollTop = tabView.scrollTop || scrollEl.scrollHeight;
       }
 
-      if (!findBar.hidden && findInput.value.trim()) {
-        runFind();
-      }
       return conv;
     }
 
@@ -1237,12 +1396,20 @@
       }
     }
 
-    // Delegated <details> open/closed preservation
+    // Delegated <details> lazy hydration + open/closed preservation
     mountEl.addEventListener('toggle', (e) => {
       const det = e.target;
-      if (det && det.tagName === 'DETAILS' && det.dataset.key) {
-        setDetailsOpen(det.dataset.key, det.open);
+      if (!det || det.tagName !== 'DETAILS' || !det.dataset.key) return;
+      if (det.open && det.dataset.lazy === '1') {
+        const fn = lazyBodies.get(det.dataset.key);
+        const bodyEl = det.querySelector(':scope > .cc-process-body, :scope > .cc-tool-body, :scope > .cc-thinking-body');
+        if (fn && bodyEl) {
+          bodyEl.innerHTML = fn();
+          delete det.dataset.lazy;
+          lazyBodies.delete(det.dataset.key);
+        }
       }
+      setDetailsOpen(det.dataset.key, det.open);
     }, true);
 
     liveAskEl.addEventListener('input', (e) => {
@@ -1397,9 +1564,14 @@
       destroy: () => {
         stopLiveStream({ resetPeak: true });
         stopReveal({ renderFull: false });
+        lazyBodies.clear();
         if (statusTickTimer) {
           clearInterval(statusTickTimer);
           statusTickTimer = 0;
+        }
+        if (findTimer) {
+          clearTimeout(findTimer);
+          findTimer = 0;
         }
       },
     };

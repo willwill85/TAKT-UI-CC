@@ -158,6 +158,8 @@
           tv.events = Array.isArray(msg.events) ? msg.events : [];
           tv.state = msg.state || {};
           tv.lastLiveTextId = '';
+          tv.eventsVersion = (tv.eventsVersion || 0) + 1;
+          tv.visibleTurnLimit = 24;
           syncTabObj(tv);
           if (activeView() === tv) scheduleRender(true);
           return;
@@ -165,6 +167,7 @@
 
         if (msg.type === 'event' && msg.event) {
           tv.events.push(msg.event);
+          tv.eventsVersion = (tv.eventsVersion || 0) + 1;
           if (msg.event.type === 'text.delta') {
             tv.lastLiveTextId = msg.event.id || '';
             tv.liveTextEventSeq = (tv.liveTextEventSeq || 0) + 1;
@@ -178,7 +181,12 @@
 
         if (msg.type === 'history.prepended') {
           const older = Array.isArray(msg.events) ? msg.events : [];
-          if (older.length) tv.events = older.concat(tv.events);
+          if (older.length) {
+            tv.events = older.concat(tv.events);
+            tv.eventsVersion = (tv.eventsVersion || 0) + 1;
+            const addedUsers = older.filter((e) => e.type === 'message.user').length;
+            tv.visibleTurnLimit = (tv.visibleTurnLimit || 24) + Math.max(12, addedUsers + 4);
+          }
           if (msg.state) tv.state = msg.state;
           tv.lastLiveTextId = '';
           syncTabObj(tv);
@@ -250,6 +258,8 @@
           offlineMeta: null,
           liveTextEventSeq: 0,
           lastLiveTextId: '',
+          eventsVersion: 0,
+          visibleTurnLimit: 24,
         };
         tabViews.set(tabObj.tabId, tv);
       } else {

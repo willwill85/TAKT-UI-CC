@@ -12,8 +12,10 @@ mode = cfg.get("mode", "chunk")
 home = os.path.expanduser("~")
 proj_root = os.path.join(home, ".claude", "projects")
 proj_root_real = os.path.realpath(proj_root)
-MAX_STR = 60000
-MAX_INPUT_STR = 200000
+MAX_TEXT_STR = 60000
+MAX_TOOL_STR = 16000
+MAX_INPUT_STR = 12000
+MAX_LARGE_INPUT_STR = 120000
 UUID_RE = re.compile(r"(?:--resume|--session-id|-r)[ =]([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})")
 CLAUDE_RE = re.compile(r"(^|/)claude(\s|$)|claude-code/cli|@anthropic-ai/claude")
 
@@ -29,7 +31,7 @@ def safe_jsonl(p):
         return ""
     return real
 
-def clip_str(s, limit=MAX_STR):
+def clip_str(s, limit=MAX_TEXT_STR):
     if not isinstance(s, str) or len(s) <= limit:
         return s
     head = int(limit * 0.65)
@@ -61,29 +63,35 @@ def queued_prompt(obj):
     p = a.get("prompt")
     return p if isinstance(p, (str, list)) else None
 
-def compact_input(inp):
+def compact_input(inp, tool_name=""):
     if not isinstance(inp, dict):
         return {}
+    is_large = (tool_name in ("Edit", "MultiEdit", "ExitPlanMode")) or (
+        tool_name == "Write"
+        and isinstance(inp.get("file_path"), str)
+        and "/.claude/plans/" in inp["file_path"]
+    )
+    limit = MAX_LARGE_INPUT_STR if is_large else MAX_INPUT_STR
     out_d = {}
     for key, val in inp.items():
         if isinstance(val, str):
-            out_d[key] = clip_str(val, MAX_INPUT_STR)
+            out_d[key] = clip_str(val, limit)
         elif isinstance(val, (int, float, bool)) or val is None:
             out_d[key] = val
         elif isinstance(val, list) or isinstance(val, dict):
             try:
                 raw = json.dumps(val, ensure_ascii=False)
-                if len(raw) <= MAX_INPUT_STR:
+                if len(raw) <= limit:
                     out_d[key] = val
                 else:
-                    out_d[key] = clip_str(raw, MAX_INPUT_STR)
+                    out_d[key] = clip_str(raw, limit)
             except Exception:
                 pass
     return out_d
 
 def extract_tur_text(tur):
     if isinstance(tur, str):
-        return clip_str(tur)
+        return clip_str(tur, MAX_TOOL_STR)
     if isinstance(tur, dict):
         if "stdout" in tur or "stderr" in tur:
             parts = []
@@ -92,15 +100,15 @@ def extract_tur_text(tur):
             if tur.get("stderr"):
                 err = str(tur["stderr"])
                 parts.append(("[stderr]\n" + err) if parts else err)
-            return clip_str("\n".join(parts)) if parts else ""
+            return clip_str("\n".join(parts), MAX_TOOL_STR) if parts else ""
         if isinstance(tur.get("file"), dict) and isinstance(tur["file"].get("content"), str):
-            return clip_str(tur["file"]["content"])
+            return clip_str(tur["file"]["content"], MAX_TOOL_STR)
         if isinstance(tur.get("content"), str):
-            return clip_str(tur["content"])
+            return clip_str(tur["content"], MAX_TOOL_STR)
         if isinstance(tur.get("filenames"), list) and tur["filenames"]:
-            return clip_str("\n".join(str(x) for x in tur["filenames"]))
+            return clip_str("\n".join(str(x) for x in tur["filenames"]), MAX_TOOL_STR)
         if isinstance(tur.get("message"), str):
-            return clip_str(tur["message"])
+            return clip_str(tur["message"], MAX_TOOL_STR)
         if tur.get("commandName"):
             return "已加载技能 " + str(tur["commandName"])
         if tur.get("status") == "async_launched" and tur.get("description"):
@@ -140,7 +148,7 @@ def compact_record(obj, off=None):
     c = msg.get("content")
     k = 0
     if isinstance(c, str):
-        cc = clip_str(c)
+        cc = clip_str(c, MAX_TEXT_STR)
     elif isinstance(c, list):
         cc = []
         for b in c:
@@ -148,21 +156,22 @@ def compact_record(obj, off=None):
                 continue
             bt = b.get("type")
             if bt == "text" and isinstance(b.get("text"), str):
-                cc.append({"type": "text", "text": clip_str(b["text"])})
+                cc.append({"type": "text", "text": clip_str(b["text"], MAX_TEXT_STR)})
             elif bt == "thinking" and isinstance(b.get("thinking"), str):
-                cc.append({"type": "thinking", "thinking": clip_str(b["thinking"], MAX_INPUT_STR)})
+                cc.append({"type": "thinking", "thinking": clip_str(b["thinking"], 40000)})
             elif bt == "tool_use":
+                tool_name = b.get("name") or ""
                 cc.append({
                     "type": "tool_use",
                     "id": b.get("id"),
                     "name": b.get("name"),
-                    "input": compact_input(b.get("input")),
+                    "input": compact_input(b.get("input"), tool_name),
                 })
             elif bt == "tool_result":
                 r = {"type": "tool_result", "tool_use_id": b.get("tool_use_id"), "is_error": bool(b.get("is_error"))}
                 inner = b.get("content")
                 if isinstance(inner, str):
-                    r["content"] = clip_str(inner)
+                    r["content"] = clip_str(inner, MAX_TOOL_STR)
                 elif isinstance(inner, list):
                     rc = []
                     for ib in inner:
@@ -170,7 +179,7 @@ def compact_record(obj, off=None):
                             continue
                         ibt = ib.get("type")
                         if ibt == "text" and isinstance(ib.get("text"), str):
-                            rc.append({"type": "text", "text": clip_str(ib["text"])})
+                            rc.append({"type": "text", "text": clip_str(ib["text"], MAX_TOOL_STR)})
                         elif ibt == "image":
                             rc.append(img_ref(ib, off, k, uuid))
                             k += 1
@@ -210,7 +219,7 @@ def compact_record(obj, off=None):
         if isinstance(obj["toolUseResult"].get("answers"), dict):
             tur["answers"] = obj["toolUseResult"]["answers"]
         if isinstance(obj["toolUseResult"].get("plan"), str):
-            tur["plan"] = clip_str(obj["toolUseResult"]["plan"], MAX_INPUT_STR)
+            tur["plan"] = clip_str(obj["toolUseResult"]["plan"], MAX_LARGE_INPUT_STR)
         if tur:
             rec["toolUseResult"] = tur
     return rec
@@ -478,7 +487,7 @@ known_path = safe_jsonl(cfg.get("knownPath", ""))
 known_end = int(cfg.get("knownEnd", 0))
 claimed_paths = set(os.path.realpath(p) for p in (cfg.get("claimedPaths") or []) if p)
 max_bytes = int(cfg.get("maxBytes", 8388608))
-initial_bytes = int(cfg.get("initialBytes", 2097152))
+initial_bytes = int(cfg.get("initialBytes", 1048576))
 
 if mode == "watch":
     SPINNER_WATCH_RE = re.compile(r"^\s*[·✢✳✶✻✽∗*]\s+\S", re.M)
@@ -688,7 +697,7 @@ async function readRemoteTranscriptChunk({
   knownPath = '',
   knownEnd = 0,
   claimedPaths = [],
-  initialBytes = 2 * 1024 * 1024,
+  initialBytes = 1024 * 1024,
   maxBytes = 8 * 1024 * 1024,
   tmuxSess = '',
   runCmd,
@@ -745,7 +754,7 @@ function startRemoteStreamWatcher({
   knownPath = '',
   knownEnd = 0,
   claimedPaths = [],
-  initialBytes = 2 * 1024 * 1024,
+  initialBytes = 1024 * 1024,
   maxBytes = 8 * 1024 * 1024,
   tmuxSess = '',
   sshOpts = [],

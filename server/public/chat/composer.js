@@ -118,6 +118,7 @@
     let openPopover = '';
     let slashMatches = [];
     let slashIdx = 0;
+    let lastRenderSig = '';
 
     function closePopovers() {
       openPopover = '';
@@ -577,6 +578,7 @@
       const st = tabView.state || {};
 
       if (changedTab) {
+        lastRenderSig = '';
         textarea.value = tabView.draft || '';
         autoGrow();
         renderAttachments();
@@ -584,13 +586,31 @@
         slashMenu.hidden = true;
       }
 
+      const { model, effort } = resolvedModelAndEffort();
+      const ctx = st.contextUsage;
+      const sig = JSON.stringify([
+        tabView.tabId,
+        st.permissionMode || 'default',
+        model || '',
+        effort || '',
+        Boolean(st.claudeRunning),
+        st.status || 'idle',
+        Boolean(tabView.globalExpand),
+        ctx ? Math.round(Number(ctx.percentage || 0)) : -1,
+        ctx ? Number(ctx.totalTokens || 0) : 0,
+        ctx ? Number(ctx.rawMaxTokens || 0) : 0,
+        tabView.offlineMeta ? tabView.offlineMeta.fetchedAt : 0,
+        tabView.attachments.length,
+      ]);
+      if (!changedTab && sig === lastRenderSig) return;
+      lastRenderSig = sig;
+
       const modeId = st.permissionMode || 'default';
       const modeMeta = Act.getPermissionModeMeta(modeId);
       permLabel.textContent = modeMeta.shortLabel;
       permDot.className = `cc-perm-dot${modeId === 'plan' ? ' is-plan' : modeMeta.danger ? ' is-danger' : ''}`;
       permBtn.disabled = !st.claudeRunning;
 
-      const { model, effort } = resolvedModelAndEffort();
       modelLabel.textContent = model && model !== 'default' ? Act.formatModelName(model) : '默认模型';
       effortLabel.textContent = effort ? `思考: ${effort}` : 'effort';
       const busy = st.status === 'working' || st.status === 'asking';
@@ -598,8 +618,6 @@
       effortBtn.disabled = !st.claudeRunning || busy;
 
       expandAllBtn.classList.toggle('is-active', Boolean(tabView.globalExpand));
-
-      const ctx = st.contextUsage;
       if (ctx && typeof ctx.percentage === 'number') {
         const pct = Math.min(100, Math.max(0, Math.round(ctx.percentage)));
         const circ = 2 * Math.PI * 9;

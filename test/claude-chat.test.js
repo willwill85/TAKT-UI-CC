@@ -447,3 +447,39 @@ test('extractLiveStreamText extracts streaming pane prose cleanly and REMOTE_JSO
     encoding: 'utf8',
   });
 });
+
+test('wire compaction caps generic tool payloads at 16k/12k while preserving Edit and plan inputs', () => {
+  // JS fallback cap aligns at 16k chars
+  const bigOut = 'A'.repeat(25000);
+  const parsedJs = parseJsonlRecordsToEvents([
+    { type: 'assistant', uuid: 'a1', message: { id: 'm1', content: [{ type: 'tool_use', id: 't1', name: 'Read', input: { file_path: '/a.txt' } }] } },
+    { type: 'user', uuid: 'u1', message: { content: [{ type: 'tool_result', tool_use_id: 't1', content: bigOut }] } },
+  ]);
+  const resEv = parsedJs.events.find((e) => e.type === 'tool.result');
+  assert.ok(resEv.payload.output.length < 16500);
+  assert.ok(resEv.payload.output.includes('已截断'));
+
+  // Python compact_record keeps Edit diffs & plan Writes > 16k while trimming Read/generic I/O
+  const pyHelper = [
+    'import base64, json',
+    'CFG_B64 = base64.b64encode(b"{}").decode("ascii")',
+    REMOTE_JSONL_PY.split('\ndef discover_state')[0],
+    'big = "x" * 25000',
+    'out_obj = {',
+    '  "edit": compact_record({"type":"assistant","uuid":"a1","message":{"id":"m1","content":[{"type":"tool_use","id":"e1","name":"Edit","input":{"file_path":"/a.js","old_string":big,"new_string":big}}]}}),',
+    '  "plan": compact_record({"type":"assistant","uuid":"a2","message":{"id":"m2","content":[{"type":"tool_use","id":"w1","name":"Write","input":{"file_path":"/root/.claude/plans/p.md","content":big}}]}}),',
+    '  "bash": compact_record({"type":"assistant","uuid":"a3","message":{"id":"m3","content":[{"type":"tool_use","id":"b1","name":"Bash","input":{"command":big}}]}}),',
+    '  "res": compact_record({"type":"user","uuid":"u1","message":{"content":[{"type":"tool_result","tool_use_id":"b1","content":big}]}}),',
+    '}',
+    'print(json.dumps(out_obj, ensure_ascii=False))',
+  ].join('\n');
+
+  const raw = execFileSync('python3', ['-c', pyHelper], { encoding: 'utf8' });
+  const compacted = JSON.parse(raw.trim().split('\n').pop());
+  assert.equal(compacted.edit.message.content[0].input.old_string.length, 25000);
+  assert.equal(compacted.plan.message.content[0].input.content.length, 25000);
+  assert.ok(compacted.bash.message.content[0].input.command.length < 12500);
+  assert.ok(compacted.bash.message.content[0].input.command.includes('已截断'));
+  assert.ok(compacted.res.message.content[0].content.length < 16500);
+  assert.ok(compacted.res.message.content[0].content.includes('已截断'));
+});
